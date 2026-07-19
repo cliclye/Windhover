@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+jobs:
+  engine:
+    name: Engine (Linux, CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build glm
+        run: cd c && make glm
+      - name: C test suite
+        run: cd c && make test-c
+
+  engine-cuda-syntax:
+    name: CUDA syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CUDA toolkit (compiler only)
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          # v0.2.19's version table stops at 12.6.2 — 12.6.3 fails the install
+          # step with "Version not available" before nvcc is ever reached.
+          cuda: '12.6.2'
+          method: network
+          sub-packages: '["nvcc"]'
+      - name: Compile backend_cuda.cu (syntax only, no GPU)
+        run: |
+          cd c
+          # NOT `nvcc ... | head -40`: a pipeline exits with the status of its
+          # LAST command, so head's 0 masked every nvcc error and the job could
+          # only ever be green. A check that cannot fail is worse than no check —
+          # it buys false confidence in the one file nothing else compiles.
+          nvcc -O2 -std=c++17 -arch=sm_80 -c backend_cuda.cu -o /dev/null \
+            -Xcompiler=-Wall,-Wextra
+          echo "CUDA syntax check passed"
+
+  web:
+    name: Web UI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npx vitest run
+
+  python:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python test suite
+        run: cd c && python3 -m unittest discover -s tests -p 'test_*.py'

@@ -1,0 +1,253 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-07-19T22:32:03.029240+00:00",
+    "methodology": {
+      "mode": "TF teacher-forcing (kestrel-engine fixtures/glm_tiny vs stock glm_tiny)",
+      "trial_definition": "one trial = 40 consecutive processes; 12 trials after 2 warmup batches",
+      "fairness": [
+        "no BENCH_LOOPS (stock does not have it)",
+        "identical stripped env",
+        "both ARCH=native OpenMP",
+        "same glm_tiny + ref_glm.json",
+        "page-cache warm (warmup discarded) \u2014 steady-state, not cold-start",
+        "primary binary: engine/kestrel-engine",
+        "interleaved stock/kestrel batches (not stock-then-kestrel)"
+      ],
+      "primary_metrics": [
+        "pos/s: engine-reported forward_all throughput (excludes load)",
+        "batch_wall_s: external wall for batch_size processes",
+        "wall_per_proc_s: batch_wall / batch_size"
+      ],
+      "limitations": [
+        "glm_tiny only \u2014 do not extrapolate to GLM-5.2",
+        "pos/s on tiny model is short; use batch means + CI"
+      ]
+    },
+    "stock_upstream_sha": "72d3d37231e922a6fa9afca16e08fa45842d5eb4",
+    "expected_upstream_sha": "72d3d37231e922a6fa9afca16e08fa45842d5eb4",
+    "sha_match": true,
+    "batches": 12,
+    "batch_size": 40,
+    "warmup_batches": 2
+  },
+  "stock": {
+    "name": "stock",
+    "binary": "/tmp/colibri-clone/c/glm",
+    "sha256": "0947bee45257e9a3cb5dc55b3b6c71473ef1f90803e454e3a032674026f5b277",
+    "all_correct": true,
+    "oracle": "32/32",
+    "n_batches": 12,
+    "batch_size": 40,
+    "n_processes_total": 480,
+    "pos_per_s_batch_means": {
+      "n": 12,
+      "mean": 11978.371666666666,
+      "median": 12106.2125,
+      "stdev": 691.3749832032124,
+      "min": 10630.7875,
+      "max": 12906.497500000001,
+      "ci95_low": 11587.189444656586,
+      "ci95_high": 12369.553888676746
+    },
+    "pos_per_s_all_procs": {
+      "n": 480,
+      "mean": 11978.371666666668,
+      "median": 10618.85,
+      "stdev": 5120.315736891485,
+      "min": 370.0,
+      "max": 20395.2,
+      "ci95_low": 11520.301302994789,
+      "ci95_high": 12436.442030338547
+    },
+    "batch_wall_s": {
+      "n": 12,
+      "mean": 0.2971993439180854,
+      "median": 0.29282258349849144,
+      "stdev": 0.022214437823779184,
+      "min": 0.2725087090075249,
+      "max": 0.35989100000006147,
+      "ci95_low": 0.2846303424937794,
+      "ci95_high": 0.3097683453423914
+    },
+    "wall_per_proc_s": {
+      "n": 12,
+      "mean": 0.007429983597952136,
+      "median": 0.007320564587462285,
+      "stdev": 0.0005553609455944794,
+      "min": 0.0068127177251881225,
+      "max": 0.008997275000001536,
+      "ci95_low": 0.007115758562344486,
+      "ci95_high": 0.007744208633559786
+    },
+    "max_rss_mb": {
+      "n": 48,
+      "mean": 5.830729166666667,
+      "median": 5.828125,
+      "stdev": 0.048811222695123176,
+      "min": 5.75,
+      "max": 5.9375,
+      "ci95_low": 5.81692039211104,
+      "ci95_high": 5.844537941222294
+    },
+    "user_s": {
+      "n": 48,
+      "mean": 0.02125,
+      "median": 0.02,
+      "stdev": 0.01619364204103547,
+      "min": 0.01,
+      "max": 0.09,
+      "ci95_low": 0.01666879224013939,
+      "ci95_high": 0.025831207759860614
+    },
+    "sys_s": {
+      "n": 48,
+      "mean": 0.0,
+      "median": 0.0,
+      "stdev": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "ci95_low": 0.0,
+      "ci95_high": 0.0
+    },
+    "cpu_s": {
+      "n": 48,
+      "mean": 0.02125,
+      "median": 0.02,
+      "stdev": 0.01619364204103547,
+      "min": 0.01,
+      "max": 0.09,
+      "ci95_low": 0.01666879224013939,
+      "ci95_high": 0.025831207759860614
+    }
+  },
+  "kestrel": {
+    "name": "kestrel",
+    "binary": "/Users/changhyunglee/Coding/Projects/Vexilo/Kestrel/engine/kestrel-engine",
+    "sha256": "b75316dae6fa3d4e48f420cf80e82121f6593455a4798456d5f3ba5865872fc2",
+    "all_correct": true,
+    "oracle": "32/32",
+    "n_batches": 12,
+    "batch_size": 40,
+    "n_processes_total": 480,
+    "pos_per_s_batch_means": {
+      "n": 12,
+      "mean": 77562.66791666667,
+      "median": 78055.65125,
+      "stdev": 1487.4887500093428,
+      "min": 73973.87,
+      "max": 79717.44,
+      "ci95_low": 76721.04192703693,
+      "ci95_high": 78404.29390629641
+    },
+    "pos_per_s_all_procs": {
+      "n": 480,
+      "mean": 77562.66791666667,
+      "median": 80604.5,
+      "stdev": 9070.883679804214,
+      "min": 33333.3,
+      "max": 84432.7,
+      "ci95_low": 76751.17440737075,
+      "ci95_high": 78374.1614259626
+    },
+    "batch_wall_s": {
+      "n": 12,
+      "mean": 0.17785497233489878,
+      "median": 0.17778222900233231,
+      "stdev": 0.001735961813281061,
+      "min": 0.17481208399112802,
+      "max": 0.1818981249962235,
+      "ci95_low": 0.17687275947510206,
+      "ci95_high": 0.1788371851946955
+    },
+    "wall_per_proc_s": {
+      "n": 12,
+      "mean": 0.004446374308372469,
+      "median": 0.004444555725058308,
+      "stdev": 4.339904533202653e-05,
+      "min": 0.004370302099778201,
+      "max": 0.0045474531249055875,
+      "ci95_low": 0.004421818986877551,
+      "ci95_high": 0.004470929629867388
+    },
+    "max_rss_mb": {
+      "n": 48,
+      "mean": 5.199544270833333,
+      "median": 5.203125,
+      "stdev": 0.02191760273304055,
+      "min": 5.125,
+      "max": 5.25,
+      "ci95_low": 5.193343745252756,
+      "ci95_high": 5.20574479641391
+    },
+    "user_s": {
+      "n": 48,
+      "mean": 0.0,
+      "median": 0.0,
+      "stdev": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "ci95_low": 0.0,
+      "ci95_high": 0.0
+    },
+    "sys_s": {
+      "n": 48,
+      "mean": 0.0,
+      "median": 0.0,
+      "stdev": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "ci95_low": 0.0,
+      "ci95_high": 0.0
+    },
+    "cpu_s": {
+      "n": 48,
+      "mean": 0.0,
+      "median": 0.0,
+      "stdev": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "ci95_low": 0.0,
+      "ci95_high": 0.0
+    }
+  },
+  "comparison": {
+    "throughput_pos_per_s": {
+      "stock_mean": 11978.371666666666,
+      "kestrel_mean": 77562.66791666667,
+      "delta_pct": 547.5226355891725,
+      "welch_on_batch_means": {
+        "t": -138.50457828299585,
+        "df": 15.540803972242209,
+        "p_approx": 0.0
+      },
+      "ci95_stock": [
+        11587.189444656586,
+        12369.553888676746
+      ],
+      "ci95_kestrel": [
+        76721.04192703693,
+        78404.29390629641
+      ]
+    },
+    "batch_wall_s": {
+      "stock_mean": 0.2971993439180854,
+      "kestrel_mean": 0.17785497233489878,
+      "delta_pct": -40.15633749719196,
+      "welch": {
+        "t": 18.553899846454897,
+        "df": 11.134343347677728,
+        "p_approx": 7.58442620250621e-77
+      }
+    },
+    "wall_per_proc_s": {
+      "stock_mean": 0.007429983597952136,
+      "kestrel_mean": 0.004446374308372469,
+      "delta_pct": -40.15633749719197
+    },
+    "correctness": {
+      "stock_all_ok": true,
+      "kestrel_all_ok": true
+    },
+    "goal_10pct_throughput": true
+  }
+}

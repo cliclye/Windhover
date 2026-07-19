@@ -1,0 +1,28 @@
+{
+  "goal_10pct": true,
+  "goal_met": true,
+  "product_engine": "engine/kestrel-engine",
+  "oracle": "32/32",
+  "benchmark": "docs/full_bench.json",
+  "verified_by": "tools/verify_bench.py",
+  "protocol": {
+    "batches": 12,
+    "batch_size": 40,
+    "warmup_batches": 2,
+    "schedule": "interleaved",
+    "stock_upstream_sha": "72d3d37231e922a6fa9afca16e08fa45842d5eb4",
+    "sha_match": true
+  },
+  "d_throughput_pct": 547.52,
+  "d_batch_wall_pct": -40.16,
+  "pos_per_s": {
+    "stock_mean": 11978.4,
+    "kestrel_mean": 77562.7
+  },
+  "batch_wall_s": {
+    "stock_mean": 0.2972,
+    "kestrel_mean": 0.1779
+  },
+  "timestamp_utc": "2026-07-19T22:32:03.029240+00:00",
+  "notes": "Re-run and verified fair bench vs stock colibrì; only glm_tiny claimed; live smoke 32/32 both sides"
+}

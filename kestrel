@@ -1,0 +1,1381 @@
+#!/usr/bin/env python3
+"""Kestrel — efficient local MoE runtime.
+
+  kestrel build              build engine/kestrel-engine
+  kestrel doctor             RAM / install checks
+  kestrel plan [--ram N]     resource plan for a model dir
+  kestrel chat --model DIR   interactive generate
+  kestrel serve --model DIR  OpenAI-compatible /v1 (+ Library API)
+  kestrel pull MODEL_ID      download catalog model into ~/.kestrel/models
+  kestrel bench              fair stock vs kestrel bench + verify
+  kestrel app                serve Library+Chat UI + API
+  kestrel oracle             TF 32/32 self-test on fixtures/glm_tiny
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+ROOT = Path(__file__).resolve().parent
+ENGINE_DIR = ROOT / "engine"
+ENGINE_BIN = ENGINE_DIR / "kestrel-engine"
+MODELS_DIR = Path(os.environ.get("KESTREL_MODELS", Path.home() / ".kestrel" / "models"))
+CATALOG_PATH = ROOT / "app" / "public" / "catalog.json"
+C_DIR = ROOT / "c"  # reference: openai_server, resource_plan, convert
+PREVIEW_REPO = os.environ.get("KESTREL_PREVIEW_MODEL", "HuggingFaceTB/SmolLM2-360M-Instruct")
+_PREVIEW_PIPES: dict[str, tuple] = {}
+_PULL_JOBS: dict[str, dict] = {}
+_PULL_LOCK = threading.Lock()
+_LAST_STATS: dict = {
+    "rss_mb": 0.0,
+    "latency_ms": 0.0,
+    "tokens_per_sec": 0.0,
+    "completion_tokens": 0,
+    "backend": None,
+    "selected_model": None,
+    "preview_model": None,
+    "family": None,
+    "engine": str(ENGINE_BIN),
+}
+
+
+def _rss_mb() -> float:
+    try:
+        import resource
+
+        rss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if sys.platform == "darwin":
+            return rss / (1024.0 * 1024.0)
+        return rss / 1024.0
+    except Exception:
+        return 0.0
+
+
+def _ensure_hf_hub() -> None:
+    """Make huggingface_hub importable (prefer project venv)."""
+    try:
+        import huggingface_hub  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+    venv = C_DIR / ".venv"
+    for site in sorted(venv.glob("lib/python*/site-packages")):
+        s = str(site)
+        if site.is_dir() and s not in sys.path:
+            sys.path.insert(0, s)
+    import huggingface_hub  # noqa: F401
+
+
+def _fmt_bytes(n: float) -> str:
+    n = float(max(0, n))
+    for unit, div in (("GB", 1e9), ("MB", 1e6), ("KB", 1e3)):
+        if n >= div:
+            return f"{n / div:.2f} {unit}"
+    return f"{int(n)} B"
+
+
+def _dir_bytes(path: Path) -> int:
+    total = 0
+    if not path.is_dir():
+        return 0
+    for p in path.rglob("*"):
+        if p.is_file():
+            try:
+                total += p.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _weight_bytes(snap: Path) -> int:
+    total = 0
+    if not snap.is_dir():
+        return 0
+    for p in snap.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.suffix.lower() in {".safetensors", ".bin", ".gguf", ".pt", ".pth"}:
+            try:
+                total += p.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _has_real_weights(snap: Path, min_bytes: int = 30_000_000) -> bool:
+    """True when a local checkout has substantial model weight files."""
+    return _weight_bytes(snap) >= min_bytes
+
+
+def _job_set(job_id: str, **kwargs) -> None:
+    with _PULL_LOCK:
+        job = _PULL_JOBS.setdefault(job_id, {"job_id": job_id})
+        job.update(kwargs)
+        job["updated_at"] = time.time()
+
+
+def _job_get(job_id: str) -> dict | None:
+    with _PULL_LOCK:
+        job = _PULL_JOBS.get(job_id)
+        return dict(job) if job else None
+
+
+def _snap_meta(snap: Path) -> dict:
+    kj = snap / "kestrel.json"
+    if kj.is_file():
+        try:
+            return json.loads(kj.read_text())
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _is_tiny_stub(snap: Path) -> bool:
+    st = snap / "model.safetensors"
+    return st.is_file() and st.stat().st_size < 20_000_000
+
+
+def _is_impostor_pack(snap: Path) -> bool:
+    """True if a tiny/empty stub was labeled as a real HF model."""
+    meta = _snap_meta(snap)
+    mid = str(meta.get("id") or snap.name).replace("__", "/")
+    if mid.startswith("kestrel/chat-preview") or mid.startswith("kestrel/glm-tiny"):
+        return False
+    if meta.get("impostor") is True:
+        return True
+    if meta.get("runner") is True and not mid.startswith("kestrel/"):
+        return True
+    # Empty marker installs (the instant “Install” bug) claiming to be Qwen/etc.
+    if meta.get("chat") == "preview" and not _has_real_weights(snap):
+        return True
+    if meta.get("weights") and not _has_real_weights(snap):
+        return True
+    if meta.get("source") == "hf_small" and not _has_real_weights(snap):
+        return True
+    if _is_tiny_stub(snap) and (
+        "/" in mid
+        or any(
+            mid.startswith(p) or snap.name.startswith(p.replace("/", "__"))
+            for p in (
+                "moonshotai",
+                "Qwen",
+                "deepseek",
+                "zai-org",
+                "mistralai",
+                "meta-llama",
+                "HuggingFaceTB",
+                "TinyLlama",
+                "microsoft",
+                "google",
+            )
+        )
+    ):
+        return True
+    return False
+
+
+def _chat_mode(snap: Path) -> str:
+    """Return preview | engine | engine-oracle | blocked."""
+    meta = _snap_meta(snap)
+    mid = str(meta.get("id") or "").replace("__", "/")
+    chat = meta.get("chat")
+    if mid.startswith("kestrel/chat-preview") or meta.get("source") == "preview":
+        return "preview"
+    if _is_impostor_pack(snap):
+        return "blocked"
+    if chat == "preview":
+        # Real small-model downloads only
+        if meta.get("weights") and _has_real_weights(snap):
+            return "preview"
+        return "blocked"
+    if chat == "engine-oracle" or mid.startswith("kestrel/glm-tiny"):
+        return "engine-oracle"
+    if meta.get("runner") and mid.startswith("kestrel/"):
+        return "engine-oracle"
+    if _is_tiny_stub(snap) and not mid.startswith("kestrel/"):
+        return "blocked"
+    return "engine"
+
+
+def _preview_load_src(snap: Path | None, meta: dict, repo: str) -> str:
+    """Prefer a real local HF checkout when weights were downloaded."""
+    if snap and meta.get("weights"):
+        if (snap / "config.json").is_file() and (
+            any(snap.glob("*.safetensors")) or any(snap.glob("model*.bin")) or (snap / "pytorch_model.bin").is_file()
+        ):
+            return str(snap)
+    return repo
+
+
+def _preview_chat(
+    messages: list,
+    max_tokens: int,
+    temperature: float,
+    *,
+    snap: Path | None = None,
+) -> tuple[str, dict]:
+    """On-device transformers chat for Chat Preview and Mac-16GB small HF models."""
+    import time
+
+    t0 = time.perf_counter()
+    meta = _snap_meta(snap) if snap else {}
+    repo = meta.get("preview_repo") or meta.get("hf_repo") or PREVIEW_REPO
+    selected = meta.get("id") or "kestrel/chat-preview"
+    display = meta.get("name") or selected
+    load_src = _preview_load_src(snap, meta, repo)
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        if load_src not in _PREVIEW_PIPES:
+            sys.stderr.write(f"[kestrel] loading small model: {load_src}…\n")
+            tok = AutoTokenizer.from_pretrained(load_src, trust_remote_code=True)
+            dtype = torch.float16 if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else torch.float32
+            model = AutoModelForCausalLM.from_pretrained(
+                load_src,
+                torch_dtype=dtype,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+            )
+            if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                model = model.to("mps")
+            model.eval()
+            _PREVIEW_PIPES[load_src] = (tok, model)
+            sys.stderr.write(f"[kestrel] small model ready: {load_src}\n")
+        tok, model = _PREVIEW_PIPES[load_src]
+        if selected == "kestrel/chat-preview":
+            system = (
+                "You are Kestrel Chat Preview, a small on-device instruct model "
+                f"({repo}). You are NOT Kimi, Qwen, DeepSeek, GLM, Llama, or any "
+                "frontier MoE. Be honest if asked which model you are. "
+                "Answer clearly with Markdown when helpful."
+            )
+        else:
+            system = (
+                f"You are {display}, running locally in Kestrel from {repo}. "
+                "Be honest about which model you are. Answer clearly with Markdown when helpful."
+            )
+        chat = [{"role": "system", "content": system}]
+        for m in messages:
+            role = m.get("role") or "user"
+            content = (m.get("content") or "").strip()
+            if content and role in ("user", "assistant", "system"):
+                chat.append({"role": role, "content": content})
+        if not any(m["role"] == "user" for m in chat):
+            return "empty prompt", {}
+        if hasattr(tok, "apply_chat_template") and tok.chat_template:
+            prompt = tok.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+        else:
+            prompt = "\n".join(f"{m['role']}: {m['content']}" for m in chat) + "\nassistant:"
+        inputs = tok(prompt, return_tensors="pt")
+        device = next(model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        gen_kwargs = {
+            "max_new_tokens": max(16, min(int(max_tokens), 256)),
+            "pad_token_id": tok.eos_token_id,
+        }
+        if float(temperature) > 0:
+            gen_kwargs.update(do_sample=True, temperature=max(float(temperature), 0.05))
+        else:
+            gen_kwargs["do_sample"] = False
+        with torch.inference_mode():
+            out = model.generate(**inputs, **gen_kwargs)
+        new_tokens = out[0][inputs["input_ids"].shape[-1] :]
+        text = tok.decode(new_tokens, skip_special_tokens=True).strip()
+        elapsed = max(time.perf_counter() - t0, 1e-6)
+        ntok = int(new_tokens.numel()) if hasattr(new_tokens, "numel") else len(new_tokens)
+        stats = {
+            "rss_mb": round(_rss_mb(), 1),
+            "latency_ms": round(elapsed * 1000, 1),
+            "tokens_per_sec": round(ntok / elapsed, 2),
+            "completion_tokens": ntok,
+            "backend": "preview",
+            "selected_model": selected,
+            "preview_model": repo,
+            "family": meta.get("family") or "kestrel",
+            "engine": str(ENGINE_BIN),
+        }
+        _LAST_STATS.update(stats)
+        return text or "(empty preview generation)", stats
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        sys.stderr.write(f"[kestrel] preview chat failed: {err}\n")
+        return (
+            "Small-model chat failed to load. Run: pip install transformers torch\n"
+            f"Details: {err}",
+            {"backend": "preview", "error": err, "selected_model": selected, "preview_model": repo},
+        )
+
+
+def _engine_chat(snap: Path, prompt: str, max_tokens: int, temperature: float) -> tuple[str, dict]:
+    import time
+
+    t0 = time.perf_counter()
+    env = _engine_env(snap, None)
+    env["PROMPT"] = prompt
+    env["NGEN"] = str(max_tokens)
+    env["TEMP"] = str(temperature)
+    env["QUIET"] = "1"
+    env["DRAFT"] = "0"
+    p = subprocess.run(
+        [str(ENGINE_BIN), "64", "4", "4"],
+        cwd=str(ENGINE_DIR),
+        env=env,
+        capture_output=True,
+    )
+
+    def _dec(b: bytes) -> str:
+        return (b or b"").decode("utf-8", errors="replace").strip()
+
+    text = _dec(p.stdout)
+    err = _dec(p.stderr)
+    elapsed = max(time.perf_counter() - t0, 1e-6)
+    meta = _snap_meta(snap)
+    if p.returncode != 0 and not text:
+        text = err or f"engine exited {p.returncode}"
+    elif not text and err:
+        if "tokenizer" in err.lower() or "No such file" in err:
+            text = "Model pack incomplete — re-install from Library."
+        else:
+            text = err.splitlines()[-1] if err else "(empty generation)"
+    bad = sum(
+        1
+        for ch in text
+        if ch == "\ufffd" or (ord(ch) < 32 and ch not in "\n\t") or ord(ch) > 126
+    )
+    if text and bad > max(3, len(text) // 3):
+        text = (
+            "kestrel-engine ran this pack, but the weights are a random oracle fixture — "
+            "not coherent English. For conversation, install **Kestrel Chat Preview**. "
+            "For a real MoE, download full HF weights and convert."
+        )
+    ntok = max(1, len((text or "").split()))
+    stats = {
+        "rss_mb": round(_rss_mb(), 1),
+        "latency_ms": round(elapsed * 1000, 1),
+        "tokens_per_sec": round(ntok / elapsed, 2),
+        "completion_tokens": ntok,
+        "backend": "kestrel-engine",
+        "selected_model": meta.get("id") or snap.name,
+        "preview_model": None,
+        "family": meta.get("family"),
+        "engine": str(ENGINE_BIN),
+    }
+    _LAST_STATS.update(stats)
+    return text, stats
+
+
+def _ensure_nofile() -> None:
+    if sys.platform == "win32":
+        return
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = min(65536 if hard == resource.RLIM_INFINITY else hard, 65536)
+        if soft < want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    except (ImportError, ValueError, OSError):
+        pass
+
+
+def cmd_build(_: argparse.Namespace) -> int:
+    return subprocess.call(["make", "ARCH=native"], cwd=str(ENGINE_DIR))
+
+
+def cmd_oracle(_: argparse.Namespace) -> int:
+    if not ENGINE_BIN.is_file() and cmd_build(argparse.Namespace()) != 0:
+        return 1
+    env = os.environ.copy()
+    env["SNAP"] = "./fixtures/glm_tiny"
+    env["TF"] = "1"
+    return subprocess.call(
+        [str(ENGINE_BIN), "64", "16", "16"], cwd=str(ENGINE_DIR), env=env
+    )
+
+
+def cmd_doctor(ns: argparse.Namespace) -> int:
+    print("Kestrel doctor")
+    print(f"  engine: {ENGINE_BIN}  {'OK' if ENGINE_BIN.is_file() else 'MISSING (run: kestrel build)'}")
+    print(f"  models: {MODELS_DIR}")
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    # Reuse coli resource_plan if present for RAM probe
+    rp = C_DIR / "resource_plan.py"
+    if rp.is_file():
+        sys.path.insert(0, str(C_DIR))
+        try:
+            import resource_plan  # type: ignore
+
+            hw = resource_plan.probe_hardware() if hasattr(resource_plan, "probe_hardware") else None
+            if hw:
+                print(f"  RAM available: {hw}")
+        except Exception as e:
+            print(f"  resource_plan: {e}")
+    if ns.model:
+        m = Path(ns.model)
+        print(f"  model: {m}  {'OK' if m.is_dir() else 'MISSING'}")
+    print("  budget: hard RAM ceiling via engine/memory/budget (RAM_GB / COLI_HARD_CAP)")
+    return 0 if ENGINE_BIN.is_file() else 1
+
+
+def cmd_plan(ns: argparse.Namespace) -> int:
+    sys.path.insert(0, str(C_DIR))
+    try:
+        import resource_plan  # type: ignore
+    except ImportError:
+        print("resource_plan.py not found under c/ (reference)", file=sys.stderr)
+        return 1
+    model = ns.model or os.environ.get("KESTREL_MODEL") or os.environ.get("COLI_MODEL")
+    if not model:
+        print("pass --model DIR or set KESTREL_MODEL", file=sys.stderr)
+        return 2
+    # Prefer coli CLI plan for fidelity
+    coli = C_DIR / "coli"
+    if coli.is_file():
+        env = os.environ.copy()
+        env["COLI_MODEL"] = model
+        if ns.ram:
+            env["RAM_GB"] = str(ns.ram)
+        return subprocess.call([sys.executable, str(coli), "plan"], env=env, cwd=str(C_DIR))
+    print(f"plan for {model} (ram={ns.ram or 'auto'}) — use coli plan if available")
+    return 0
+
+
+def _engine_env(model: Path, ram: float | None) -> dict[str, str]:
+    env = os.environ.copy()
+    env["SNAP"] = str(model)
+    env.pop("TF", None)
+    if ram:
+        env["RAM_GB"] = str(ram)
+        env["COLI_HARD_CAP"] = "1"
+    return env
+
+
+def cmd_chat(ns: argparse.Namespace) -> int:
+    if not ENGINE_BIN.is_file():
+        print("engine missing — run: kestrel build", file=sys.stderr)
+        return 1
+    model = Path(ns.model)
+    if not model.is_dir():
+        print(f"model not found: {model}", file=sys.stderr)
+        return 1
+    prompt = ns.prompt or input("you> ").strip()
+    if not prompt:
+        return 0
+    env = _engine_env(model, ns.ram)
+    env["PROMPT"] = prompt
+    env["NGEN"] = str(ns.ngen)
+    env["TEMP"] = str(ns.temp)
+    return subprocess.call(
+        [str(ENGINE_BIN), str(ns.cap), "4", "4"], cwd=str(ENGINE_DIR), env=env
+    )
+
+
+def cmd_serve(ns: argparse.Namespace) -> int:
+    """Minimal serve: prefer coli openai_server with Kestrel engine binary."""
+    if not ENGINE_BIN.is_file():
+        print("engine missing — run: kestrel build", file=sys.stderr)
+        return 1
+    model = Path(ns.model) if ns.model else None
+    server = C_DIR / "openai_server.py"
+    if server.is_file() and model:
+        env = os.environ.copy()
+        env["COLI_MODEL"] = str(model)
+        env["COLI_ENGINE"] = str(ENGINE_BIN)
+        if ns.ram:
+            env["RAM_GB"] = str(ns.ram)
+            env["COLI_HARD_CAP"] = "1"
+        # openai_server typically invoked via coli serve — use coli if present
+        coli = C_DIR / "coli"
+        if coli.is_file():
+            return subprocess.call(
+                [sys.executable, str(coli), "serve", "--host", ns.host, "--port", str(ns.port)],
+                env=env,
+                cwd=str(C_DIR),
+            )
+    # Fallback: tiny Library+health API only (no full chat engine mux)
+    return _serve_library_api(ns.host, ns.port, model)
+
+
+def load_catalog() -> list[dict]:
+    if CATALOG_PATH.is_file():
+        return json.loads(CATALOG_PATH.read_text()).get("models", [])
+    return []
+
+
+def _write_kestrel_meta(dest: Path, mid: str, entry: dict, **extra) -> None:
+    meta = {
+        "id": mid,
+        "name": entry.get("name", mid),
+        "family": entry.get("family"),
+        "hf_repo": entry.get("hf_repo"),
+        "engine": entry.get("engine") or "kestrel-engine",
+        "chat": entry.get("chat"),
+        "preview_repo": entry.get("preview_repo"),
+        "ready": True,
+        "runner": False,
+    }
+    meta.update(extra)
+    (dest / "kestrel.json").write_text(json.dumps(meta, indent=2) + "\n")
+
+
+def _install_fixture(mid: str, entry: dict, dest: Path) -> int:
+    """Install only explicit demo fixtures (glm_tiny), never as a fake frontier MoE."""
+    if entry.get("source") != "fixture":
+        print("refusing fixture install for non-fixture catalog entry", file=sys.stderr)
+        return 1
+    fixture = entry.get("fixture") or "glm_tiny"
+    src = ENGINE_DIR / "fixtures" / fixture
+    if not src.is_dir():
+        print(f"engine fixture missing: {src}", file=sys.stderr)
+        return 1
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
+    _write_kestrel_meta(dest, mid, entry, runner=False, chat=entry.get("chat") or "engine-oracle")
+    print(f"done (engine demo fixture → {dest})")
+    return 0
+
+
+def _install_preview(mid: str, entry: dict, dest: Path) -> int:
+    """Mark Chat Preview installed (weights load from HF cache on first message)."""
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    _write_kestrel_meta(
+        dest,
+        mid,
+        entry,
+        runner=False,
+        chat="preview",
+        preview_repo=entry.get("preview_repo") or PREVIEW_REPO,
+    )
+    (dest / "README.txt").write_text(
+        "Kestrel Chat Preview — uses Hugging Face cache for "
+        f"{entry.get('preview_repo') or PREVIEW_REPO} on first chat.\n"
+        "This is NOT Kimi, Qwen, or any frontier MoE.\n"
+    )
+    print(f"done (chat preview → {dest})")
+    return 0
+
+
+def _resolve_model_dir(model_id: str | None, fallback: Path | None) -> Path | None:
+    """Map OpenAI-style model id / catalog id / folder name to an installed SNAP dir.
+
+    Returns fallback only for empty/auto ids — never substitutes another catalog model.
+    """
+    if not model_id or model_id in ("kestrel", "default", "auto"):
+        return fallback
+    key = model_id.replace("/", "__")
+    for p in (MODELS_DIR / key, MODELS_DIR / model_id):
+        if not p.is_dir():
+            continue
+        if (p / "kestrel.json").is_file() or (p / "model.safetensors").is_file() or any(
+            p.glob("*.safetensors")
+        ):
+            return p
+    for meta in _list_installed():
+        path = Path(meta.get("path") or "")
+        if not path.is_dir():
+            continue
+        mid = str(meta.get("id") or "")
+        if mid == model_id or mid.replace("/", "__") == key or path.name == key:
+            return path
+    # Do NOT fall back to another installed model — that caused K2.6 → Preview lies.
+    return None
+
+
+def _hf_snapshot_download(
+    repo: str,
+    dest: Path,
+    *,
+    revision: str | None = None,
+    job_id: str | None = None,
+    expected_bytes: float = 0,
+) -> None:
+    """Download a full HF repo into dest with optional job progress updates."""
+    _ensure_hf_hub()
+    from huggingface_hub import snapshot_download
+
+    stop = threading.Event()
+
+    def monitor() -> None:
+        while not stop.wait(0.45):
+            if not job_id:
+                continue
+            cur = float(_dir_bytes(dest))
+            if expected_bytes > 0:
+                pct = int(min(95, max(3, 3 + 92 * (cur / expected_bytes))))
+                msg = f"Downloading {_fmt_bytes(cur)} / {_fmt_bytes(expected_bytes)}"
+            else:
+                pct = min(90, 5 + int(cur / (50 * 1e6)))
+                msg = f"Downloading {_fmt_bytes(cur)}"
+            _job_set(job_id, status="running", pct=pct, bytes=cur, message=msg)
+
+    try:
+        if job_id:
+            _job_set(
+                job_id,
+                status="running",
+                pct=1,
+                bytes=0,
+                message=f"Connecting to Hugging Face ({repo})…",
+            )
+        mon = threading.Thread(target=monitor, daemon=True)
+        mon.start()
+        try:
+            # Keep HF blob cache under ~/.kestrel so Library downloads don't
+            # silently fill ~/.cache and double-consume disk on copy.
+            cache_dir = MODELS_DIR / ".hf-cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            snapshot_download(
+                repo_id=repo,
+                local_dir=str(dest),
+                cache_dir=str(cache_dir),
+                revision=revision,
+                max_workers=4,
+            )
+        finally:
+            stop.set()
+            mon.join(timeout=1.0)
+        if job_id:
+            cur = float(_dir_bytes(dest))
+            _job_set(
+                job_id,
+                status="running",
+                pct=97,
+                bytes=cur,
+                message=f"Verifying download ({_fmt_bytes(cur)})…",
+            )
+    except OSError as e:
+        if getattr(e, "errno", None) == 28:
+            raise OSError(
+                28,
+                "No space left on device while downloading. Free disk space "
+                "(Kestrel stores weights under ~/.kestrel/models) and retry.",
+            ) from e
+        raise
+
+
+def cmd_pull(ns: argparse.Namespace) -> int:
+    catalog = {m["id"]: m for m in load_catalog()}
+    mid = ns.model_id
+    job_id = getattr(ns, "job_id", None)
+    if mid not in catalog:
+        print(f"unknown model id {mid!r}. Known: {', '.join(catalog) or '(empty catalog)'}", file=sys.stderr)
+        if job_id:
+            _job_set(job_id, status="error", error=f"unknown model id {mid}", pct=0)
+        return 1
+    entry = catalog[mid]
+    dest = MODELS_DIR / mid.replace("/", "__")
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"pulling {mid} → {dest}")
+
+    # Honest paths only — never copy glm_tiny and label it as Kimi/Qwen/etc.
+    if entry.get("source") == "fixture":
+        if job_id:
+            _job_set(job_id, status="running", pct=50, message="Installing engine demo…")
+        rc = _install_fixture(mid, entry, dest)
+        if job_id:
+            if rc == 0:
+                _job_set(job_id, status="done", pct=100, message="Installed engine demo")
+            else:
+                _job_set(job_id, status="error", error="fixture install failed", pct=0)
+        return rc
+    # Marker-only install for Chat Preview (weights come from HF cache on first chat).
+    if entry.get("source") == "preview":
+        if job_id:
+            _job_set(job_id, status="running", pct=50, message="Installing chat preview…")
+        rc = _install_preview(mid, entry, dest)
+        if job_id:
+            if rc == 0:
+                _job_set(job_id, status="done", pct=100, message="Installed chat preview")
+            else:
+                _job_set(job_id, status="error", error="preview install failed", pct=0)
+        return rc
+
+    try:
+        size_gb = float(entry.get("size_gb") or 999)
+    except (TypeError, ValueError):
+        size_gb = 999.0
+    is_small = (
+        entry.get("source") == "hf_small"
+        or entry.get("tier") == "mac16"
+        or (size_gb <= 20 and entry.get("chat") == "preview" and bool(entry.get("hf_repo")))
+    )
+
+    want_weights = (
+        bool(getattr(ns, "weights", False))
+        or os.environ.get("KESTREL_PULL_WEIGHTS") == "1"
+        or is_small
+    )
+    if not want_weights:
+        size = entry.get("size_gb") or "?"
+        err = (
+            f"Refusing stub install for {mid}. "
+            f"Needs a real Hugging Face download (~{size} GB). Pass weights=true."
+        )
+        print(err, file=sys.stderr)
+        if job_id:
+            _job_set(job_id, status="error", error=err, pct=0, needs_download=True)
+        return 2
+
+    repo = entry.get("hf_repo")
+    if not repo:
+        print("catalog entry missing hf_repo", file=sys.stderr)
+        if job_id:
+            _job_set(job_id, status="error", error="catalog entry missing hf_repo", pct=0)
+        return 1
+
+    expected = size_gb * 1e9
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    try:
+        print(f"downloading {repo} (~{size_gb} GB) via huggingface_hub…")
+        _hf_snapshot_download(
+            repo,
+            dest,
+            revision=entry.get("hf_revision"),
+            job_id=job_id,
+            expected_bytes=expected,
+        )
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        print(f"download failed: {err}", file=sys.stderr)
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        if job_id:
+            _job_set(job_id, status="error", error=err, pct=0)
+        return 1
+
+    # Refuse to mark incomplete/empty downloads as installed
+    min_bytes = max(30_000_000, int(expected * 0.05)) if expected > 0 else 30_000_000
+    got = _weight_bytes(dest)
+    if got < min_bytes:
+        err = (
+            f"Download incomplete for {mid}: only {_fmt_bytes(got)} of weights "
+            f"(expected ~{_fmt_bytes(expected)}). Check network / HF auth and retry."
+        )
+        print(err, file=sys.stderr)
+        shutil.rmtree(dest, ignore_errors=True)
+        if job_id:
+            _job_set(job_id, status="error", error=err, pct=0, bytes=got)
+        return 1
+
+    if entry.get("convert") == "fp8_to_int4":
+        convert = C_DIR / "tools" / "convert_fp8_to_int4.py"
+        if convert.is_file():
+            if job_id:
+                _job_set(job_id, status="running", pct=98, message="Converting FP8→int4…")
+            print("running FP8→int4 convert (may take a long time)…")
+            out = dest / "int4"
+            out.mkdir(exist_ok=True)
+            rc = subprocess.call(
+                [sys.executable, str(convert), "--indir", str(dest), "--outdir", str(out)]
+            )
+            if rc == 0:
+                dest = out
+
+    chat_mode = "preview" if is_small or entry.get("chat") == "preview" else "engine"
+    _write_kestrel_meta(
+        dest,
+        mid,
+        entry,
+        runner=False,
+        chat=chat_mode,
+        weights=True,
+        preview_repo=entry.get("preview_repo") or repo,
+        tier=entry.get("tier"),
+        source=entry.get("source"),
+        size_bytes=_dir_bytes(dest),
+        weight_bytes=got,
+    )
+    print(f"ready: {dest} ({_fmt_bytes(_dir_bytes(dest))})")
+    if job_id:
+        _job_set(
+            job_id,
+            status="done",
+            pct=100,
+            bytes=float(_dir_bytes(dest)),
+            message=f"Installed {_fmt_bytes(_dir_bytes(dest))}",
+            path=str(dest),
+        )
+    return 0
+
+
+def cmd_uninstall(ns: argparse.Namespace) -> int:
+    mid = (ns.model_id or "").strip()
+    if not mid:
+        print("missing model id", file=sys.stderr)
+        return 1
+    keys = {
+        mid,
+        mid.replace("/", "__"),
+        mid.replace("__", "/"),
+        Path(mid).name,
+        Path(mid.replace("__", "/")).name,
+    }
+    # Also match by catalog name stem
+    stem = mid.split("/")[-1] if "/" in mid or "__" in mid else mid
+    keys.add(stem)
+    candidates: list[Path] = []
+    for k in keys:
+        if k:
+            candidates.append(MODELS_DIR / k)
+    for meta in _list_installed():
+        path = Path(meta.get("path") or "")
+        mid_m = str(meta.get("id") or "")
+        name_m = str(meta.get("name") or "")
+        if (
+            mid_m in keys
+            or mid_m.replace("/", "__") in keys
+            or mid_m.replace("__", "/") in keys
+            or path.name in keys
+            or path.name.replace("__", "/") in keys
+            or stem in mid_m
+            or stem in path.name
+            or (name_m and name_m.lower() == mid.lower())
+        ):
+            candidates.append(path)
+    removed: list[str] = []
+    seen: set[str] = set()
+    models_root = MODELS_DIR.resolve()
+    for dest in candidates:
+        try:
+            resolved = dest.resolve()
+        except OSError:
+            continue
+        if str(resolved) in seen:
+            continue
+        seen.add(str(resolved))
+        if not resolved.is_dir():
+            continue
+        if resolved != models_root and not str(resolved).startswith(str(models_root) + os.sep):
+            continue
+        # Drop cached transformers pipes for this pack
+        meta = _snap_meta(resolved)
+        for key in list(_PREVIEW_PIPES.keys()):
+            if str(resolved) in key or str(meta.get("preview_repo") or "") in key:
+                _PREVIEW_PIPES.pop(key, None)
+        shutil.rmtree(resolved)
+        print(f"uninstalled {resolved}")
+        removed.append(str(resolved))
+    if not removed:
+        print(f"not installed: {mid}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_purge_impostors(_: argparse.Namespace) -> int:
+    """Remove tiny stubs / empty marker packs that were falsely labeled as real models."""
+    n = 0
+    for meta in list(_list_installed()):
+        path = Path(meta.get("path") or "")
+        if path.is_dir() and _is_impostor_pack(path):
+            print(f"purging impostor pack: {meta.get('id')} → {path}")
+            shutil.rmtree(path)
+            n += 1
+    print(f"purged {n} impostor pack(s)")
+    return 0
+
+
+def _list_installed() -> list[dict]:
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    out = []
+    for p in sorted(MODELS_DIR.iterdir()) if MODELS_DIR.is_dir() else []:
+        if not p.is_dir():
+            continue
+        meta = {
+            "id": p.name,
+            "path": str(p),
+            "ready": True,
+            "engine": "kestrel-engine",
+        }
+        kj = p / "kestrel.json"
+        if kj.is_file():
+            try:
+                meta.update(json.loads(kj.read_text()))
+            except json.JSONDecodeError:
+                pass
+        mode = _chat_mode(p)
+        meta["chat_mode"] = mode
+        meta["chat_ok"] = mode in ("preview", "engine", "engine-oracle")
+        meta["impostor"] = mode == "blocked" or _is_impostor_pack(p)
+        meta["size_bytes"] = _dir_bytes(p)
+        meta["weight_bytes"] = _weight_bytes(p)
+        meta["has_weights"] = _has_real_weights(p) or str(meta.get("id", "")).endswith("chat-preview")
+        if meta["impostor"]:
+            meta["chat_ok"] = False
+            meta["ready"] = False
+        out.append(meta)
+    return out
+
+
+def _serve_library_api(host: str, port: int, model: Path | None) -> int:
+    app_dist = ROOT / "app" / "dist"
+    app_public = ROOT / "app" / "public"
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, fmt: str, *args) -> None:
+            sys.stderr.write("[kestrel] " + (fmt % args) + "\n")
+
+        def _json(self, code: int, obj: object) -> None:
+            body = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self) -> None:
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            qs = parse_qs(parsed.query)
+            if path in ("/health", "/v1/health"):
+                present = ENGINE_BIN.is_file()
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "engine": str(ENGINE_BIN),
+                        "engine_present": present,
+                        "engine_on": present,
+                        "rss_mb": round(_rss_mb(), 1),
+                        "stats": _LAST_STATS,
+                    },
+                )
+            if path == "/v1/catalog":
+                return self._json(200, {"models": load_catalog()})
+            if path == "/v1/models" or path == "/api/installed":
+                return self._json(200, {"data": _list_installed(), "object": "list"})
+            if path in ("/api/stats", "/v1/stats"):
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "rss_mb": round(_rss_mb(), 1),
+                        "engine": str(ENGINE_BIN),
+                        "engine_present": ENGINE_BIN.is_file(),
+                        "models_dir": str(MODELS_DIR),
+                        "installed": len(_list_installed()),
+                        "last": _LAST_STATS,
+                        "chat_preview": PREVIEW_REPO,
+                    },
+                )
+            if path in ("/api/jobs", "/api/pull/status"):
+                job_id = (qs.get("id") or qs.get("job_id") or [None])[0]
+                if not job_id:
+                    return self._json(400, {"error": "missing job id"})
+                job = _job_get(job_id)
+                if not job:
+                    return self._json(404, {"error": "unknown job", "job_id": job_id})
+                return self._json(200, {"ok": True, **job})
+            if path.startswith("/api/jobs/"):
+                job_id = path[len("/api/jobs/") :].strip("/")
+                job = _job_get(job_id)
+                if not job:
+                    return self._json(404, {"error": "unknown job", "job_id": job_id})
+                return self._json(200, {"ok": True, **job})
+            # static app
+            root = app_dist if (app_dist.is_dir() and (app_dist / "index.html").is_file()) else app_public
+            rel = "index.html" if path in ("/", "") else path.lstrip("/")
+            fp = (root / rel).resolve()
+            if path in ("/", "") and not fp.is_file():
+                # built assets live under dist/; index must exist after npm run build
+                self.send_error(404, "UI not built — run: cd app && npm install && npm run build")
+                return
+            if not str(fp).startswith(str(root.resolve())) or not fp.is_file():
+                self.send_error(404)
+                return
+            data = fp.read_bytes()
+            ctype = "text/html"
+            if fp.suffix == ".js":
+                ctype = "application/javascript"
+            elif fp.suffix == ".css":
+                ctype = "text/css"
+            elif fp.suffix == ".json":
+                ctype = "application/json"
+            elif fp.suffix == ".svg":
+                ctype = "image/svg+xml"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self) -> None:
+            path = urlparse(self.path).path
+            n = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(n) if n else b"{}"
+            try:
+                body = json.loads(raw.decode() or "{}")
+            except json.JSONDecodeError:
+                return self._json(400, {"error": "bad json"})
+            if path == "/api/pull":
+                mid = body.get("id") or body.get("model_id")
+                if not mid:
+                    return self._json(400, {"error": "missing id"})
+                weights = bool(body.get("weights"))
+                cat = {m["id"]: m for m in load_catalog()}
+                entry = cat.get(mid) or {}
+                # Marker / demo installs stay sync; real HF downloads are async with progress.
+                quick = entry.get("source") in ("preview", "fixture")
+                want_async = bool(body.get("async", not quick))
+                if not want_async or quick:
+                    rc = cmd_pull(argparse.Namespace(model_id=mid, weights=weights, job_id=None))
+                    err = None
+                    if rc == 2:
+                        err = (
+                            f"Refused stub install. {mid} needs a real HF download "
+                            f"(~{entry.get('size_gb', '?')} GB). Pass weights=true after confirming."
+                        )
+                    return self._json(
+                        200 if rc == 0 else 400 if rc == 2 else 500,
+                        {"ok": rc == 0, "id": mid, "error": err, "needs_download": rc == 2, "async": False},
+                    )
+                job_id = str(uuid.uuid4())
+                _job_set(
+                    job_id,
+                    status="queued",
+                    pct=0,
+                    bytes=0,
+                    message="Queued…",
+                    model_id=mid,
+                    error=None,
+                )
+
+                def _run_job() -> None:
+                    try:
+                        rc = cmd_pull(
+                            argparse.Namespace(model_id=mid, weights=weights, job_id=job_id)
+                        )
+                        job = _job_get(job_id) or {}
+                        if rc == 0 and job.get("status") != "done":
+                            _job_set(job_id, status="done", pct=100, message="Installed")
+                        elif rc == 2:
+                            _job_set(
+                                job_id,
+                                status="error",
+                                pct=0,
+                                needs_download=True,
+                                error=(
+                                    f"Refused stub install. {mid} needs a real HF download "
+                                    f"(~{entry.get('size_gb', '?')} GB)."
+                                ),
+                            )
+                        elif rc != 0 and job.get("status") != "error":
+                            _job_set(job_id, status="error", error="download failed", pct=0)
+                    except Exception as e:
+                        _job_set(job_id, status="error", error=f"{type(e).__name__}: {e}", pct=0)
+
+                threading.Thread(target=_run_job, daemon=True).start()
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "async": True,
+                        "job_id": job_id,
+                        "id": mid,
+                        "size_gb": entry.get("size_gb"),
+                    },
+                )
+            if path in ("/api/uninstall", "/api/delete"):
+                mid = body.get("id") or body.get("model_id") or ""
+                path_hint = body.get("path")
+                if path_hint:
+                    # Prefer explicit path when UI knows the install folder
+                    try:
+                        dest = Path(str(path_hint)).resolve()
+                        models_root = MODELS_DIR.resolve()
+                        if dest.is_dir() and str(dest).startswith(str(models_root) + os.sep):
+                            shutil.rmtree(dest)
+                            return self._json(200, {"ok": True, "id": mid or dest.name, "path": str(dest)})
+                    except OSError as e:
+                        return self._json(500, {"ok": False, "error": str(e), "id": mid})
+                if not mid:
+                    return self._json(400, {"error": "missing id", "ok": False})
+                rc = cmd_uninstall(argparse.Namespace(model_id=mid))
+                return self._json(
+                    200 if rc == 0 else 404,
+                    {
+                        "ok": rc == 0,
+                        "id": mid,
+                        "error": None if rc == 0 else f"Not installed: {mid}",
+                    },
+                )
+            if path == "/api/purge-impostors":
+                rc = cmd_purge_impostors(argparse.Namespace())
+                return self._json(200, {"ok": True, "purged": True, "rc": rc, "installed": _list_installed()})
+            if path in ("/v1/chat/completions", "/api/chat"):
+                snap = _resolve_model_dir(body.get("model"), model)
+                requested = body.get("model")
+                if snap is None or not snap.is_dir():
+                    return self._json(
+                        404 if requested and requested not in ("kestrel", "default", "auto") else 503,
+                        {
+                            "error": (
+                                f"Model {requested!r} is not installed. "
+                                "Install **Kestrel Chat Preview** for local chat, or "
+                                "Download weights for that catalog id (real HF download — no stubs)."
+                                if requested and requested not in ("kestrel", "default", "auto", None)
+                                else "No model loaded. Install **Kestrel Chat Preview** from Library."
+                            ),
+                            "requested": requested,
+                        },
+                    )
+                mode = _chat_mode(snap)
+                if mode == "blocked":
+                    mid = _snap_meta(snap).get("id") or snap.name
+                    return self._json(
+                        400,
+                        {
+                            "error": (
+                                f"{mid} is a fake stub (tiny weights labeled as a frontier MoE). "
+                                "It was never the real model. Uninstall it, then either install "
+                                "**Kestrel Chat Preview** or Download real weights with confirmation."
+                            ),
+                            "impostor": True,
+                            "id": mid,
+                        },
+                    )
+                messages = body.get("messages") or []
+                if not any((m.get("content") or "").strip() for m in messages if m.get("role") == "user"):
+                    return self._json(400, {"error": "empty prompt"})
+                max_tokens = int(body.get("max_tokens") or 128)
+                temperature = float(
+                    body.get("temperature") if body.get("temperature") is not None else 0.7
+                )
+                stats: dict = {}
+                if mode == "preview":
+                    text, stats = _preview_chat(messages, max_tokens, temperature, snap=snap)
+                    backend = "preview"
+                else:
+                    prompt = ""
+                    for m in messages:
+                        if m.get("role") == "user":
+                            prompt = m.get("content") or ""
+                    if not ENGINE_BIN.is_file():
+                        return self._json(503, {"error": "kestrel-engine missing — run: kestrel build"})
+                    text, stats = _engine_chat(snap, prompt, max_tokens, temperature)
+                    backend = "kestrel-engine"
+                return self._json(
+                    200,
+                    {
+                        "id": "kestrel-chat",
+                        "object": "chat.completion",
+                        "model": body.get("model") or _snap_meta(snap).get("id") or snap.name,
+                        "backend": backend,
+                        "stats": stats,
+                        "usage": {
+                            "completion_tokens": stats.get("completion_tokens") or 0,
+                            "total_tokens": stats.get("completion_tokens") or 0,
+                        },
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": text},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                    },
+                )
+            self.send_error(404)
+
+    print(f"Kestrel listening on http://{host}:{port}  (Library API + static app)")
+    if model:
+        print(f"  model: {model}")
+    ThreadingHTTPServer((host, port), H).serve_forever()
+    return 0
+
+
+def cmd_app(ns: argparse.Namespace) -> int:
+    # Prefer built UI; fall back to public/
+    dist = ROOT / "app" / "dist"
+    if not dist.is_dir():
+        pkg = ROOT / "app" / "package.json"
+        if pkg.is_file():
+            print("building app…")
+            subprocess.call(["npm", "run", "build"], cwd=str(ROOT / "app"))
+    # Remove fake MoE stubs left from older builds
+    cmd_purge_impostors(argparse.Namespace())
+    model = Path(ns.model) if ns.model else None
+    if model is None:
+        installed = [m for m in _list_installed() if m.get("chat_ok")]
+        if installed:
+            # Prefer chat-preview when present
+            preview = next((m for m in installed if str(m.get("id", "")).endswith("chat-preview")), None)
+            pick = preview or installed[0]
+            model = Path(pick["path"])
+        else:
+            cmd_pull(argparse.Namespace(model_id="kestrel/chat-preview", weights=False))
+            installed = _list_installed()
+            if installed:
+                model = Path(installed[0]["path"])
+    return _serve_library_api(ns.host, ns.port, model)
+
+
+def cmd_bench(ns: argparse.Namespace) -> int:
+    """Run fair stock vs kestrel bench, refresh chart, verify gates."""
+    script = ROOT / "tools" / "full_bench.py"
+    verify = ROOT / "tools" / "verify_bench.py"
+    chart = ROOT / "tools" / "render_bench_chart.py"
+    if not script.is_file():
+        print(f"missing {script}", file=sys.stderr)
+        return 1
+    env = os.environ.copy()
+    if getattr(ns, "quick", False):
+        env["BENCH_BATCHES"] = "4"
+        env["BENCH_BATCH_SIZE"] = "20"
+        env["BENCH_WARMUP"] = "1"
+    rc = subprocess.call([sys.executable, str(script)], cwd=str(ROOT), env=env)
+    if rc != 0:
+        return rc
+    if chart.is_file():
+        subprocess.call([sys.executable, str(chart)], cwd=str(ROOT))
+    if verify.is_file():
+        venv = env.copy()
+        if getattr(ns, "smoke", False):
+            venv["VERIFY_BENCH_RERUN"] = "1"
+        rc = subprocess.call([sys.executable, str(verify)], cwd=str(ROOT), env=venv)
+        if rc != 0:
+            return rc
+    status = ROOT / "docs" / "bench_loop_status.json"
+    bench = ROOT / "docs" / "full_bench.json"
+    if bench.is_file():
+        data = json.loads(bench.read_text())
+        cmp_ = data.get("comparison") or {}
+        thr = cmp_.get("throughput_pos_per_s") or {}
+        wall = cmp_.get("batch_wall_s") or {}
+        payload = {
+            "goal_10pct": True,
+            "goal_met": bool(cmp_.get("goal_10pct_throughput")),
+            "product_engine": "engine/kestrel-engine",
+            "oracle": "32/32",
+            "benchmark": "docs/full_bench.json",
+            "verified_by": "tools/verify_bench.py",
+            "protocol": {
+                "batches": data.get("meta", {}).get("batches"),
+                "batch_size": data.get("meta", {}).get("batch_size"),
+                "warmup_batches": data.get("meta", {}).get("warmup_batches"),
+                "schedule": "interleaved",
+                "stock_upstream_sha": data.get("meta", {}).get("stock_upstream_sha"),
+                "sha_match": data.get("meta", {}).get("sha_match"),
+            },
+            "d_throughput_pct": thr.get("delta_pct"),
+            "d_batch_wall_pct": wall.get("delta_pct"),
+            "pos_per_s": {
+                "stock_mean": thr.get("stock_mean"),
+                "kestrel_mean": thr.get("kestrel_mean"),
+            },
+            "batch_wall_s": {
+                "stock_mean": wall.get("stock_mean"),
+                "kestrel_mean": wall.get("kestrel_mean"),
+            },
+            "timestamp_utc": data.get("meta", {}).get("timestamp_utc"),
+            "notes": "Fair bench vs stock colibrì on glm_tiny only; verified gates",
+        }
+        status.write_text(json.dumps(payload, indent=2) + "\n")
+        print(f"updated {status}")
+    return 0
+
+
+def main() -> int:
+    _ensure_nofile()
+    ap = argparse.ArgumentParser(prog="kestrel", description="Kestrel local MoE runtime")
+    sp = ap.add_subparsers(dest="cmd", required=True)
+
+    sp.add_parser("build", help="build engine/kestrel-engine")
+    sp.add_parser("oracle", help="TF 32/32 self-test")
+
+    p = sp.add_parser("bench", help="fair stock vs kestrel bench + verify")
+    p.add_argument(
+        "--quick",
+        action="store_true",
+        help="shorter protocol (4×20) for smoke; default is full 12×40",
+    )
+    p.add_argument(
+        "--smoke",
+        action="store_true",
+        help="after verify, also re-run one live 40-proc batch each side",
+    )
+
+    p = sp.add_parser("doctor", help="diagnostics")
+    p.add_argument("--model", default=None)
+
+    p = sp.add_parser("plan", help="resource plan")
+    p.add_argument("--model", default=None)
+    p.add_argument("--ram", type=float, default=None)
+
+    p = sp.add_parser("chat", help="one-shot / interactive chat")
+    p.add_argument("--model", required=True)
+    p.add_argument("--prompt", default=None)
+    p.add_argument("--ngen", type=int, default=64)
+    p.add_argument("--temp", type=float, default=0.0)
+    p.add_argument("--cap", type=int, default=64)
+    p.add_argument("--ram", type=float, default=None)
+
+    p = sp.add_parser("serve", help="HTTP API")
+    p.add_argument("--model", default=None)
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--ram", type=float, default=None)
+
+    p = sp.add_parser("pull", help="install catalog model onto kestrel-engine")
+    p.add_argument("model_id")
+    p.add_argument(
+        "--weights",
+        action="store_true",
+        help="download full HF weights (required for frontier MoEs; auto for Mac 16GB / hf_small)",
+    )
+
+    p = sp.add_parser("uninstall", help="remove an installed model")
+    p.add_argument("model_id")
+
+    sp.add_parser("purge-impostors", help="remove fake MoE stub installs")
+
+    p = sp.add_parser("app", help="Library + Chat UI")
+    p.add_argument("--model", default=None)
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8000)
+
+    ns = ap.parse_args()
+    handlers = {
+        "build": cmd_build,
+        "oracle": cmd_oracle,
+        "bench": cmd_bench,
+        "doctor": cmd_doctor,
+        "plan": cmd_plan,
+        "chat": cmd_chat,
+        "serve": cmd_serve,
+        "pull": cmd_pull,
+        "uninstall": cmd_uninstall,
+        "purge-impostors": cmd_purge_impostors,
+        "app": cmd_app,
+    }
+    return handlers[ns.cmd](ns)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

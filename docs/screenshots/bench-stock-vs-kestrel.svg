@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="520" viewBox="0 0 920 520" role="img"
+     aria-label="Measured fair bench: stock colibri vs Kestrel on glm_tiny">
+  <defs>
+    <style>
+      .title { font: 700 20px ui-sans-serif, system-ui, sans-serif; fill: #1c2420; }
+      .sub { font: 400 12px ui-sans-serif, system-ui, sans-serif; fill: #5c6b63; }
+      .panel { font: 600 13px ui-sans-serif, system-ui, sans-serif; fill: #2a3530; }
+      .tick { font: 500 12px ui-sans-serif, system-ui, sans-serif; fill: #5c6b63; }
+      .val { font: 600 12px ui-monospace, Menlo, monospace; fill: #1c2420; }
+      .legend { font: 500 12px ui-sans-serif, system-ui, sans-serif; fill: #2a3530; }
+      .foot { font: 400 11px ui-sans-serif, system-ui, sans-serif; fill: #7a8780; }
+      .delta { font: 700 13px ui-monospace, Menlo, monospace; fill: #3d8f63; }
+    </style>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f4f6f4"/>
+      <stop offset="100%" stop-color="#e8ece9"/>
+    </linearGradient>
+  </defs>
+  <rect width="920" height="520" fill="url(#bg)" rx="12"/>
+  <text x="72" y="28" class="title">Measured fair bench · stock colibrì vs Kestrel</text>
+  <text x="72" y="48" class="sub">glm_tiny TF oracle · 12×40 procs/side interleaved · 32/32 · upstream 72d3d37231e9… · 2026-07-19 22:32:03 UTC</text>
+
+  <rect x="24" y="64" width="300" height="280" rx="10" fill="#ffffff" stroke="#d5ddd7"/>
+  <text x="44" y="88" class="panel">Prefill throughput (pos/s)</text>
+  <text x="308" y="88" text-anchor="end" class="delta">+548%</text>
+  <rect x="90.0" y="255.3" width="55" height="24.7" rx="5" fill="#8a9096"/>
+<rect x="157.0" y="120.0" width="55" height="160.0" rx="5" fill="#6fbf94"/>
+<text x="117.5" y="298.0" text-anchor="middle" class="tick">Stock</text>
+<text x="184.5" y="298.0" text-anchor="middle" class="tick">Kestrel</text>
+<text x="117.5" y="247.3" text-anchor="middle" class="val">11,978</text>
+<text x="184.5" y="112.0" text-anchor="middle" class="val">77,563</text>
+
+  <rect x="340" y="64" width="280" height="280" rx="10" fill="#ffffff" stroke="#d5ddd7"/>
+  <text x="360" y="88" class="panel">Batch wall speed index</text>
+  <text x="604" y="88" text-anchor="end" class="delta">40% faster</text>
+  <rect x="410.0" y="184.3" width="55" height="95.7" rx="5" fill="#8a9096"/>
+<rect x="477.0" y="120.0" width="55" height="160.0" rx="5" fill="#6fbf94"/>
+<text x="437.5" y="298.0" text-anchor="middle" class="tick">Stock</text>
+<text x="504.5" y="298.0" text-anchor="middle" class="tick">Kestrel</text>
+<text x="437.5" y="176.3" text-anchor="middle" class="val">100</text>
+<text x="504.5" y="112.0" text-anchor="middle" class="val">167</text>
+  <text x="480" y="320" text-anchor="middle" class="foot">stock wall / measured wall × 100</text>
+
+  <rect x="640" y="64" width="256" height="280" rx="10" fill="#ffffff" stroke="#d5ddd7"/>
+  <text x="660" y="88" class="panel">Peak RSS (MB)</text>
+  <text x="870" y="88" text-anchor="end" class="foot">lower is better</text>
+  <rect x="700.0" y="120.0" width="48" height="160.0" rx="5" fill="#8a9096"/>
+<rect x="760.0" y="137.3" width="48" height="142.7" rx="5" fill="#6fbf94"/>
+<text x="724.0" y="298.0" text-anchor="middle" class="tick">Stock</text>
+<text x="784.0" y="298.0" text-anchor="middle" class="tick">Kestrel</text>
+<text x="724.0" y="112.0" text-anchor="middle" class="val">5.8</text>
+<text x="784.0" y="129.3" text-anchor="middle" class="val">5.2</text>
+
+
+  <rect x="24" y="360" width="872" height="100" rx="10" fill="#ffffff" stroke="#d5ddd7"/>
+  <text x="44" y="386" class="panel">Protocol (fully tested this run)</text>
+  <text x="44" y="408" class="foot">• Identical glm_tiny + ref_glm.json · stripped env · no BENCH_LOOPS · ARCH=native OpenMP</text>
+  <text x="44" y="426" class="foot">• Interleaved stock/kestrel batches · warmup discarded · Welch on batch means · both sides 32/32 oracle</text>
+  <text x="44" y="444" class="foot">• Only this fixture is claimed. Full HF MoE checkpoints (Qwen/Kimi/…) are not fair-benched here.</text>
+
+  <g transform="translate(44, 488)">
+    <rect width="12" height="12" rx="2" fill="#8a9096"/>
+    <text x="18" y="11" class="legend">Stock colibrì</text>
+    <rect x="150" width="12" height="12" rx="2" fill="#6fbf94"/>
+    <text x="168" y="11" class="legend">Kestrel (engine/kestrel-engine)</text>
+    <text x="420" y="11" class="foot">Source: docs/full_bench.json · verify: python3 tools/verify_bench.py</text>
+  </g>
+</svg>

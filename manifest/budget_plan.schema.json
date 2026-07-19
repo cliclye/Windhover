@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kestrel.local/manifest/budget_plan.schema.json",
+  "title": "BudgetPlan",
+  "description": "Phase 1 budget plan: mirrors coli plan --json RAM tier plus hard-cap fields. No precision-profile variants yet (int4-baseline only).",
+  "type": "object",
+  "required": [
+    "precision_profile",
+    "resident_dense_bytes",
+    "expert_cache_bytes",
+    "target_ram_bytes",
+    "kv_slots",
+    "kv_precision",
+    "io_mode",
+    "prefetch_mode",
+    "hard_cap"
+  ],
+  "properties": {
+    "precision_profile": {
+      "type": "string",
+      "const": "int4-baseline"
+    },
+    "resident_dense_bytes": { "type": "integer", "minimum": 0 },
+    "expert_cache_bytes": { "type": "integer", "minimum": 0 },
+    "kv_reserve_bytes": { "type": "integer", "minimum": 0 },
+    "os_margin_bytes": { "type": "integer", "minimum": 0 },
+    "target_ram_bytes": { "type": "integer", "minimum": 0 },
+    "kv_slots": { "type": "integer", "minimum": 1 },
+    "kv_precision": { "type": "string", "enum": ["fp32"] },
+    "io_mode": { "type": "string", "enum": ["buffered", "direct"] },
+    "prefetch_mode": { "type": "string", "enum": ["off", "pilot", "learned"] },
+    "hard_cap": {
+      "type": "object",
+      "required": ["backend", "evict_fraction"],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["cgroup", "job_object", "rlimit", "footprint", "soft_evict", "none", "disabled"]
+        },
+        "evict_fraction": { "type": "number", "const": 0.9 },
+        "supported": { "type": "boolean" }
+      }
+    }
+  },
+  "additionalProperties": true
+}

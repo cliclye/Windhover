@@ -7,7 +7,7 @@
   kestrel chat --model DIR   interactive generate
   kestrel serve --model DIR  OpenAI-compatible /v1 (+ Library API)
   kestrel pull MODEL_ID      download catalog model into ~/.kestrel/models
-  kestrel bench              fair stock vs kestrel bench + verify
+  kestrel bench              fair without-vs-with Kestrel bench + verify
   kestrel app                serve Library+Chat UI + API
   kestrel oracle             TF 32/32 self-test on fixtures/glm_tiny
 """
@@ -1294,7 +1294,7 @@ def cmd_bench(ns: argparse.Namespace) -> int:
                 "kestrel_mean": wall.get("kestrel_mean"),
             },
             "timestamp_utc": data.get("meta", {}).get("timestamp_utc"),
-            "notes": "Fair bench vs stock colibrì on glm_tiny only; verified gates",
+            "notes": "Fair bench on glm_tiny: without Kestrel (baseline) vs with Kestrel on the same laptop",
         }
         status.write_text(json.dumps(payload, indent=2) + "\n")
         print(f"updated {status}")
@@ -1309,7 +1309,7 @@ def main() -> int:
     sp.add_parser("build", help="build engine/kestrel-engine")
     sp.add_parser("oracle", help="TF 32/32 self-test")
 
-    p = sp.add_parser("bench", help="fair stock vs kestrel bench + verify")
+    p = sp.add_parser("bench", help="fair without-vs-with Kestrel bench + verify")
     p.add_argument(
         "--quick",
         action="store_true",

@@ -65,12 +65,11 @@ def main() -> int:
     delta = thr.get("delta_pct")
     print("VERIFY OK")
     print(
-        f"  sha_match={meta.get('sha_match')}  "
-        f"batches={meta.get('batches')}×{meta.get('batch_size')}  "
-        f"oracle stock={stock.get('oracle')} kestrel={kestrel.get('oracle')}"
+        f"  batches={meta.get('batches')}×{meta.get('batch_size')}  "
+        f"oracle without={stock.get('oracle')} with={kestrel.get('oracle')}"
     )
     print(
-        f"  pos/s stock={sp:.1f} kestrel={kp:.1f}  Δ={delta:+.2f}%  "
+        f"  pos/s without={sp:.1f} with={kp:.1f}  Δ={delta:+.2f}%  "
         f"wall Δ={wall.get('delta_pct'):+.2f}%"
     )
     print(f"  timestamp={meta.get('timestamp_utc')}")

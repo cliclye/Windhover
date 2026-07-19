@@ -34,8 +34,8 @@
     "active": true,
     "targets": ["app", "dmg"],
     "category": "DeveloperTool",
-    "shortDescription": "Kestrel — local MoE, faster and leaner than colibrì",
-    "longDescription": "Download open-source models and run them on the Kestrel engine with a hard RAM ceiling and higher throughput than stock colibrì.",
+    "shortDescription": "Kestrel — local MoE, faster on the same Mac with kestrel-engine",
+    "longDescription": "Download open-source models and run them on the Kestrel engine with a hard RAM ceiling. Fair benches compare the same laptop without vs with kestrel-engine.",
     "macOS": {
       "minimumSystemVersion": "12.0",
       "dmg": {

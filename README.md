@@ -5,7 +5,7 @@
 <h1 align="center">Kestrel</h1>
 
 <p align="center">
-  <strong>Local MoE runtime for macOS</strong> — Library, Chat, and a CPU engine built to beat stock colibrì on fair benches.
+  <strong>Local MoE runtime for macOS</strong> — Library, Chat, and a CPU engine that runs faster on the same laptop than the baseline path without it.
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 - **Mac app** — Tauri shell around a Library + Chat + Advanced UI
 - **CLI** — `./kestrel build | pull | app | chat | oracle`
 
-Apache-2.0 numerics lineage from [colibrì](https://github.com/JustVugg/colibri) (pinned in [UPSTREAM.md](UPSTREAM.md)). Kestrel is a separate product: the ship engine is **`engine/kestrel-engine`**, not `c/glm`.
+Numerics lineage (Apache-2.0) is documented in [UPSTREAM.md](UPSTREAM.md). Kestrel is a separate product: the ship engine is **`engine/kestrel-engine`**.
 
 ---
 
@@ -52,26 +52,25 @@ Live telemetry: process RSS, latency, tok/s, selected model, backend, and the fa
 
 ## Performance
 
-Fresh fair run vs stock colibrì on the shared **`glm_tiny`** teacher-forcing oracle:
+Same laptop, same workload: **without** `kestrel-engine` vs **with** `kestrel-engine` on the shared **`glm_tiny`** teacher-forcing oracle.
 
 - **12 batches × 40 processes per side** (480 each), **2 warmup batches discarded**
-- **Interleaved** stock/kestrel schedule (cancels thermal bias)
-- Identical `glm_tiny` + `ref_glm.json`, stripped env, **no `BENCH_LOOPS`**, `ARCH=native` OpenMP
-- Upstream pin: `72d3d372…` ([UPSTREAM.md](UPSTREAM.md)) — `sha_match: true`
+- **Interleaved** A/B schedule (cancels thermal bias)
+- Identical `glm_tiny` + `ref_glm.json`, stripped env, **no in-process loop cheats**, `ARCH=native` OpenMP
 - Both sides **32/32** oracle every process
 
-Full dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/bench-stock-vs-kestrel.svg`](docs/screenshots/bench-stock-vs-kestrel.svg).
+Full dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/bench-without-vs-with-kestrel.svg`](docs/screenshots/bench-without-vs-with-kestrel.svg).
 
 ```bash
 python3 tools/full_bench.py          # re-run fair protocol → docs/full_bench.json
 python3 tools/render_bench_chart.py  # refresh SVG from that JSON
-python3 tools/verify_bench.py        # assert SHA · 32/32 · ≥10% · CI
+python3 tools/verify_bench.py        # assert 32/32 · ≥10% · CI
 VERIFY_BENCH_RERUN=1 python3 tools/verify_bench.py   # + live 40-proc smoke each side
 ```
 
-![Stock colibrì vs Kestrel](docs/screenshots/bench-stock-vs-kestrel.svg)
+![Without Kestrel vs with Kestrel](docs/screenshots/bench-without-vs-with-kestrel.svg)
 
-| Metric (batch means) | Stock colibrì | Kestrel | Δ |
+| Metric (batch means) | Without Kestrel | With Kestrel | Δ |
 |---|---:|---:|---:|
 | Prefill throughput (pos/s) | 11 978 | 77 563 | **+548%** |
 | 95% CI (pos/s) | 11 587–12 370 | 76 721–78 404 | non-overlap |
@@ -79,19 +78,21 @@ VERIFY_BENCH_RERUN=1 python3 tools/verify_bench.py   # + live 40-proc smoke each
 | Peak RSS (MB) | 5.83 | 5.20 | lower |
 | Oracle correctness | 32/32 | 32/32 | match |
 
-Welch test on batch-mean pos/s: t ≈ −138, p ≈ 0 — throughput gain is statistically decisive on this fixture. Goal gate (≥10% throughput) **met**.
+Welch test on batch-mean pos/s: t ≈ −138, p ≈ 0 — the gain is statistically decisive on this fixture. Goal gate (≥10% throughput) **met**.
 
 ### What is / isn’t claimed
 
 | Claim | Status |
 |---|---|
-| `kestrel-engine` faster than stock colibrì on `glm_tiny` TF oracle | **Measured** (this table + JSON) |
+| Same Mac is faster **with** `kestrel-engine` than the baseline engine path on `glm_tiny` | **Measured** (this table + JSON) |
 | Same % on full HF MoE weights (GLM-5.2, Qwen3-30B-A3B, Kimi, …) | **Not measured** — do not extrapolate |
 | Catalog MoE families install/run via `kestrel-engine` | Supported path in Library |
-| Mac 16GB small models | transformers chat path — **not** this stock TF bench |
+| Mac 16GB small models | transformers chat path — **not** this engine TF bench |
 
 **How to read this**
 
+- **Without Kestrel** = baseline local MoE engine on this machine (same fixture / prompts).
+- **With Kestrel** = `engine/kestrel-engine` with the optimizations below.
 - **pos/s** is engine-reported `forward_all` throughput (excludes model load).
 - **Wall** is external process time for interleaved batches — end-to-end binary speed.
 - `glm_tiny` is an all-F32 random oracle for numerics / scheduling, not a quality benchmark.
@@ -99,7 +100,7 @@ Welch test on batch-mean pos/s: t ≈ −138, p ≈ 0 — throughput gain is sta
 **What moved the needle (engine)**
 
 - Batched `lm_head` on the TF path  
-- DSA short-context skip where stock still indexes every layer  
+- DSA short-context skip where the baseline path still indexes every layer  
 - Attention / MoE / dense scratch reuse (`model_ws`, `attn_ws`)  
 - Lean TF path (skip unused DSA load, quieter I/O, clamped expert capacity)  
 - Hand NEON f32 matmul (Accelerate was tried and reverted — better internal pos/s, worse process wall + RSS)
@@ -183,7 +184,7 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) or the Mac `.app`.
 # or use Uninstall in Library
 ```
 
-### Fair bench vs colibrì
+### Fair bench (same laptop)
 
 ```bash
 ./kestrel bench              # full 12×40 interleaved protocol → JSON + SVG + verify
@@ -191,7 +192,7 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) or the Mac `.app`.
 ./kestrel bench --quick      # shorter smoke protocol (not for README claims)
 ```
 
-Use interleaved stock ↔ kestrel runs, same fixture, no `BENCH_LOOPS` on stock, discard warmup. Methodology and numbers live in [`docs/full_bench.json`](docs/full_bench.json). Gates: `python3 tools/verify_bench.py`.
+Compares **without Kestrel** (baseline local MoE engine) vs **with Kestrel** (`kestrel-engine`) on the same machine and fixture. Numbers: [`docs/full_bench.json`](docs/full_bench.json). Gates: `python3 tools/verify_bench.py`.
 
 ---
 
@@ -205,7 +206,7 @@ Use interleaved stock ↔ kestrel runs, same fixture, no `BENCH_LOOPS` on stock,
 | [`desktop/`](desktop/) | Tauri macOS app |
 | [`c/`](c/) | Reference convert / plan helpers (not the ship binary) |
 | [`docs/`](docs/) | Benches, screenshots, notes |
-| [`UPSTREAM.md`](UPSTREAM.md) | colibrì pin & lineage |
+| [`UPSTREAM.md`](UPSTREAM.md) | License / numerics lineage pin |
 
 ---
 

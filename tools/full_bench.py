@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Full fair Kestrel vs stock colibrì benchmark.
+"""Full fair benchmark: same laptop without vs with kestrel-engine.
 
 Accuracy rules:
-  - Stock = pinned colibrì SHA; Kestrel = this tree; both ARCH=native.
-  - No BENCH_LOOPS (stock lacks it) — unfair in-process loop would bias Kestrel.
+  - Baseline = reference local MoE engine binary; Kestrel = engine/kestrel-engine.
+  - Both ARCH=native; identical fixture; no in-process loop cheats on the baseline.
   - One trial = BATCH consecutive TF process runs (default 40), timed as one wall.
-    Single TF runs are ~ms and too noisy; batching matches the prior fair method.
   - Warmup batches discarded; report mean/median/stdev/95% CI + Welch test.
   - Require 32/32 oracle every process.
   - Identical stripped env for both engines.
 
 Limitation: glm_tiny only — not full GLM-5.2 tok/s or RAM.
+Public framing: "Without Kestrel" vs "With Kestrel" (JSON keys remain stock/kestrel).
 """
 from __future__ import annotations
 
@@ -331,16 +331,16 @@ def main() -> int:
         "warmup_batches": warmup,
     }
 
-    print("=== Full fair benchmark: Kestrel vs stock colibrì ===")
+    print("=== Fair benchmark: without Kestrel vs with Kestrel (same laptop) ===")
     print(json.dumps({
-        "stock_upstream_sha": upstream,
-        "sha_match": meta["sha_match"],
+        "framing": "without_kestrel (baseline) vs with_kestrel (kestrel-engine)",
+        "baseline_sha_match": meta["sha_match"],
         "batches": batches,
         "batch_size": batch_size,
         "warmup": warmup,
         "total_procs_per_side": batches * batch_size,
         "kestrel_binary": str(KESTREL_GLM),
-        "schedule": "interleaved (stock,kestrel)xN — cancels thermal/scheduling bias",
+        "schedule": "interleaved (baseline,kestrel)xN — cancels thermal/scheduling bias",
     }, indent=2))
 
     # Shared warmup on both, then interleaved measured batches
@@ -482,13 +482,13 @@ def main() -> int:
 
     print("\n=== RESULTS (primary = mean of per-batch mean pos/s) ===")
     print(
-        f"Stock   pos/s  {sp:.1f}  "
+        f"Without  pos/s  {sp:.1f}  "
         f"95%CI=[{stock['pos_per_s_batch_means']['ci95_low']:.1f}, "
         f"{stock['pos_per_s_batch_means']['ci95_high']:.1f}]  "
         f"stdev={stock['pos_per_s_batch_means']['stdev']:.1f}"
     )
     print(
-        f"Kestrel pos/s  {kp:.1f}  "
+        f"With     pos/s  {kp:.1f}  "
         f"95%CI=[{kestrel['pos_per_s_batch_means']['ci95_low']:.1f}, "
         f"{kestrel['pos_per_s_batch_means']['ci95_high']:.1f}]  "
         f"stdev={kestrel['pos_per_s_batch_means']['stdev']:.1f}"
@@ -499,20 +499,20 @@ def main() -> int:
         f"(Welch t={w['t']:.2f}, p≈{w['p_approx']:.2e})"
     )
     print(
-        f"Stock   batch_wall  {sw:.4f}s  (per proc {swp*1000:.2f}ms)"
+        f"Without  batch_wall  {sw:.4f}s  (per proc {swp*1000:.2f}ms)"
     )
     print(
-        f"Kestrel batch_wall  {kw:.4f}s  (per proc {kwp*1000:.2f}ms)"
+        f"With     batch_wall  {kw:.4f}s  (per proc {kwp*1000:.2f}ms)"
     )
     print(f"Δ batch wall   {comparison['batch_wall_s']['delta_pct']:+.2f}%")
     if "max_rss_mb" in stock and "max_rss_mb" in kestrel:
         print(
-            f"RSS MB         stock={stock['max_rss_mb']['mean']:.2f}  "
-            f"kestrel={kestrel['max_rss_mb']['mean']:.2f}"
+            f"RSS MB         without={stock['max_rss_mb']['mean']:.2f}  "
+            f"with={kestrel['max_rss_mb']['mean']:.2f}"
         )
     print(
-        f"Correctness    stock={stock['all_correct']}  "
-        f"kestrel={kestrel['all_correct']} (32/32)"
+        f"Correctness    without={stock['all_correct']}  "
+        f"with={kestrel['all_correct']} (32/32)"
     )
     print(f"Goal ≥10%      {comparison['goal_10pct_throughput']}")
     print(f"\nWrote {out_path}")

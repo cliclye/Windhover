@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-20T16:18:32.080770+00:00",
+  "generated_at": "2026-07-20T16:25:36.223624+00:00",
   "model_id": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
   "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct",
   "host": {
@@ -25,23 +25,11 @@
       {
         "ok": true,
         "device": "cpu",
-        "load_s": 0.481,
-        "prefill_s": 0.715,
-        "decode_s": 2.198,
+        "load_s": 0.43,
+        "prefill_s": 0.749,
+        "decode_s": 2.257,
         "tokens": 45,
-        "tok_s": 20.473,
-        "rss_gb": 6.18,
-        "text": "- Install the latest version of the MoE inference software.\n- Ensure your laptop meets the minimum system requirements.\n- Configure the inference settings to optimize performance.\n- Test the inference on a variety of tasks to ensure accurac",
-        "metric": "decode_only"
-      },
-      {
-        "ok": true,
-        "device": "cpu",
-        "load_s": 0.447,
-        "prefill_s": 0.743,
-        "decode_s": 2.194,
-        "tokens": 45,
-        "tok_s": 20.514,
+        "tok_s": 19.935,
         "rss_gb": 6.181,
         "text": "- Install the latest version of the MoE inference software.\n- Ensure your laptop meets the minimum system requirements.\n- Configure the inference settings to optimize performance.\n- Test the inference on a variety of tasks to ensure accurac",
         "metric": "decode_only"
@@ -49,69 +37,81 @@
       {
         "ok": true,
         "device": "cpu",
-        "load_s": 0.472,
-        "prefill_s": 0.752,
-        "decode_s": 2.243,
+        "load_s": 0.453,
+        "prefill_s": 0.816,
+        "decode_s": 2.259,
         "tokens": 45,
-        "tok_s": 20.061,
+        "tok_s": 19.916,
+        "rss_gb": 6.181,
+        "text": "- Install the latest version of the MoE inference software.\n- Ensure your laptop meets the minimum system requirements.\n- Configure the inference settings to optimize performance.\n- Test the inference on a variety of tasks to ensure accurac",
+        "metric": "decode_only"
+      },
+      {
+        "ok": true,
+        "device": "cpu",
+        "load_s": 0.451,
+        "prefill_s": 0.789,
+        "decode_s": 2.192,
+        "tokens": 45,
+        "tok_s": 20.53,
         "rss_gb": 6.18,
         "text": "- Install the latest version of the MoE inference software.\n- Ensure your laptop meets the minimum system requirements.\n- Configure the inference settings to optimize performance.\n- Test the inference on a variety of tasks to ensure accurac",
         "metric": "decode_only"
       }
     ],
-    "mean_tok_s": 20.349,
-    "mean_rss_gb": 6.18
+    "mean_tok_s": 20.127,
+    "mean_rss_gb": 6.181
   },
   "with": {
     "runs": [
       {
         "ok": true,
         "rc": 0,
-        "tok_s": 24.17,
-        "tokens": 30,
-        "wall_s": 4.245,
-        "prefill_s": 1.71,
-        "prefill_tok_s": 25.17,
-        "load_s": 1.2,
-        "rss_gb": 2.9,
-        "text": "- Install the necessary software and libraries\n- Configure the environment variables\n- Set up the inference model\n- Test the inference on a sample input<|im_end|>",
-        "stderr_tail": "[dense] loaded /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct in 1.2s | RSS 2.85 GB | layers=28 hidden=1536 | int8 embed+weights\n[dense] prefill 43 tokens, generate up to 48 (eos=151645)\n[dense] prefill 1.71s (25.17 tok/s)\n[dense] decode 24.17 tok/s (1.24s for 30 toks) | RSS 2.90 GB | load 1.2s\n",
+        "tok_s": 29.21,
+        "tokens": 48,
+        "wall_s": 4.387,
+        "prefill_s": 1.4,
+        "prefill_tok_s": 30.74,
+        "load_s": 1.3,
+        "rss_gb": 2.43,
+        "text": "- A laptop with a local model (MoE) can be used for inference tasks.\n- The laptop has a built-in model that can be used for predictions.\n- The laptop can be used to perform inference tasks without the need for an",
+        "stderr_tail": "[dense] loaded /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct in 1.3s | RSS 2.36 GB | layers=28 hidden=1536 | int8 attn + int4 mlp\n[dense] prefill 43 tokens, generate up to 48 (eos=151645)\n[dense] prefill 1.40s (30.74 tok/s)\n[dense] decode 29.21 tok/s (1.64s for 48 toks) | RSS 2.43 GB | load 1.3s\n",
         "path": "kestrel-engine dense (int8 + IDOT)",
         "metric": "decode_only"
       },
       {
         "ok": true,
         "rc": 0,
-        "tok_s": 22.49,
-        "tokens": 30,
-        "wall_s": 4.407,
-        "prefill_s": 1.85,
-        "prefill_tok_s": 23.29,
-        "load_s": 1.1,
-        "rss_gb": 2.9,
-        "text": "- Install the necessary software and libraries\n- Configure the environment variables\n- Set up the inference model\n- Test the inference on a sample input<|im_end|>",
-        "stderr_tail": "[dense] loaded /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct in 1.1s | RSS 2.85 GB | layers=28 hidden=1536 | int8 embed+weights\n[dense] prefill 43 tokens, generate up to 48 (eos=151645)\n[dense] prefill 1.85s (23.29 tok/s)\n[dense] decode 22.49 tok/s (1.33s for 30 toks) | RSS 2.90 GB | load 1.1s\n",
+        "tok_s": 28.98,
+        "tokens": 48,
+        "wall_s": 4.55,
+        "prefill_s": 1.44,
+        "prefill_tok_s": 29.86,
+        "load_s": 1.4,
+        "rss_gb": 2.43,
+        "text": "- A laptop with a local model (MoE) can be used for inference tasks.\n- The laptop has a built-in model that can be used for predictions.\n- The laptop can be used to perform inference tasks without the need for an",
+        "stderr_tail": "[dense] loaded /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct in 1.4s | RSS 2.37 GB | layers=28 hidden=1536 | int8 attn + int4 mlp\n[dense] prefill 43 tokens, generate up to 48 (eos=151645)\n[dense] prefill 1.44s (29.86 tok/s)\n[dense] decode 28.98 tok/s (1.66s for 48 toks) | RSS 2.43 GB | load 1.4s\n",
         "path": "kestrel-engine dense (int8 + IDOT)",
         "metric": "decode_only"
       },
       {
         "ok": true,
         "rc": 0,
-        "tok_s": 19.57,
-        "tokens": 30,
-        "wall_s": 5.056,
-        "prefill_s": 2.23,
-        "prefill_tok_s": 19.28,
-        "load_s": 1.2,
-        "rss_gb": 2.9,
-        "text": "- Install the necessary software and libraries\n- Configure the environment variables\n- Set up the inference model\n- Test the inference on a sample input<|im_end|>",
-        "stderr_tail": "[dense] loaded /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct in 1.2s | RSS 2.85 GB | layers=28 hidden=1536 | int8 embed+weights\n[dense] prefill 43 tokens, generate up to 48 (eos=151645)\n[dense] prefill 2.23s (19.28 tok/s)\n[dense] decode 19.57 tok/s (1.53s for 30 toks) | RSS 2.90 GB | load 1.2s\n",
+        "tok_s": 21.07,
+        "tokens": 48,
+        "wall_s": 6.174,
+        "prefill_s": 2.4,
+        "prefill_tok_s": 17.9,
+        "load_s": 1.4,
+        "rss_gb": 2.43,
+        "text": "- A laptop with a local model (MoE) can be used for inference tasks.\n- The laptop has a built-in model that can be used for predictions.\n- The laptop can be used to perform inference tasks without the need for an",
+        "stderr_tail": "[dense] loaded /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct in 1.4s | RSS 2.36 GB | layers=28 hidden=1536 | int8 attn + int4 mlp\n[dense] prefill 43 tokens, generate up to 48 (eos=151645)\n[dense] prefill 2.40s (17.90 tok/s)\n[dense] decode 21.07 tok/s (2.28s for 48 toks) | RSS 2.43 GB | load 1.4s\n",
         "path": "kestrel-engine dense (int8 + IDOT)",
         "metric": "decode_only"
       }
     ],
-    "mean_tok_s": 22.077,
-    "mean_rss_gb": 2.9
+    "mean_tok_s": 26.42,
+    "mean_rss_gb": 2.43
   },
-  "delta_pct": 8.5
+  "delta_pct": 31.3
 }

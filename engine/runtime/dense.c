@@ -34,9 +34,12 @@ typedef struct {
 
 typedef struct {
     float *in_ln, *post_ln;
-    int8_t *q, *k, *v, *o, *gate, *up, *down;
-    float *qs, *ks, *vs, *os, *gates, *ups, *downs;
+    int8_t *q, *k, *v, *o;
+    float *qs, *ks, *vs, *os;
     float *qb, *kb, *vb;
+    /* MLP in int4 (packed) — halves bandwidth on the decode hot path */
+    uint8_t *gate4, *up4, *down4;
+    float *gates, *ups, *downs;
 } DLayer;
 
 typedef struct {
@@ -167,6 +170,15 @@ static inline int32_t dot_i8i8(const int8_t *w, const int8_t *x, int I) {
     return sum;
 }
 
+static void ensure_xq(DModel *m, int I) {
+    if (m->xq_cap < I) {
+        free(m->xq);
+        m->xq = (int8_t *)malloc((size_t)I);
+        if (!m->xq) { fprintf(stderr, "OOM xq\n"); exit(1); }
+        m->xq_cap = I;
+    }
+}
+
 /* y[O] = x[I] @ W^T  (W int8 + per-row scale). IDOT with single act scale. */
 static void matmul_q_ex(float *y, const float *x, const int8_t *q, const float *scale,
                         int I, int O, int allow_idot) {
@@ -176,22 +188,16 @@ static void matmul_q_ex(float *y, const float *x, const int8_t *q, const float *
         idot = !(e && *e == '0');
     }
     if (allow_idot && idot && g_dens) {
-        if (g_dens->xq_cap < I) {
-            free(g_dens->xq);
-            g_dens->xq = (int8_t *)malloc((size_t)I);
-            if (!g_dens->xq) { fprintf(stderr, "OOM xq\n"); exit(1); }
-            g_dens->xq_cap = I;
-        }
+        ensure_xq(g_dens, I);
         float sx = qrow_i8(x, g_dens->xq, I);
         const int8_t *xq = g_dens->xq;
         #pragma omp parallel for schedule(static)
-        for (int o = 0; o < O; o++) {
+        for (int o = 0; o < O; o++)
             y[o] = (float)dot_i8i8(q + (int64_t)o * I, xq, I) * scale[o] * sx;
-        }
         return;
     }
-    /* Exact path: NEON f32×int8 dequant-on-use (needed for attention projections). */
-    #pragma omp parallel for schedule(static)
+    /* Exact path: NEON f32×int8 — skip OpenMP on tiny O (k/v projs) to avoid spawn tax. */
+    #pragma omp parallel for schedule(static) if(O >= 512)
     for (int o = 0; o < O; o++) {
         const int8_t *w = q + (int64_t)o * I;
         float acc = 0.f;
@@ -224,20 +230,13 @@ static void matmul_q_pair(float *yg, float *yu, const float *x,
         idot = !(e && *e == '0');
     }
     if (idot && g_dens) {
-        if (g_dens->xq_cap < I) {
-            free(g_dens->xq);
-            g_dens->xq = (int8_t *)malloc((size_t)I);
-            if (!g_dens->xq) { fprintf(stderr, "OOM xq\n"); exit(1); }
-            g_dens->xq_cap = I;
-        }
+        ensure_xq(g_dens, I);
         float sx = qrow_i8(x, g_dens->xq, I);
         const int8_t *xq = g_dens->xq;
         #pragma omp parallel for schedule(static)
         for (int o = 0; o < O; o++) {
-            int32_t dg = dot_i8i8(qg + (int64_t)o * I, xq, I);
-            int32_t du = dot_i8i8(qu + (int64_t)o * I, xq, I);
-            yg[o] = (float)dg * sg[o] * sx;
-            yu[o] = (float)du * su[o] * sx;
+            yg[o] = (float)dot_i8i8(qg + (int64_t)o * I, xq, I) * sg[o] * sx;
+            yu[o] = (float)dot_i8i8(qu + (int64_t)o * I, xq, I) * su[o] * sx;
         }
         return;
     }
@@ -356,6 +355,98 @@ static float *load_f32(DModel *m, const char *name) {
     return p;
 }
 
+static void pack_int4(const float *w, uint8_t *q4, float *scale, int O, int I) {
+    const int qmax = 7;
+    int rb = (I + 1) / 2;
+    #pragma omp parallel for schedule(static)
+    for (int o = 0; o < O; o++) {
+        const float *wr = w + (int64_t)o * I;
+        float amax = 0.f;
+        for (int i = 0; i < I; i++) {
+            float a = fabsf(wr[i]);
+            if (a > amax) amax = a;
+        }
+        float s = amax / (float)qmax;
+        if (s < 1e-8f) s = 1e-8f;
+        scale[o] = s;
+        uint8_t *qr = q4 + (int64_t)o * rb;
+        for (int i = 0; i < I; i += 2) {
+            int v0 = (int)lrintf(wr[i] / s);
+            if (v0 > qmax) v0 = qmax;
+            if (v0 < -8) v0 = -8;
+            int v1 = 0;
+            if (i + 1 < I) {
+                v1 = (int)lrintf(wr[i + 1] / s);
+                if (v1 > qmax) v1 = qmax;
+                if (v1 < -8) v1 = -8;
+            }
+            qr[i >> 1] = (uint8_t)((v0 + 8) | ((v1 + 8) << 4));
+        }
+    }
+}
+
+/* int4(packed)·int8 SDOT — same family as MoE path (M4: 4-acc). */
+static inline int32_t dot_i4i8(const uint8_t *w4, const int8_t *x, int I) {
+    int32_t sum = 0;
+    int i = 0;
+#if defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
+    const uint8x16_t m4q = vdupq_n_u8(0x0F);
+    const int8x16_t b8q = vdupq_n_s8(8);
+    int32x4_t a0 = vdupq_n_s32(0), a1 = vdupq_n_s32(0);
+    int32x4_t a2 = vdupq_n_s32(0), a3 = vdupq_n_s32(0);
+    for (; i + 64 <= I; i += 64) {
+        uint8x16_t byA = vld1q_u8(w4 + (i >> 1)), byB = vld1q_u8(w4 + (i >> 1) + 16);
+        uint8x16x2_t zA = vzipq_u8(vandq_u8(byA, m4q), vshrq_n_u8(byA, 4));
+        uint8x16x2_t zB = vzipq_u8(vandq_u8(byB, m4q), vshrq_n_u8(byB, 4));
+        a0 = vdotq_s32(a0, vsubq_s8(vreinterpretq_s8_u8(zA.val[0]), b8q), vld1q_s8(x + i));
+        a1 = vdotq_s32(a1, vsubq_s8(vreinterpretq_s8_u8(zA.val[1]), b8q), vld1q_s8(x + i + 16));
+        a2 = vdotq_s32(a2, vsubq_s8(vreinterpretq_s8_u8(zB.val[0]), b8q), vld1q_s8(x + i + 32));
+        a3 = vdotq_s32(a3, vsubq_s8(vreinterpretq_s8_u8(zB.val[1]), b8q), vld1q_s8(x + i + 48));
+    }
+    int32x4_t acc = vaddq_s32(vaddq_s32(a0, a1), vaddq_s32(a2, a3));
+    for (; i + 32 <= I; i += 32) {
+        uint8x16_t by = vld1q_u8(w4 + (i >> 1));
+        uint8x16x2_t z = vzipq_u8(vandq_u8(by, m4q), vshrq_n_u8(by, 4));
+        acc = vdotq_s32(acc, vsubq_s8(vreinterpretq_s8_u8(z.val[0]), b8q), vld1q_s8(x + i));
+        acc = vdotq_s32(acc, vsubq_s8(vreinterpretq_s8_u8(z.val[1]), b8q), vld1q_s8(x + i + 16));
+    }
+    sum = vaddvq_s32(acc);
+#endif
+    for (; i + 1 < I; i += 2) {
+        uint8_t b = w4[i >> 1];
+        sum += ((int)(b & 0xF) - 8) * x[i] + ((int)(b >> 4) - 8) * x[i + 1];
+    }
+    if (i < I) {
+        uint8_t b = w4[i >> 1];
+        sum += ((int)(b & 0xF) - 8) * x[i];
+    }
+    return sum;
+}
+
+static void matmul_i4(float *y, const float *x, const uint8_t *q4, const float *scale, int I, int O) {
+    int rb = (I + 1) / 2;
+    ensure_xq(g_dens, I);
+    float sx = qrow_i8(x, g_dens->xq, I);
+    const int8_t *xq = g_dens->xq;
+    #pragma omp parallel for schedule(static)
+    for (int o = 0; o < O; o++)
+        y[o] = (float)dot_i4i8(q4 + (int64_t)o * rb, xq, I) * scale[o] * sx;
+}
+
+static void matmul_i4_pair(float *yg, float *yu, const float *x,
+                           const uint8_t *qg, const float *sg,
+                           const uint8_t *qu, const float *su, int I, int O) {
+    int rb = (I + 1) / 2;
+    ensure_xq(g_dens, I);
+    float sx = qrow_i8(x, g_dens->xq, I);
+    const int8_t *xq = g_dens->xq;
+    #pragma omp parallel for schedule(static)
+    for (int o = 0; o < O; o++) {
+        yg[o] = (float)dot_i4i8(qg + (int64_t)o * rb, xq, I) * sg[o] * sx;
+        yu[o] = (float)dot_i4i8(qu + (int64_t)o * rb, xq, I) * su[o] * sx;
+    }
+}
+
 static void load_qweight(DModel *m, const char *name, int8_t **q, float **scale, int O, int I) {
     float *tmp = load_f32(m, name);
     if (!tmp) { fprintf(stderr, "dense: missing %s\n", name); exit(1); }
@@ -363,6 +454,17 @@ static void load_qweight(DModel *m, const char *name, int8_t **q, float **scale,
     *scale = falloc(O);
     if (!*q) { fprintf(stderr, "OOM quant %s\n", name); exit(1); }
     quantize_rows(tmp, *q, *scale, O, I);
+    free(tmp);
+}
+
+static void load_q4weight(DModel *m, const char *name, uint8_t **q4, float **scale, int O, int I) {
+    float *tmp = load_f32(m, name);
+    if (!tmp) { fprintf(stderr, "dense: missing %s\n", name); exit(1); }
+    int rb = (I + 1) / 2;
+    *q4 = (uint8_t *)malloc((size_t)O * (size_t)rb);
+    *scale = falloc(O);
+    if (!*q4) { fprintf(stderr, "OOM quant4 %s\n", name); exit(1); }
+    pack_int4(tmp, *q4, *scale, O, I);
     free(tmp);
 }
 
@@ -437,11 +539,11 @@ static void dens_model_init(DModel *m, const char *snap) {
         snprintf(nm, sizeof(nm), "model.layers.%d.self_attn.o_proj.weight", i);
         load_qweight(m, nm, &l->o, &l->os, D, H * hd);
         snprintf(nm, sizeof(nm), "model.layers.%d.mlp.gate_proj.weight", i);
-        load_qweight(m, nm, &l->gate, &l->gates, I, D);
+        load_q4weight(m, nm, &l->gate4, &l->gates, I, D);
         snprintf(nm, sizeof(nm), "model.layers.%d.mlp.up_proj.weight", i);
-        load_qweight(m, nm, &l->up, &l->ups, I, D);
+        load_q4weight(m, nm, &l->up4, &l->ups, I, D);
         snprintf(nm, sizeof(nm), "model.layers.%d.mlp.down_proj.weight", i);
-        load_qweight(m, nm, &l->down, &l->downs, D, I);
+        load_q4weight(m, nm, &l->down4, &l->downs, D, I);
     }
     m->load_s = now_s() - t0;
     m->rope_inv = falloc(hd / 2);
@@ -460,7 +562,7 @@ static void dens_model_init(DModel *m, const char *snap) {
     m->ws_sc = NULL;
     m->xq = NULL;
     m->xq_cap = 0;
-    fprintf(stderr, "[dense] loaded %s in %.1fs | RSS %.2f GB | layers=%d hidden=%d | int8 embed+weights\n",
+    fprintf(stderr, "[dense] loaded %s in %.1fs | RSS %.2f GB | layers=%d hidden=%d | int8 attn + int4 mlp\n",
             snap, m->load_s, rss_gb(), c->n_layers, c->hidden);
 }
 
@@ -502,6 +604,7 @@ static void dens_attention(DModel *m, DLayer *l, int layer, float *x, int pos, f
     float scale = 1.f / sqrtf((float)hd);
     float *ctx = m->ws_ctx;
     float *sc = m->ws_sc;
+    /* Per-head scratch would race under OpenMP — sequential heads, NEON dots. */
     for (int hh = 0; hh < H; hh++) {
         int kvh = hh / gqa;
         const float *qv = q + hh * hd;
@@ -527,19 +630,18 @@ static void dens_attention(DModel *m, DLayer *l, int layer, float *x, int pos, f
             for (; d < hd; d++) cx[d] += a * vr[d];
         }
     }
-    matmul_q_ex(out, ctx, l->o, l->os, H * hd, D, 0);
+    matmul_q_ex(out, ctx, l->o, l->os, H * hd, D, 0); /* o_proj tolerates IDOT; q/k/v stay exact */
 }
 
 static void dens_mlp(DModel *m, DLayer *l, const float *x, float *out) {
     int D = m->c.hidden, I = m->c.inter;
     float *g = m->ws_g, *u = m->ws_u;
-    matmul_q_pair(g, u, x, l->gate, l->gates, l->up, l->ups, D, I);
+    matmul_i4_pair(g, u, x, l->gate4, l->gates, l->up4, l->ups, D, I);
     for (int i = 0; i < I; i++) {
         float gv = g[i];
-        /* silu(g)*u */
         g[i] = (gv / (1.f + expf(-gv))) * u[i];
     }
-    matmul_q(out, g, l->down, l->downs, I, D);
+    matmul_i4(out, g, l->down4, l->downs, I, D);
 }
 
 static float *dens_step(DModel *m, int token, int pos) {
@@ -611,6 +713,9 @@ int dense_run(int argc, char **argv) {
     if (ngen < 1) ngen = 1;
     if (ngen > 512) ngen = 512;
     int quiet = getenv("QUIET") ? atoi(getenv("QUIET")) : 0;
+    /* Keep OpenMP workers hot across tiny matmul regions (same idea as MoE path). */
+    setenv("OMP_WAIT_POLICY", "active", 0);
+    setenv("OMP_PROC_BIND", "close", 0);
 
     DModel m;
     dens_model_init(&m, snap);

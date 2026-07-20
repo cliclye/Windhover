@@ -115,11 +115,11 @@ Measured on a **MacBook Air M4 16 GB**:
 
 | | Without Kestrel | With Kestrel |
 |---|---|---|
-| Path | stock `transformers` · **CPU** · float16 | **`kestrel-engine` dense** · int8 + SDOT IDOT |
-| Decode tok/s | **~20.3** | **~22.1** |
-| Peak RSS | ~6.2 GB | **~2.9 GB** |
-| Δ tok/s | — | **+8.5%** |
-| Δ RSS | — | **−53%** |
+| Path | stock `transformers` · **CPU** · float16 | **`kestrel-engine` dense** · int8 attn + int4 MLP + SDOT |
+| Decode tok/s | **~20.1** | **~26.4** |
+| Peak RSS | ~6.2 GB | **~2.4 GB** |
+| Δ tok/s | — | **+31%** |
+| Δ RSS | — | **−61%** |
 
 Full dump: [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json).
 
@@ -130,7 +130,7 @@ python3 tools/dense_qwen_bench.py
 # or: ./kestrel bench --dense
 ```
 
-**Honest takeaway:** dense `kestrel-engine` beats stock transformers CPU on this 1.5B pack on **both** decode tok/s (**+8.5%**) and RSS (**−53%**), via int8 embed+weights, SDOT IDOT on MLP/lm_head, and exact NEON on attention projections. glm_tiny **+548%** remains a micro-fixture oracle — not a % claim on Qwen.
+**Honest takeaway:** dense `kestrel-engine` beats stock transformers CPU on this 1.5B pack on **both** decode tok/s (**+31%**) and RSS (**−61%**), via int8 attention, int4 MLP, SDOT IDOT, and exact NEON on q/k/v projections. glm_tiny **+548%** remains a micro-fixture oracle — not a % claim on Qwen.
 
 ### Real model · Qwen2.5-7B Instruct (same laptop)
 

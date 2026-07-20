@@ -34,20 +34,24 @@ typedef struct {
 
 typedef struct {
     float *in_ln, *post_ln;
-    int8_t *q, *k, *v, *o;
-    float *qs, *ks, *vs, *os;
+    int8_t *q, *k, *v;
+    float *qs, *ks, *vs;
     float *qb, *kb, *vb;
-    /* MLP in int4 (packed) — halves bandwidth on the decode hot path */
-    uint8_t *gate4, *up4, *down4;
-    float *gates, *ups, *downs;
+    float *q_norm, *k_norm; /* Qwen3 optional per-head RMSNorm */
+    /* MLP + o_proj in int4 (packed) — decode is bandwidth-bound */
+    uint8_t *gate4, *up4, *down4, *o4;
+    float *gates, *ups, *downs, *os;
 } DLayer;
 
 typedef struct {
     DCfg c;
     shards S;
-    /* int8 embed (== lm_head when tied) */
     int8_t *embed_q;
     float *embed_s;
+    int8_t *lm_q;   /* NULL → tied: use embed_q for lookup; logits prefer lm4 */
+    float *lm_s;
+    uint8_t *lm4;   /* int4 lm_head (or tied embed) for logit matmul */
+    float *lm4_s;
     float *final_norm;
     DLayer *L;
     float **K, **V;
@@ -176,6 +180,28 @@ static void ensure_xq(DModel *m, int I) {
         m->xq = (int8_t *)malloc((size_t)I);
         if (!m->xq) { fprintf(stderr, "OOM xq\n"); exit(1); }
         m->xq_cap = I;
+    }
+}
+
+/* Exact int8 matmul into y; must be called inside an OpenMP parallel region. */
+static void matmul_q_exact_rows(float *y, const float *x, const int8_t *q, const float *scale,
+                                int I, int O) {
+    #pragma omp for schedule(static)
+    for (int o = 0; o < O; o++) {
+        const int8_t *w = q + (int64_t)o * I;
+        float acc = 0.f;
+        int i = 0;
+#if defined(__ARM_NEON)
+        float32x4_t ac0 = vdupq_n_f32(0), ac1 = vdupq_n_f32(0);
+        for (; i + 8 <= I; i += 8) {
+            int16x8_t w16 = vmovl_s8(vld1_s8(w + i));
+            ac0 = vfmaq_f32(ac0, vld1q_f32(x + i), vcvtq_f32_s32(vmovl_s16(vget_low_s16(w16))));
+            ac1 = vfmaq_f32(ac1, vld1q_f32(x + i + 4), vcvtq_f32_s32(vmovl_s16(vget_high_s16(w16))));
+        }
+        acc = vaddvq_f32(vaddq_f32(ac0, ac1));
+#endif
+        for (; i < I; i++) acc += x[i] * (float)w[i];
+        y[o] = acc * scale[o];
     }
 }
 
@@ -328,7 +354,10 @@ static void dens_load_cfg(DCfg *c, const char *snap) {
     c->n_kv_heads = gi(r, "num_key_value_heads", c->n_heads);
     c->inter = gi(r, "intermediate_size", 0);
     c->vocab = gi(r, "vocab_size", 0);
-    c->head_dim = c->n_heads ? (c->hidden / c->n_heads) : 0;
+    jval *hd = json_get(r, "head_dim");
+    c->head_dim = hd ? (int)hd->num : (c->n_heads ? (c->hidden / c->n_heads) : 0);
+    if (c->head_dim <= 0 && c->n_heads > 0)
+        c->head_dim = c->hidden / c->n_heads;
     jval *th = json_get(r, "rope_theta");
     c->theta = th ? (float)th->num : 10000.f;
     jval *ep = json_get(r, "rms_norm_eps");
@@ -483,33 +512,23 @@ static void dens_model_init(DModel *m, const char *snap) {
         if (!c->tie_emb) { fprintf(stderr, "dense: missing lm_head\n"); exit(1); }
         lm = emb;
     }
-    /* Always store embed as int8; if untied, also quantize lm_head into same buffers
-     * only when tied (share). Untied: keep separate lm quant in embed slots for head. */
     m->embed_q = (int8_t *)malloc((size_t)c->vocab * (size_t)c->hidden);
     m->embed_s = falloc(c->vocab);
     if (!m->embed_q) { fprintf(stderr, "OOM embed_q\n"); exit(1); }
+    quantize_rows(emb, m->embed_q, m->embed_s, c->vocab, c->hidden);
+    m->lm4 = NULL;
+    m->lm4_s = NULL;
     if (lm == emb) {
-        quantize_rows(emb, m->embed_q, m->embed_s, c->vocab, c->hidden);
+        m->lm_q = NULL;
+        m->lm_s = NULL;
         free(emb);
     } else {
-        /* Untied: quantize lm_head for logits; keep a separate int8 embed copy. */
-        quantize_rows(emb, m->embed_q, m->embed_s, c->vocab, c->hidden);
+        m->lm_q = (int8_t *)malloc((size_t)c->vocab * (size_t)c->hidden);
+        m->lm_s = falloc(c->vocab);
+        if (!m->lm_q) { fprintf(stderr, "OOM lm_q\n"); exit(1); }
+        quantize_rows(lm, m->lm_q, m->lm_s, c->vocab, c->hidden);
         free(emb);
-        /* Overwrite with lm_head quant for logit matmul — need both. Re-quant emb into
-         * dedicated storage: allocate lm as the logit matrix. */
-        int8_t *lm_q = (int8_t *)malloc((size_t)c->vocab * (size_t)c->hidden);
-        float *lm_s = falloc(c->vocab);
-        if (!lm_q) { fprintf(stderr, "OOM lm_q\n"); exit(1); }
-        quantize_rows(lm, lm_q, lm_s, c->vocab, c->hidden);
         free(lm);
-        /* Prefer lm_head for logits: swap so embed_q is used for both lookup (approx)
-         * and logits from lm — better: keep emb for lookup, lm for logits.
-         * Store lm in embed_q for logits; re-load is expensive — for Qwen tie=true. */
-        free(m->embed_q);
-        free(m->embed_s);
-        m->embed_q = lm_q;
-        m->embed_s = lm_s;
-        fprintf(stderr, "[dense] warn: untied lm_head — using lm_head int8 for embed+logits\n");
     }
 
     m->final_norm = load_f32(m, "model.norm.weight");
@@ -536,8 +555,12 @@ static void dens_model_init(DModel *m, const char *snap) {
         l->kb = load_f32(m, nm);
         snprintf(nm, sizeof(nm), "model.layers.%d.self_attn.v_proj.bias", i);
         l->vb = load_f32(m, nm);
+        snprintf(nm, sizeof(nm), "model.layers.%d.self_attn.q_norm.weight", i);
+        l->q_norm = load_f32(m, nm); /* Qwen3; NULL on Qwen2/Llama */
+        snprintf(nm, sizeof(nm), "model.layers.%d.self_attn.k_norm.weight", i);
+        l->k_norm = load_f32(m, nm);
         snprintf(nm, sizeof(nm), "model.layers.%d.self_attn.o_proj.weight", i);
-        load_qweight(m, nm, &l->o, &l->os, D, H * hd);
+        load_q4weight(m, nm, &l->o4, &l->os, D, H * hd);
         snprintf(nm, sizeof(nm), "model.layers.%d.mlp.gate_proj.weight", i);
         load_q4weight(m, nm, &l->gate4, &l->gates, I, D);
         snprintf(nm, sizeof(nm), "model.layers.%d.mlp.up_proj.weight", i);
@@ -562,7 +585,7 @@ static void dens_model_init(DModel *m, const char *snap) {
     m->ws_sc = NULL;
     m->xq = NULL;
     m->xq_cap = 0;
-    fprintf(stderr, "[dense] loaded %s in %.1fs | RSS %.2f GB | layers=%d hidden=%d | int8 attn + int4 mlp\n",
+    fprintf(stderr, "[dense] loaded %s in %.1fs | RSS %.2f GB | layers=%d hidden=%d | int8 qkv + int4 o/mlp\n",
             snap, m->load_s, rss_gb(), c->n_layers, c->hidden);
 }
 
@@ -595,6 +618,19 @@ static void dens_attention(DModel *m, DLayer *l, int layer, float *x, int pos, f
     if (l->qb) for (int i = 0; i < H * hd; i++) q[i] += l->qb[i];
     if (l->kb) for (int i = 0; i < KV * hd; i++) k[i] += l->kb[i];
     if (l->vb) for (int i = 0; i < KV * hd; i++) v[i] += l->vb[i];
+    /* Qwen3: RMSNorm per head on q/k before RoPE (weight length = head_dim). */
+    if (l->q_norm) {
+        for (int hh = 0; hh < H; hh++) {
+            float *qh = q + hh * hd;
+            rmsnorm_row(qh, qh, l->q_norm, hd, c->eps);
+        }
+    }
+    if (l->k_norm) {
+        for (int hh = 0; hh < KV; hh++) {
+            float *kh = k + hh * hd;
+            rmsnorm_row(kh, kh, l->k_norm, hd, c->eps);
+        }
+    }
     for (int hh = 0; hh < H; hh++) rope_head(q + hh * hd, pos, hd, m->rope_inv);
     for (int hh = 0; hh < KV; hh++) rope_head(k + hh * hd, pos, hd, m->rope_inv);
     for (int hh = 0; hh < KV; hh++) {
@@ -603,11 +639,12 @@ static void dens_attention(DModel *m, DLayer *l, int layer, float *x, int pos, f
     }
     float scale = 1.f / sqrtf((float)hd);
     float *ctx = m->ws_ctx;
-    float *sc = m->ws_sc;
-    /* Per-head scratch would race under OpenMP — sequential heads, NEON dots. */
+    /* Parallel heads help once context is long enough to amortize OpenMP spawn. */
+    #pragma omp parallel for schedule(static) if(H >= 4 && pos >= 16)
     for (int hh = 0; hh < H; hh++) {
         int kvh = hh / gqa;
         const float *qv = q + hh * hd;
+        float *sc = m->ws_sc + (int64_t)hh * m->max_t;
         for (int t = 0; t <= pos; t++) {
             const float *kv = m->K[layer] + ((int64_t)kvh * m->max_t + t) * hd;
             sc[t] = dot_f32(qv, kv, hd) * scale;
@@ -630,18 +667,32 @@ static void dens_attention(DModel *m, DLayer *l, int layer, float *x, int pos, f
             for (; d < hd; d++) cx[d] += a * vr[d];
         }
     }
-    matmul_q_ex(out, ctx, l->o, l->os, H * hd, D, 0); /* o_proj tolerates IDOT; q/k/v stay exact */
+    matmul_i4(out, ctx, l->o4, l->os, H * hd, D); /* int4 o_proj + IDOT */
 }
 
 static void dens_mlp(DModel *m, DLayer *l, const float *x, float *out) {
     int D = m->c.hidden, I = m->c.inter;
     float *g = m->ws_g, *u = m->ws_u;
     matmul_i4_pair(g, u, x, l->gate4, l->gates, l->up4, l->ups, D, I);
+    #pragma omp parallel for schedule(static) if(I >= 1024)
     for (int i = 0; i < I; i++) {
         float gv = g[i];
+        /* silu(g)*u */
         g[i] = (gv / (1.f + expf(-gv))) * u[i];
     }
     matmul_i4(out, g, l->down4, l->downs, I, D);
+}
+
+static void add_inplace(float *x, const float *dx, int D) {
+    int d = 0;
+#if defined(__ARM_NEON)
+    for (; d + 8 <= D; d += 8) {
+        float32x4_t a0 = vld1q_f32(x + d), a1 = vld1q_f32(x + d + 4);
+        vst1q_f32(x + d, vaddq_f32(a0, vld1q_f32(dx + d)));
+        vst1q_f32(x + d + 4, vaddq_f32(a1, vld1q_f32(dx + d + 4)));
+    }
+#endif
+    for (; d < D; d++) x[d] += dx[d];
 }
 
 static float *dens_step(DModel *m, int token, int pos) {
@@ -654,18 +705,22 @@ static float *dens_step(DModel *m, int token, int pos) {
         double t0 = m->prof ? now_s() : 0;
         rmsnorm_row(nrm, x, l->in_ln, D, c->eps);
         dens_attention(m, l, i, nrm, pos, tmp);
-        for (int d = 0; d < D; d++) x[d] += tmp[d];
+        add_inplace(x, tmp, D);
         if (m->prof) m->t_attn += now_s() - t0;
         t0 = m->prof ? now_s() : 0;
         rmsnorm_row(nrm, x, l->post_ln, D, c->eps);
         dens_mlp(m, l, nrm, tmp);
-        for (int d = 0; d < D; d++) x[d] += tmp[d];
+        add_inplace(x, tmp, D);
         if (m->prof) m->t_mlp += now_s() - t0;
     }
     m->kv_len = pos + 1;
     rmsnorm_row(nrm, x, m->final_norm, D, c->eps);
     double t0 = m->prof ? now_s() : 0;
-    matmul_q(m->ws_logit, nrm, m->embed_q, m->embed_s, D, c->vocab);
+    {
+        const int8_t *lq = m->lm_q ? m->lm_q : m->embed_q;
+        const float *ls = m->lm_s ? m->lm_s : m->embed_s;
+        matmul_q(m->ws_logit, nrm, lq, ls, D, c->vocab);
+    }
     if (m->prof) m->t_lm += now_s() - t0;
     return m->ws_logit;
 }
@@ -677,6 +732,9 @@ static int argmax(const float *x, int n) {
     return b;
 }
 
+/* True when SNAP is a dense GQA+SwiGLU causal LM the dense path can run.
+ * Covers Qwen2/Qwen3/Llama/Mistral and distill packs that share that layout.
+ * MoE (glm_moe_dsa / routed experts) stays on engine.c — same int4+IDOT family. */
 int dense_is_arch(const char *snap) {
     char path[2048];
     snprintf(path, sizeof(path), "%s/config.json", snap);
@@ -691,11 +749,24 @@ int dense_is_arch(const char *snap) {
     buf[n] = 0;
     fclose(f);
     int hit = 0;
+    if (strstr(buf, "glm_moe_dsa") || strstr(buf, "n_routed_experts") ||
+        strstr(buf, "\"num_experts\"") || strstr(buf, "num_local_experts") ||
+        strstr(buf, "MixtralForCausalLM") || strstr(buf, "Qwen2MoeForCausalLM") ||
+        strstr(buf, "Qwen3MoeForCausalLM")) {
+        free(buf);
+        return 0;
+    }
+    /* Known dense families (incl. Qwen3 with optional q_norm/k_norm). */
     if (strstr(buf, "\"qwen2\"") || strstr(buf, "Qwen2ForCausalLM") ||
+        strstr(buf, "\"qwen3\"") || strstr(buf, "Qwen3ForCausalLM") ||
         strstr(buf, "\"llama\"") || strstr(buf, "LlamaForCausalLM") ||
         strstr(buf, "\"mistral\"") || strstr(buf, "MistralForCausalLM"))
         hit = 1;
-    if (strstr(buf, "glm_moe_dsa") || strstr(buf, "n_routed_experts"))
+    /* Gemma / Phi use different layer contracts — keep preview until ported. */
+    if (strstr(buf, "Gemma2ForCausalLM") || strstr(buf, "Gemma3ForCausalLM") ||
+        strstr(buf, "\"gemma2\"") || strstr(buf, "\"gemma\"") ||
+        strstr(buf, "Phi3ForCausalLM") || strstr(buf, "\"phi3\"") ||
+        strstr(buf, "\"phi\""))
         hit = 0;
     free(buf);
     return hit;
@@ -716,6 +787,8 @@ int dense_run(int argc, char **argv) {
     /* Keep OpenMP workers hot across tiny matmul regions (same idea as MoE path). */
     setenv("OMP_WAIT_POLICY", "active", 0);
     setenv("OMP_PROC_BIND", "close", 0);
+    setenv("OMP_MAX_ACTIVE_LEVELS", "1", 0);
+    setenv("OMP_NESTED", "FALSE", 0);
 
     DModel m;
     dens_model_init(&m, snap);
@@ -741,7 +814,7 @@ int dense_run(int argc, char **argv) {
     }
 
     m.max_t = np + ngen + 8;
-    m.ws_sc = falloc(m.max_t);
+    m.ws_sc = falloc((int64_t)c->n_heads * m.max_t); /* per-head score rows for OpenMP */
     m.K = calloc((size_t)c->n_layers, sizeof(float *));
     m.V = calloc((size_t)c->n_layers, sizeof(float *));
     for (int i = 0; i < c->n_layers; i++) {

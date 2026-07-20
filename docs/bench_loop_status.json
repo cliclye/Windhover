@@ -1,28 +1,20 @@
 {
-  "goal_10pct": true,
-  "goal_met": true,
-  "product_engine": "engine/kestrel-engine",
-  "oracle": "32/32",
-  "benchmark": "docs/full_bench.json",
-  "verified_by": "tools/verify_bench.py",
-  "framing": "same laptop — without Kestrel (baseline) vs with Kestrel (kestrel-engine)",
-  "protocol": {
-    "batches": 12,
-    "batch_size": 40,
-    "warmup_batches": 2,
-    "schedule": "interleaved",
-    "sha_match": true
+  "loop": "dense_opt",
+  "status": "idle",
+  "goal": "raise decode tok/s vs transformers while holding RSS ~2.4GB on Qwen2.5-Coder-1.5B",
+  "host": "MacBook Air M4 16GB",
+  "published_fair": {
+    "file": "docs/dense_qwen_bench.json",
+    "without_tok_s": 20.578,
+    "with_tok_s": 33.2,
+    "delta_pct": 61.3,
+    "rss_with_gb": 2.4
   },
-  "d_throughput_pct": 547.52,
-  "d_batch_wall_pct": -40.16,
-  "pos_per_s": {
-    "without_kestrel_mean": 11978.4,
-    "with_kestrel_mean": 77562.7
-  },
-  "batch_wall_s": {
-    "without_kestrel_mean": 0.2972,
-    "with_kestrel_mean": 0.1779
-  },
-  "timestamp_utc": "2026-07-19T22:32:03.029240+00:00",
-  "notes": "Verified fair bench on glm_tiny only: baseline engine vs kestrel-engine on the same laptop; live smoke 32/32 both sides"
+  "shipped_opts": [
+    "int4 MLP + int4 o_proj + SDOT IDOT",
+    "int8 exact q/k/v",
+    "OpenMP attention heads",
+    "Qwen3 q_norm/k_norm + broader dense routing"
+  ],
+  "notes": "Quiet-machine fair A/B is the published headline (+61%). Swap-pressure rerun kept under swap_pressure_run in dense_qwen_bench.json."
 }

@@ -20,7 +20,7 @@
 
 **Kestrel** is a clean-slate product for running open Mixture-of-Experts models on your machine. It ships:
 
-- **`kestrel-engine`** — modular CPU runtime under [`engine/`](engine/): GLM MoE **and** dense Qwen2/Llama/Mistral (int8 + IDOT)
+- **`kestrel-engine`** — modular CPU runtime under [`engine/`](engine/): GLM MoE **and** dense Qwen2/Qwen3/Llama/Mistral (int8 attn + int4 MLP + SDOT IDOT — one kernel family)
 - **Mac app** — Tauri shell around Library · Chat · Agent · Advanced
 - **CLI** — `./kestrel build | pull | app | chat | oracle`
 
@@ -85,6 +85,8 @@ Welch on batch-mean pos/s is decisive on this fixture. **Do not** treat these % 
 
 ### Frontier MoE benches (GLM-5.2 / Kimi K2.6 / K2.7 Code)
 
+Frontier MoEs use **`engine/runtime/engine.c`** (`glm_moe_dsa`) — the same int4 expert + SDOT IDOT stack as the dense path, not a separate “slow path.” Absolute tok/s will not match the 1.5B dense bench (active experts + depth differ); the **kernel family and routing** are the same once a real SNAP is installed.
+
 To fair-bench a **real** model the same way (without vs with `kestrel-engine` on this laptop) you need:
 
 1. Free disk for the HF download (~**600–756 GB**) plus convert room  
@@ -107,7 +109,7 @@ Until a real SNAP exists locally, we **publish no invented GLM/Kimi speedups**. 
 
 ### Real model · Qwen2.5-Coder-1.5B (dense engine · same laptop)
 
-`kestrel-engine` auto-detects dense Qwen2 / Llama / Mistral packs (GQA + SwiGLU) and runs them on an int8 + NEON IDOT path — not the transformers Mac-preview fallback.
+`kestrel-engine` auto-detects dense Qwen2 / Qwen3 / Llama / Mistral packs (GQA + SwiGLU; Qwen3 optional q_norm/k_norm) and runs them on the **same** int8 + int4 + NEON IDOT family as the MoE path — not the transformers Mac-preview fallback. Absolute tok/s scales with size; the optimization path does not change per model.
 
 **Protocol (verified):** decode-only tok/s on both sides (prefill excluded), same chat-templated prompt, greedy, `max_new_tokens=48`, 1 warmup + 3 trials.
 
@@ -115,10 +117,10 @@ Measured on a **MacBook Air M4 16 GB**:
 
 | | Without Kestrel | With Kestrel |
 |---|---|---|
-| Path | stock `transformers` · **CPU** · float16 | **`kestrel-engine` dense** · int8 attn + int4 MLP + SDOT |
-| Decode tok/s | **~20.1** | **~26.4** |
+| Path | stock `transformers` · **CPU** · float16 | **`kestrel-engine` dense** · int8 q/k/v + int4 o/mlp + SDOT |
+| Decode tok/s | **~20.6** | **~33.2** |
 | Peak RSS | ~6.2 GB | **~2.4 GB** |
-| Δ tok/s | — | **+31%** |
+| Δ tok/s | — | **+61%** |
 | Δ RSS | — | **−61%** |
 
 Full dump: [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json).
@@ -130,7 +132,7 @@ python3 tools/dense_qwen_bench.py
 # or: ./kestrel bench --dense
 ```
 
-**Honest takeaway:** dense `kestrel-engine` beats stock transformers CPU on this 1.5B pack on **both** decode tok/s (**+31%**) and RSS (**−61%**), via int8 attention, int4 MLP, SDOT IDOT, and exact NEON on q/k/v projections. glm_tiny **+548%** remains a micro-fixture oracle — not a % claim on Qwen.
+**Honest takeaway:** dense `kestrel-engine` beats stock transformers CPU on this 1.5B pack on **both** decode tok/s (**+61%**) and RSS (**−61%**), via int8 q/k/v, int4 o_proj+MLP, SDOT IDOT, and OpenMP attention heads. Under memory pressure the engine stayed ~25 tok/s while transformers fell to ~0.15 (swap) — usable vs thrash, but that raw % is not the quiet-machine headline. glm_tiny **+548%** remains a micro-fixture oracle — not a % claim on Qwen.
 
 ### Real model · Qwen2.5-7B Instruct (same laptop)
 
@@ -193,7 +195,7 @@ This is still **not** a frontier MoE claim.
 
 1. **Library** lists open MoE families (GLM, Qwen, Kimi, DeepSeek, Mistral, Llama) plus a **Mac 16GB** filter.  
    - **Kestrel Chat Preview** — honest small on-device chat (SmolLM2).  
-   - **Mac 16GB** — small HF instruct models under ~20GB (Qwen2.5, SmolLM2 1.7B, Phi-3.5, Gemma 2 2B, TinyLlama, R1-distill). Qwen2.5 packs route to **`kestrel-engine` dense**; others use the Mac preview path until supported.  
+   - **Mac 16GB** — small HF instruct models under ~20GB. Qwen2 / Qwen3 / Llama / Mistral-layout packs (incl. SmolLM2, TinyLlama, R1-distill-Qwen) route to **`kestrel-engine` dense**; Gemma / Phi stay on the Mac preview path until ported. Frontier MoEs (GLM-5.x, Kimi, …) use the MoE engine path after real download + convert.  
    - **Download weights** — real Hugging Face download for frontier MoEs (confirms size); **never** installs a tiny stub labeled as Kimi/Qwen/etc.  
 2. **Chat** only lists installs that are actually chat-capable. Requesting an uninstalled id (e.g. K2.6) returns an error — it will **not** silently use another model.  
 3. **Agent** — pick a folder on disk; a local model can list/read/edit files under that root only (Cursor-style, fully on-device). Prefer a small coder (e.g. Qwen2.5-Coder-1.5B) on 16GB Macs.  

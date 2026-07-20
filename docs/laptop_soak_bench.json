@@ -1,0 +1,528 @@
+{
+  "status": "ok",
+  "timestamp_utc": "2026-07-19T23:24:40.821908+00:00",
+  "framing": "same MacBook \u2014 concurrent soak without vs with Kestrel",
+  "fixture": "glm_stress synthetic MoE (laptop soak)",
+  "not_a_real_hf_model": true,
+  "not_glm52_or_kimi": true,
+  "purpose": "Push M4 16GB toward memory-compressor / CPU saturation",
+  "snap": "/Users/changhyunglee/.kestrel/models/kestrel__glm-stress",
+  "host": {
+    "platform": "darwin",
+    "logical_cpu": "10",
+    "physical_cpu": "10",
+    "mem_bytes": "17179869184",
+    "cpu_brand": "Apple M4",
+    "mem_gb": 16.0
+  },
+  "idle_vm": {
+    "free_gb": 4.013,
+    "wired_gb": 2.172,
+    "active_gb": 2.617,
+    "inactive_gb": 3.146,
+    "compressor_gb": 4.598,
+    "compressed_pages_gb": 8.103
+  },
+  "ngen": 256,
+  "omp_num_threads_per_worker": 2,
+  "levels": [
+    {
+      "concurrency": 1,
+      "without_kestrel": {
+        "concurrency": 1,
+        "wall_s": 2.385457708995091,
+        "all_ok": true,
+        "per_worker_tok_s_mean": 147.15,
+        "aggregate_tok_s": 147.15,
+        "worker_rss_mb_mean": 716.8,
+        "peak_compressor_gb": 4.598,
+        "min_free_gb": 3.277,
+        "vm_samples": [
+          {
+            "t": 1784503428.853822,
+            "free_gb": 4.01,
+            "wired_gb": 2.172,
+            "active_gb": 2.619,
+            "inactive_gb": 3.146,
+            "compressor_gb": 4.598,
+            "compressed_pages_gb": 8.103
+          },
+          {
+            "t": 1784503429.2130828,
+            "free_gb": 3.291,
+            "wired_gb": 2.173,
+            "active_gb": 3.326,
+            "inactive_gb": 3.159,
+            "compressor_gb": 4.597,
+            "compressed_pages_gb": 8.1
+          },
+          {
+            "t": 1784503429.573169,
+            "free_gb": 3.282,
+            "wired_gb": 2.173,
+            "active_gb": 3.324,
+            "inactive_gb": 3.17,
+            "compressor_gb": 4.597,
+            "compressed_pages_gb": 8.1
+          },
+          {
+            "t": 1784503429.9368489,
+            "free_gb": 3.282,
+            "wired_gb": 2.173,
+            "active_gb": 3.321,
+            "inactive_gb": 3.174,
+            "compressor_gb": 4.597,
+            "compressed_pages_gb": 8.1
+          },
+          {
+            "t": 1784503430.290912,
+            "free_gb": 3.277,
+            "wired_gb": 2.173,
+            "active_gb": 3.324,
+            "inactive_gb": 3.178,
+            "compressor_gb": 4.594,
+            "compressed_pages_gb": 8.092
+          },
+          {
+            "t": 1784503430.653117,
+            "free_gb": 3.281,
+            "wired_gb": 2.173,
+            "active_gb": 3.319,
+            "inactive_gb": 3.18,
+            "compressor_gb": 4.594,
+            "compressed_pages_gb": 8.092
+          },
+          {
+            "t": 1784503431.0161679,
+            "free_gb": 3.282,
+            "wired_gb": 2.173,
+            "active_gb": 3.317,
+            "inactive_gb": 3.179,
+            "compressor_gb": 4.594,
+            "compressed_pages_gb": 8.092
+          }
+        ],
+        "workers_n": 1,
+        "failed": 0
+      },
+      "with_kestrel": {
+        "concurrency": 1,
+        "wall_s": 2.153600040997844,
+        "all_ok": true,
+        "per_worker_tok_s_mean": 169.89,
+        "aggregate_tok_s": 169.89,
+        "worker_rss_mb_mean": 716.8,
+        "peak_compressor_gb": 4.594,
+        "min_free_gb": 3.29,
+        "vm_samples": [
+          {
+            "t": 1784503431.379358,
+            "free_gb": 4.033,
+            "wired_gb": 2.172,
+            "active_gb": 2.596,
+            "inactive_gb": 3.151,
+            "compressor_gb": 4.594,
+            "compressed_pages_gb": 8.091
+          },
+          {
+            "t": 1784503431.740821,
+            "free_gb": 3.335,
+            "wired_gb": 2.173,
+            "active_gb": 3.294,
+            "inactive_gb": 3.151,
+            "compressor_gb": 4.594,
+            "compressed_pages_gb": 8.091
+          },
+          {
+            "t": 1784503432.098546,
+            "free_gb": 3.29,
+            "wired_gb": 2.173,
+            "active_gb": 3.325,
+            "inactive_gb": 3.164,
+            "compressor_gb": 4.593,
+            "compressed_pages_gb": 8.089
+          },
+          {
+            "t": 1784503432.459848,
+            "free_gb": 3.292,
+            "wired_gb": 2.173,
+            "active_gb": 3.321,
+            "inactive_gb": 3.168,
+            "compressor_gb": 4.593,
+            "compressed_pages_gb": 8.088
+          },
+          {
+            "t": 1784503432.816816,
+            "free_gb": 3.291,
+            "wired_gb": 2.173,
+            "active_gb": 3.319,
+            "inactive_gb": 3.17,
+            "compressor_gb": 4.593,
+            "compressed_pages_gb": 8.088
+          },
+          {
+            "t": 1784503433.175773,
+            "free_gb": 3.314,
+            "wired_gb": 2.173,
+            "active_gb": 3.302,
+            "inactive_gb": 3.168,
+            "compressor_gb": 4.589,
+            "compressed_pages_gb": 8.078
+          }
+        ],
+        "workers_n": 1,
+        "failed": 0
+      }
+    },
+    {
+      "concurrency": 4,
+      "without_kestrel": {
+        "concurrency": 4,
+        "wall_s": 4.194538875002763,
+        "all_ok": true,
+        "per_worker_tok_s_mean": 82.92,
+        "aggregate_tok_s": 331.68,
+        "worker_rss_mb_mean": 716.8,
+        "peak_compressor_gb": 4.589,
+        "min_free_gb": 1.063,
+        "vm_samples": [
+          {
+            "t": 1784503434.994723,
+            "free_gb": 1.065,
+            "wired_gb": 2.174,
+            "active_gb": 4.985,
+            "inactive_gb": 3.734,
+            "compressor_gb": 4.588,
+            "compressed_pages_gb": 8.074
+          },
+          {
+            "t": 1784503435.354547,
+            "free_gb": 1.065,
+            "wired_gb": 2.174,
+            "active_gb": 4.983,
+            "inactive_gb": 3.736,
+            "compressor_gb": 4.587,
+            "compressed_pages_gb": 8.073
+          },
+          {
+            "t": 1784503435.719597,
+            "free_gb": 1.064,
+            "wired_gb": 2.174,
+            "active_gb": 4.982,
+            "inactive_gb": 3.738,
+            "compressor_gb": 4.587,
+            "compressed_pages_gb": 8.073
+          },
+          {
+            "t": 1784503436.076751,
+            "free_gb": 1.063,
+            "wired_gb": 2.174,
+            "active_gb": 4.981,
+            "inactive_gb": 3.74,
+            "compressor_gb": 4.587,
+            "compressed_pages_gb": 8.073
+          },
+          {
+            "t": 1784503436.441824,
+            "free_gb": 1.07,
+            "wired_gb": 2.177,
+            "active_gb": 4.97,
+            "inactive_gb": 3.743,
+            "compressor_gb": 4.587,
+            "compressed_pages_gb": 8.073
+          },
+          {
+            "t": 1784503436.797885,
+            "free_gb": 1.067,
+            "wired_gb": 2.177,
+            "active_gb": 4.892,
+            "inactive_gb": 3.824,
+            "compressor_gb": 4.586,
+            "compressed_pages_gb": 8.07
+          },
+          {
+            "t": 1784503437.156574,
+            "free_gb": 1.066,
+            "wired_gb": 2.177,
+            "active_gb": 4.885,
+            "inactive_gb": 3.831,
+            "compressor_gb": 4.586,
+            "compressed_pages_gb": 8.07
+          },
+          {
+            "t": 1784503437.5129,
+            "free_gb": 1.066,
+            "wired_gb": 2.174,
+            "active_gb": 4.886,
+            "inactive_gb": 3.834,
+            "compressor_gb": 4.586,
+            "compressed_pages_gb": 8.069
+          }
+        ],
+        "workers_n": 4,
+        "failed": 0
+      },
+      "with_kestrel": {
+        "concurrency": 4,
+        "wall_s": 3.994331499998225,
+        "all_ok": true,
+        "per_worker_tok_s_mean": 87.9875,
+        "aggregate_tok_s": 351.95,
+        "worker_rss_mb_mean": 711.68,
+        "peak_compressor_gb": 4.584,
+        "min_free_gb": 0.979,
+        "vm_samples": [
+          {
+            "t": 1784503439.322934,
+            "free_gb": 1.092,
+            "wired_gb": 2.174,
+            "active_gb": 4.963,
+            "inactive_gb": 3.733,
+            "compressor_gb": 4.583,
+            "compressed_pages_gb": 8.063
+          },
+          {
+            "t": 1784503439.682078,
+            "free_gb": 1.091,
+            "wired_gb": 2.174,
+            "active_gb": 4.962,
+            "inactive_gb": 3.736,
+            "compressor_gb": 4.582,
+            "compressed_pages_gb": 8.061
+          },
+          {
+            "t": 1784503440.043692,
+            "free_gb": 1.021,
+            "wired_gb": 2.243,
+            "active_gb": 4.954,
+            "inactive_gb": 3.75,
+            "compressor_gb": 4.579,
+            "compressed_pages_gb": 8.054
+          },
+          {
+            "t": 1784503440.398005,
+            "free_gb": 1.02,
+            "wired_gb": 2.243,
+            "active_gb": 4.947,
+            "inactive_gb": 3.758,
+            "compressor_gb": 4.579,
+            "compressed_pages_gb": 8.053
+          },
+          {
+            "t": 1784503440.756476,
+            "free_gb": 0.982,
+            "wired_gb": 2.243,
+            "active_gb": 4.997,
+            "inactive_gb": 3.779,
+            "compressor_gb": 4.545,
+            "compressed_pages_gb": 7.981
+          },
+          {
+            "t": 1784503441.114955,
+            "free_gb": 0.979,
+            "wired_gb": 2.243,
+            "active_gb": 4.997,
+            "inactive_gb": 3.782,
+            "compressor_gb": 4.544,
+            "compressed_pages_gb": 7.979
+          },
+          {
+            "t": 1784503441.478987,
+            "free_gb": 0.992,
+            "wired_gb": 2.177,
+            "active_gb": 4.856,
+            "inactive_gb": 3.977,
+            "compressor_gb": 4.544,
+            "compressed_pages_gb": 7.979
+          },
+          {
+            "t": 1784503441.839893,
+            "free_gb": 1.532,
+            "wired_gb": 2.176,
+            "active_gb": 4.157,
+            "inactive_gb": 4.136,
+            "compressor_gb": 4.544,
+            "compressed_pages_gb": 7.979
+          }
+        ],
+        "workers_n": 4,
+        "failed": 0
+      }
+    },
+    {
+      "concurrency": 8,
+      "without_kestrel": {
+        "concurrency": 8,
+        "wall_s": 26.190775249997387,
+        "all_ok": true,
+        "per_worker_tok_s_mean": 16.57375,
+        "aggregate_tok_s": 132.59,
+        "worker_rss_mb_mean": 634.88,
+        "peak_compressor_gb": 9.92,
+        "min_free_gb": 0.017,
+        "vm_samples": [
+          {
+            "t": 1784503465.66975,
+            "free_gb": 0.116,
+            "wired_gb": 2.247,
+            "active_gb": 4.648,
+            "inactive_gb": 4.623,
+            "compressor_gb": 4.912,
+            "compressed_pages_gb": 8.618
+          },
+          {
+            "t": 1784503466.03456,
+            "free_gb": 0.091,
+            "wired_gb": 2.256,
+            "active_gb": 4.663,
+            "inactive_gb": 4.627,
+            "compressor_gb": 4.909,
+            "compressed_pages_gb": 8.61
+          },
+          {
+            "t": 1784503466.393754,
+            "free_gb": 0.1,
+            "wired_gb": 2.256,
+            "active_gb": 4.663,
+            "inactive_gb": 4.625,
+            "compressor_gb": 4.901,
+            "compressed_pages_gb": 8.601
+          },
+          {
+            "t": 1784503466.7519748,
+            "free_gb": 0.1,
+            "wired_gb": 2.254,
+            "active_gb": 4.664,
+            "inactive_gb": 4.633,
+            "compressor_gb": 4.894,
+            "compressed_pages_gb": 8.594
+          },
+          {
+            "t": 1784503467.1097732,
+            "free_gb": 0.101,
+            "wired_gb": 2.254,
+            "active_gb": 4.665,
+            "inactive_gb": 4.636,
+            "compressor_gb": 4.889,
+            "compressed_pages_gb": 8.586
+          },
+          {
+            "t": 1784503467.475924,
+            "free_gb": 0.105,
+            "wired_gb": 2.254,
+            "active_gb": 4.667,
+            "inactive_gb": 4.637,
+            "compressor_gb": 4.884,
+            "compressed_pages_gb": 8.578
+          },
+          {
+            "t": 1784503467.83605,
+            "free_gb": 0.098,
+            "wired_gb": 2.253,
+            "active_gb": 4.673,
+            "inactive_gb": 4.643,
+            "compressor_gb": 4.879,
+            "compressed_pages_gb": 8.566
+          },
+          {
+            "t": 1784503468.194583,
+            "free_gb": 1.512,
+            "wired_gb": 2.252,
+            "active_gb": 3.782,
+            "inactive_gb": 4.222,
+            "compressor_gb": 4.778,
+            "compressed_pages_gb": 8.451
+          }
+        ],
+        "workers_n": 8,
+        "failed": 0
+      },
+      "with_kestrel": {
+        "concurrency": 8,
+        "wall_s": 12.192441207997035,
+        "all_ok": true,
+        "per_worker_tok_s_mean": 32.0925,
+        "aggregate_tok_s": 256.74,
+        "worker_rss_mb_mean": 661.76,
+        "peak_compressor_gb": 9.121,
+        "min_free_gb": 0.071,
+        "vm_samples": [
+          {
+            "t": 1784503477.910719,
+            "free_gb": 0.196,
+            "wired_gb": 2.223,
+            "active_gb": 4.833,
+            "inactive_gb": 4.699,
+            "compressor_gb": 4.595,
+            "compressed_pages_gb": 8.06
+          },
+          {
+            "t": 1784503478.2748978,
+            "free_gb": 0.189,
+            "wired_gb": 2.223,
+            "active_gb": 4.833,
+            "inactive_gb": 4.711,
+            "compressor_gb": 4.59,
+            "compressed_pages_gb": 8.049
+          },
+          {
+            "t": 1784503478.636018,
+            "free_gb": 0.184,
+            "wired_gb": 2.222,
+            "active_gb": 4.839,
+            "inactive_gb": 4.714,
+            "compressor_gb": 4.586,
+            "compressed_pages_gb": 8.041
+          },
+          {
+            "t": 1784503479.002003,
+            "free_gb": 0.184,
+            "wired_gb": 2.222,
+            "active_gb": 4.833,
+            "inactive_gb": 4.723,
+            "compressor_gb": 4.584,
+            "compressed_pages_gb": 8.038
+          },
+          {
+            "t": 1784503479.361949,
+            "free_gb": 0.125,
+            "wired_gb": 2.222,
+            "active_gb": 4.85,
+            "inactive_gb": 4.794,
+            "compressor_gb": 4.555,
+            "compressed_pages_gb": 7.974
+          },
+          {
+            "t": 1784503479.72295,
+            "free_gb": 0.12,
+            "wired_gb": 2.222,
+            "active_gb": 4.854,
+            "inactive_gb": 4.797,
+            "compressor_gb": 4.553,
+            "compressed_pages_gb": 7.969
+          },
+          {
+            "t": 1784503480.089779,
+            "free_gb": 0.117,
+            "wired_gb": 2.222,
+            "active_gb": 4.853,
+            "inactive_gb": 4.803,
+            "compressor_gb": 4.551,
+            "compressed_pages_gb": 7.963
+          },
+          {
+            "t": 1784503480.455174,
+            "free_gb": 0.271,
+            "wired_gb": 2.221,
+            "active_gb": 4.755,
+            "inactive_gb": 4.751,
+            "compressor_gb": 4.547,
+            "compressed_pages_gb": 7.956
+          }
+        ],
+        "workers_n": 8,
+        "failed": 0
+      }
+    }
+  ]
+}

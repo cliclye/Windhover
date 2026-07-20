@@ -1,0 +1,14 @@
+{
+  "status": "blocked_no_snap",
+  "timestamp_utc": "2026-07-19T23:16:49.882037+00:00",
+  "glm_tiny_is_real_model": false,
+  "disk_free_gb": 2.1395950317382812,
+  "required_examples_gb": {
+    "zai-org/GLM-5.2-FP8": 756,
+    "zai-org/GLM-5.1-FP8": 700,
+    "moonshotai/Kimi-K2.6": 600,
+    "moonshotai/Kimi-K2.7-Code": 600,
+    "moonshotai/Kimi-K2-Thinking": 600
+  },
+  "message": "Set KESTREL_SNAP to a converted real MoE checkpoint to run this bench."
+}

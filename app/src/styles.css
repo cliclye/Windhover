@@ -1086,6 +1086,115 @@ textarea {
   letter-spacing: -0.03em;
 }
 
+.agent-workspace {
+  display: flex;
+  gap: 0.6rem;
+  align-items: end;
+  margin-bottom: 0.75rem;
+}
+
+.workspace-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.workspace-field input {
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0.65rem 0.8rem;
+  outline: none;
+}
+
+.workspace-field input:focus {
+  border-color: rgba(212, 165, 116, 0.5);
+}
+
+.agent-body {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  gap: 0.85rem;
+  min-height: 16rem;
+  margin-bottom: 0.75rem;
+  flex: 1;
+}
+
+.agent-tree {
+  border: 1px solid var(--line);
+  background: var(--bg1);
+  padding: 0.75rem;
+  overflow: auto;
+  font-size: 0.82rem;
+}
+
+.agent-tree strong {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: var(--fog);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agent-tree li {
+  padding: 0.2rem 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-tree li.dir {
+  color: var(--copper);
+}
+
+.agent-thread {
+  border: 1px solid var(--line);
+  background: rgba(13, 18, 16, 0.6);
+  padding: 0.85rem;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.agent-step-head {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fog);
+  margin-bottom: 0.35rem;
+}
+
+.tool-log {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ok);
+}
+
+.tool-log li {
+  padding: 0.2rem 0;
+}
+
+.agent-pane .chat-head {
+  margin-bottom: 0.75rem;
+}
+
 @media (max-width: 640px) {
   .top {
     padding: 0.9rem 1rem;
@@ -1099,5 +1208,8 @@ textarea {
   }
   .brand-hero {
     font-size: 2.8rem;
+  }
+  .agent-body {
+    grid-template-columns: 1fr;
   }
 }

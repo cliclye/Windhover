@@ -5,7 +5,7 @@
 <h1 align="center">Kestrel</h1>
 
 <p align="center">
-  <strong>Local MoE runtime for macOS</strong> — Library, Chat, and a CPU engine that runs faster on the same laptop than the baseline path without it.
+  <strong>Local MoE runtime for macOS</strong> — a faster CPU engine on the same laptop, plus Library, Chat, and a folder-scoped Agent.
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 **Kestrel** is a clean-slate product for running open Mixture-of-Experts models on your machine. It ships:
 
 - **`kestrel-engine`** — modular CPU MoE runtime (primary binary under [`engine/`](engine/))
-- **Mac app** — Tauri shell around a Library + Chat + Advanced UI
+- **Mac app** — Tauri shell around Library · Chat · Agent · Advanced
 - **CLI** — `./kestrel build | pull | app | chat | oracle`
 
 Numerics lineage (Apache-2.0) is documented in [UPSTREAM.md](UPSTREAM.md). Kestrel is a separate product: the ship engine is **`engine/kestrel-engine`**.
@@ -52,20 +52,23 @@ Live telemetry: process RSS, latency, tok/s, selected model, backend, and the fa
 
 ## Performance
 
-Same laptop, same workload: **without** `kestrel-engine` vs **with** `kestrel-engine` on the shared **`glm_tiny`** teacher-forcing oracle.
+### Important: what `glm_tiny` is
 
-- **12 batches × 40 processes per side** (480 each), **2 warmup batches discarded**
-- **Interleaved** A/B schedule (cancels thermal bias)
-- Identical `glm_tiny` + `ref_glm.json`, stripped env, **no in-process loop cheats**, `ARCH=native` OpenMP
-- Both sides **32/32** oracle every process
+**`glm_tiny` is not a real language model.** It is a synthetic ~2 MB teacher-forcing oracle fixture (`vocab_size=256`, `hidden_size=128`, 5 tiny layers) used to prove numerics / scheduling and to compare the baseline engine path vs `kestrel-engine` on the **same laptop**. It is **not** GLM-5.2, Kimi K2.6, or any Hugging Face checkpoint.
+
+### Same laptop · without Kestrel vs with Kestrel (micro-fixture)
+
+Measured on that synthetic `glm_tiny` oracle only:
+
+- **12 batches × 40 processes per side**, warmup discarded, interleaved A/B
+- Both sides **32/32** oracle
 
 Full dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/bench-without-vs-with-kestrel.svg`](docs/screenshots/bench-without-vs-with-kestrel.svg).
 
 ```bash
-python3 tools/full_bench.py          # re-run fair protocol → docs/full_bench.json
-python3 tools/render_bench_chart.py  # refresh SVG from that JSON
-python3 tools/verify_bench.py        # assert 32/32 · ≥10% · CI
-VERIFY_BENCH_RERUN=1 python3 tools/verify_bench.py   # + live 40-proc smoke each side
+python3 tools/full_bench.py          # micro-fixture protocol → docs/full_bench.json
+python3 tools/render_bench_chart.py
+python3 tools/verify_bench.py
 ```
 
 ![Without Kestrel vs with Kestrel](docs/screenshots/bench-without-vs-with-kestrel.svg)
@@ -78,26 +81,63 @@ VERIFY_BENCH_RERUN=1 python3 tools/verify_bench.py   # + live 40-proc smoke each
 | Peak RSS (MB) | 5.83 | 5.20 | lower |
 | Oracle correctness | 32/32 | 32/32 | match |
 
-Welch test on batch-mean pos/s: t ≈ −138, p ≈ 0 — the gain is statistically decisive on this fixture. Goal gate (≥10% throughput) **met**.
+Welch on batch-mean pos/s is decisive on this fixture. **Do not** treat these % as tok/s claims on GLM-5.2 or Kimi.
 
-### What is / isn’t claimed
+### Frontier MoE benches (GLM-5.2 / Kimi K2.6 / K2.7 Code)
 
-| Claim | Status |
-|---|---|
-| Same Mac is faster **with** `kestrel-engine` than the baseline engine path on `glm_tiny` | **Measured** (this table + JSON) |
-| Same % on full HF MoE weights (GLM-5.2, Qwen3-30B-A3B, Kimi, …) | **Not measured** — do not extrapolate |
-| Catalog MoE families install/run via `kestrel-engine` | Supported path in Library |
-| Mac 16GB small models | transformers chat path — **not** this engine TF bench |
+To fair-bench a **real** model the same way (without vs with `kestrel-engine` on this laptop) you need:
 
-**How to read this**
+1. Free disk for the HF download (~**600–756 GB**) plus convert room  
+2. `./kestrel pull <id> --weights` then FP8→int4 convert where required  
+3. `KESTREL_SNAP=<converted_dir> python3 tools/real_model_bench.py`
 
-- **Without Kestrel** = baseline local MoE engine on this machine (same fixture / prompts).
-- **With Kestrel** = `engine/kestrel-engine` with the optimizations below.
-- **pos/s** is engine-reported `forward_all` throughput (excludes model load).
-- **Wall** is external process time for interleaved batches — end-to-end binary speed.
-- `glm_tiny` is an all-F32 random oracle for numerics / scheduling, not a quality benchmark.
+| Model | Approx download | Status on this repo / typical Mac |
+|---|---:|---|
+| **GLM-5.2** (`zai-org/GLM-5.2-FP8`) | ~756 GB | **Not run** — needs download + convert |
+| **Kimi K2.6** / **K2.7 Code** | ~600 GB | **Not run** — needs download + convert |
+| `glm_tiny` | ~0.002 GB | Measured above — **synthetic only** |
 
-**What moved the needle (engine)**
+```bash
+python3 tools/real_model_bench.py   # prints requirements; writes docs/real_model_bench.json
+# After you have a converted SNAP:
+KESTREL_SNAP=~/.kestrel/models/<converted> python3 tools/real_model_bench.py
+```
+
+Until a real SNAP exists locally, we **publish no invented GLM/Kimi speedups**. Status file: [`docs/real_model_bench.json`](docs/real_model_bench.json).
+
+### Real model · Qwen2.5-7B Instruct (same laptop)
+
+Installed and measured on a **MacBook Air M4 16 GB** (same machine as above):
+
+| | Without Kestrel | With Kestrel |
+|---|---|---|
+| Path | stock `transformers` · **CPU** · float16 | Kestrel Mac preview · **MPS** · float16 |
+| Download | ~15.2 GB HF weights | same local SNAP |
+| Decode tok/s | **~0.013** | **~0.008** |
+| Peak RSS | ~9.0 GB | ~9–10 GB |
+| `kestrel-engine` | — | **does not load** (dense Qwen ≠ GLM MoE SNAP) |
+
+Full dump: [`docs/qwen7b_bench.json`](docs/qwen7b_bench.json).
+
+```bash
+./kestrel pull Qwen/Qwen2.5-7B-Instruct --weights
+python3 tools/qwen7b_bench.py
+# or: ./kestrel bench --qwen
+```
+
+**Honest takeaway:** on 16 GB unified memory with a normal desktop session open, **Qwen2.5-7B fp16 is memory/swap-bound** — both sides land near **~0.01 tok/s**, so this is **not** a throughput win to advertise. Prefer ≤3–4B on this class of Mac, quit other apps / free RAM before 7B, or use a larger machine. Engine speedups in the micro-fixture section still apply only to the GLM MoE `kestrel-engine` path.
+
+### Laptop-limit stress (synthetic MoE · pushes this machine)
+
+On a **MacBook Air M4 16 GB**, a **synthetic** MoE stress SNAP (`kestrel__glm-stress`, ~1.3 GB when present) was used for without/with `kestrel-engine` single-stream and concurrent soak. See [`docs/laptop_limit_bench.json`](docs/laptop_limit_bench.json) (single-stream: without ~201 tok/s, with ~185 tok/s, Δ **−7.7%** on that fixture).
+
+```bash
+./kestrel bench --laptop
+```
+
+This is still **not** a frontier MoE claim.
+
+**What moved the needle on the micro-fixture (engine)**
 
 - Batched `lm_head` on the TF path  
 - DSA short-context skip where the baseline path still indexes every layer  
@@ -119,6 +159,8 @@ Welch test on batch-mean pos/s: t ≈ −138, p ≈ 0 — the gain is statistica
                            ├─ /api/pull        install runner pack
                            ├─ /api/uninstall   remove local pack
                            ├─ /v1/chat/...     generate
+                           ├─ /api/workspace   Agent folder root
+                           ├─ /api/agent       local tool loop (list/read/write)
                            └─ /api/stats       RSS · tok/s · routing
 ```
 
@@ -127,8 +169,9 @@ Welch test on batch-mean pos/s: t ≈ −138, p ≈ 0 — the gain is statistica
    - **Mac 16GB** — small HF instruct models under ~20GB (Qwen2.5/3, SmolLM2 1.7B, Phi-3.5, Gemma 2 2B, TinyLlama, R1-distill). Install downloads real weights.  
    - **Download weights** — real Hugging Face download for frontier MoEs (confirms size); **never** installs a tiny stub labeled as Kimi/Qwen/etc.  
 2. **Chat** only lists installs that are actually chat-capable. Requesting an uninstalled id (e.g. K2.6) returns an error — it will **not** silently use another model.  
-3. **Advanced** samples live RSS, latency, tok/s, and the true backend / weights path.  
-4. **Hard RAM ceiling** — engine budget path (`RAM_GB` / `COLI_HARD_CAP`) for production snaps.
+3. **Agent** — pick a folder on disk; a local model can list/read/edit files under that root only (Cursor-style, fully on-device). Prefer a small coder (e.g. Qwen2.5-Coder-1.5B) on 16GB Macs.  
+4. **Advanced** samples live RSS, latency, tok/s, and the true backend / weights path.  
+5. **Hard RAM ceiling** — engine budget path (`RAM_GB` / `COLI_HARD_CAP`) for production snaps.
 
 ---
 
@@ -187,12 +230,17 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) or the Mac `.app`.
 ### Fair bench (same laptop)
 
 ```bash
-./kestrel bench              # full 12×40 interleaved protocol → JSON + SVG + verify
-./kestrel bench --smoke      # same, then live 40-proc re-check each side
-./kestrel bench --quick      # shorter smoke protocol (not for README claims)
+./kestrel bench              # synthetic glm_tiny micro-fixture (not a real model)
+./kestrel bench --smoke
+./kestrel bench --qwen       # Qwen2.5-7B without/with Mac preview (needs pull)
+./kestrel bench --laptop     # glm_stress single-stream + concurrent soak (16GB class)
+./kestrel bench --real       # GLM-5.2 / Kimi — needs KESTREL_SNAP + hundreds of GB free
 ```
 
-Compares **without Kestrel** (baseline local MoE engine) vs **with Kestrel** (`kestrel-engine`) on the same machine and fixture. Numbers: [`docs/full_bench.json`](docs/full_bench.json). Gates: `python3 tools/verify_bench.py`.
+Micro-fixture numbers: [`docs/full_bench.json`](docs/full_bench.json).  
+Qwen2.5-7B: [`docs/qwen7b_bench.json`](docs/qwen7b_bench.json).  
+Laptop-limit: [`docs/laptop_limit_bench.json`](docs/laptop_limit_bench.json), [`docs/laptop_soak_bench.json`](docs/laptop_soak_bench.json).  
+Frontier status: [`docs/real_model_bench.json`](docs/real_model_bench.json).
 
 ---
 

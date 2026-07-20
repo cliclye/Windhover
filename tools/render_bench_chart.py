@@ -107,7 +107,7 @@ def render(data: dict) -> str:
   </defs>
   <rect width="{w}" height="{h}" fill="url(#bg)" rx="12"/>
   <text x="{pad_l}" y="28" class="title">Same laptop · without Kestrel vs with Kestrel</text>
-  <text x="{pad_l}" y="48" class="sub">glm_tiny TF oracle · {batches}×{batch_size} procs/side interleaved · 32/32 · { _esc(ts) }</text>
+  <text x="{pad_l}" y="48" class="sub">SYNTHETIC glm_tiny oracle only (not GLM-5.2 / Kimi) · {batches}×{batch_size} · 32/32 · { _esc(ts) }</text>
 
   <rect x="24" y="64" width="{pos_panel_w}" height="280" rx="10" fill="#ffffff" stroke="#d5ddd7"/>
   <text x="44" y="88" class="panel">Prefill throughput (pos/s)</text>
@@ -125,7 +125,7 @@ def render(data: dict) -> str:
   <text x="44" y="386" class="panel">What this measures</text>
   <text x="44" y="408" class="foot">• Same Mac, same fixture, same prompts — baseline local MoE engine path vs kestrel-engine</text>
   <text x="44" y="426" class="foot">• Interleaved A/B batches · warmup discarded · Welch on batch means · both sides 32/32 oracle</text>
-  <text x="44" y="444" class="foot">• Only this fixture is claimed. Full HF MoE checkpoints are not fair-benched here.</text>
+  <text x="44" y="444" class="foot">• glm_tiny is synthetic (~2MB). Frontier MoE (GLM-5.2 / Kimi): tools/real_model_bench.py after download.</text>
 
   <g transform="translate(44, 488)">
     <rect width="12" height="12" rx="2" fill="#8a9096"/>

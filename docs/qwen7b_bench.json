@@ -1,0 +1,70 @@
+{
+  "status": "ok_memory_bound",
+  "timestamp_utc": "2026-07-20T06:25:00+00:00",
+  "framing": "same MacBook — without Kestrel vs with Kestrel",
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "model_kind": "real_hf_dense",
+  "not_glm52_or_kimi": true,
+  "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-7B-Instruct",
+  "size_gb": 15.24,
+  "host": {
+    "platform": "darwin",
+    "logical_cpu": "10",
+    "physical_cpu": "10",
+    "mem_bytes": "17179869184",
+    "cpu_brand": "Apple M4",
+    "mem_gb": 16.0
+  },
+  "prompt": "Explain MoE routing and KV-cache pressure on a 16GB MacBook Air in two short paragraphs.",
+  "protocol": {
+    "without_kestrel": "stock transformers · CPU · float16",
+    "with_kestrel": "Kestrel Mac preview · MPS · float16 (Library chat path for hf_small)",
+    "note": "Dense Qwen is not a kestrel-engine SNAP. On this 16GB M4 Air under normal desktop load, fp16 7B decode is memory/swap bound on both CPU and MPS — numbers below are measured, not invented."
+  },
+  "kestrel_engine_probe": {
+    "tried": true,
+    "rc": 1,
+    "loads": false,
+    "note": "Qwen2 dense ≠ GLM MoE SNAP; Kestrel serves this model via Mac preview (transformers+MPS)."
+  },
+  "without_kestrel": {
+    "status": "ok",
+    "backend": "stock-transformers/cpu/float16",
+    "device": "cpu",
+    "load_s": 26.2,
+    "n": 1,
+    "max_new_tokens": 8,
+    "tok_s_mean": 0.01253164421693514,
+    "wall_s_mean": 638.38,
+    "rss_mb_mean": 9031.3,
+    "preview": "measured generate completed"
+  },
+  "with_kestrel": {
+    "status": "ok",
+    "backend": "kestrel-preview/mps/float16",
+    "device": "mps",
+    "load_s": 216.19,
+    "n": 2,
+    "trials": [
+      {
+        "max_new_tokens": 4,
+        "tok_s": 0.008322875763478892,
+        "wall_s": 480.603,
+        "rss_mb": 9943.6
+      },
+      {
+        "max_new_tokens": 8,
+        "tok_s": 0.0077191016891589755,
+        "wall_s": 1036.39,
+        "rss_mb": 8215.7,
+        "note": "warmup after load (not cold-compile only — sustained thrash)"
+      }
+    ],
+    "tok_s_mean": 0.008020988726318934,
+    "wall_s_mean": 758.5,
+    "rss_mb_mean": 9079.65
+  },
+  "tok_s_delta_pct": -36.0,
+  "verdict": "On 16GB unified memory with desktop apps open, Qwen2.5-7B fp16 is not a usable throughput config. Both stock CPU and Kestrel MPS land near ~0.01 tok/s under swap pressure. Prefer ≤3–4B on this machine, or free RAM / use a larger Mac for 7B.",
+  "reproduce": "python3 tools/qwen7b_bench.py  # after: ./kestrel pull Qwen/Qwen2.5-7B-Instruct --weights"
+}

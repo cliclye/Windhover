@@ -37,6 +37,12 @@ PREVIEW_REPO = os.environ.get("KESTREL_PREVIEW_MODEL", "HuggingFaceTB/SmolLM2-36
 _PREVIEW_PIPES: dict[str, tuple] = {}
 _PULL_JOBS: dict[str, dict] = {}
 _PULL_LOCK = threading.Lock()
+_WORKSPACE: dict = {"root": None}  # user-selected coding folder for Agent tab
+sys.path.insert(0, str(ROOT / "tools"))
+try:
+    import agent_workspace as _agent_ws  # type: ignore
+except ImportError:
+    _agent_ws = None  # type: ignore
 _LAST_STATS: dict = {
     "rss_mb": 0.0,
     "latency_ms": 0.0,
@@ -283,7 +289,7 @@ def _preview_chat(
         device = next(model.parameters()).device
         inputs = {k: v.to(device) for k, v in inputs.items()}
         gen_kwargs = {
-            "max_new_tokens": max(16, min(int(max_tokens), 256)),
+            "max_new_tokens": max(16, min(int(max_tokens), 512)),
             "pad_token_id": tok.eos_token_id,
         }
         if float(temperature) > 0:
@@ -375,6 +381,135 @@ def _engine_chat(snap: Path, prompt: str, max_tokens: int, temperature: float) -
     }
     _LAST_STATS.update(stats)
     return text, stats
+
+
+def _agent_run(
+    *,
+    snap: Path,
+    workspace: Path,
+    prompt: str,
+    max_steps: int = 8,
+    max_tokens: int = 256,
+    temperature: float = 0.2,
+) -> dict:
+    """Host-side tool loop: local LLM proposes tools; we execute under workspace."""
+    if _agent_ws is None:
+        return {"ok": False, "error": "agent_workspace module missing"}
+    root = workspace.resolve()
+    if not root.is_dir():
+        return {"ok": False, "error": f"workspace not a directory: {root}"}
+    mode = _chat_mode(snap)
+    if mode == "blocked":
+        return {"ok": False, "error": "model is a fake stub — uninstall it"}
+    if mode not in ("preview", "engine", "engine-oracle"):
+        return {"ok": False, "error": f"model not chat-capable (mode={mode})"}
+
+    steps: list[dict] = []
+    tool_results: list[dict] = []
+    final_summary = ""
+    last_text = ""
+    wrote_ok = False
+    edit_intent = any(
+        w in prompt.lower()
+        for w in (
+            "edit",
+            "change",
+            "add",
+            "insert",
+            "fix",
+            "write",
+            "create",
+            "update",
+            "refactor",
+            "docstring",
+            "str_replace",
+            "implement",
+        )
+    )
+
+    for step_i in range(max(1, min(int(max_steps), 12))):
+        messages = _agent_ws.build_agent_messages(
+            user_prompt=prompt,
+            workspace_root=str(root),
+            tool_results=tool_results or None,
+        )
+        if edit_intent and not wrote_ok and step_i > 0:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "You have not successfully written a file yet. "
+                        "You MUST call str_replace or write_file before finish. "
+                        "Do not call finish until a write tool returns ok:true."
+                    ),
+                }
+            )
+        if mode == "preview":
+            text, stats = _preview_chat(messages, max_tokens, temperature, snap=snap)
+        else:
+            flat = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+            text, stats = _engine_chat(snap, flat[-4000:], max_tokens, temperature)
+        last_text = text or ""
+        calls = _agent_ws.parse_tool_calls(last_text)
+        step: dict = {
+            "step": step_i + 1,
+            "assistant": last_text[:4000],
+            "tool_calls": calls,
+            "tool_results": [],
+            "stats": {
+                "tokens_per_sec": stats.get("tokens_per_sec"),
+                "latency_ms": stats.get("latency_ms"),
+                "backend": stats.get("backend"),
+            },
+        }
+        if not calls:
+            if edit_intent and not wrote_ok and step_i + 1 < max_steps:
+                tool_results = [
+                    {
+                        "ok": False,
+                        "error": "No tool call parsed. Emit a ```tool JSON block (str_replace or write_file).",
+                    }
+                ]
+                step["tool_results"] = tool_results
+                steps.append(step)
+                continue
+            final_summary = last_text.strip() or "(no tool calls; empty reply)"
+            step["done"] = True
+            steps.append(step)
+            break
+
+        tool_results = []
+        finished = False
+        for call in calls:
+            name = (call.get("name") or call.get("tool") or "").strip()
+            if name == "finish" and edit_intent and not wrote_ok:
+                result = {
+                    "tool": "finish",
+                    "ok": False,
+                    "error": "Refused finish: no successful write yet. Call str_replace or write_file first.",
+                }
+            else:
+                result = _agent_ws.run_tool(root, call)
+            tool_results.append(result)
+            step["tool_results"].append(result)
+            if name in ("write_file", "str_replace") and result.get("ok"):
+                wrote_ok = True
+            if name == "finish" and result.get("ok"):
+                final_summary = result.get("summary") or "done"
+                finished = True
+        steps.append(step)
+        if finished:
+            break
+
+    return {
+        "ok": True,
+        "workspace": str(root),
+        "model": _snap_meta(snap).get("id") or snap.name,
+        "steps": steps,
+        "summary": final_summary or last_text[:2000],
+        "step_count": len(steps),
+        "wrote": wrote_ok,
+    }
 
 
 def _ensure_nofile() -> None:
@@ -998,6 +1133,36 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                 if not job:
                     return self._json(404, {"error": "unknown job", "job_id": job_id})
                 return self._json(200, {"ok": True, **job})
+            if path == "/api/workspace":
+                root = _WORKSPACE.get("root")
+                return self._json(
+                    200,
+                    {"ok": True, "root": root, "agent": _agent_ws is not None},
+                )
+            if path == "/api/workspace/tree":
+                root_s = _WORKSPACE.get("root")
+                if not root_s:
+                    return self._json(400, {"ok": False, "error": "no workspace set — POST /api/workspace first"})
+                if _agent_ws is None:
+                    return self._json(500, {"ok": False, "error": "agent_workspace missing"})
+                rel = (qs.get("path") or ["."])[0]
+                try:
+                    return self._json(200, _agent_ws.list_dir(Path(root_s), rel))
+                except Exception as e:
+                    return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            if path == "/api/workspace/file":
+                root_s = _WORKSPACE.get("root")
+                if not root_s:
+                    return self._json(400, {"ok": False, "error": "no workspace set"})
+                if _agent_ws is None:
+                    return self._json(500, {"ok": False, "error": "agent_workspace missing"})
+                rel = (qs.get("path") or [None])[0]
+                if not rel:
+                    return self._json(400, {"ok": False, "error": "missing path"})
+                try:
+                    return self._json(200, _agent_ws.read_file(Path(root_s), rel))
+                except Exception as e:
+                    return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
             # static app
             root = app_dist if (app_dist.is_dir() and (app_dist / "index.html").is_file()) else app_public
             rel = "index.html" if path in ("/", "") else path.lstrip("/")
@@ -1128,6 +1293,58 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
             if path == "/api/purge-impostors":
                 rc = cmd_purge_impostors(argparse.Namespace())
                 return self._json(200, {"ok": True, "purged": True, "rc": rc, "installed": _list_installed()})
+            if path == "/api/workspace":
+                root = (body.get("root") or body.get("path") or "").strip()
+                if not root:
+                    return self._json(400, {"ok": False, "error": "missing root"})
+                if _agent_ws is None:
+                    return self._json(500, {"ok": False, "error": "agent_workspace missing"})
+                try:
+                    info = _agent_ws.set_workspace(root)
+                    _WORKSPACE["root"] = info["root"]
+                    return self._json(200, info)
+                except Exception as e:
+                    return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            if path == "/api/agent":
+                if _agent_ws is None:
+                    return self._json(500, {"ok": False, "error": "agent_workspace missing"})
+                root_s = body.get("workspace") or body.get("root") or _WORKSPACE.get("root")
+                if not root_s:
+                    return self._json(
+                        400,
+                        {"ok": False, "error": "set a workspace folder first (POST /api/workspace)"},
+                    )
+                prompt = (body.get("prompt") or body.get("message") or "").strip()
+                if not prompt:
+                    return self._json(400, {"ok": False, "error": "empty prompt"})
+                snap = _resolve_model_dir(body.get("model"), model)
+                if snap is None or not snap.is_dir():
+                    return self._json(
+                        404,
+                        {
+                            "ok": False,
+                            "error": "Model not installed. Install Chat Preview or a Mac 16GB coder from Library.",
+                        },
+                    )
+                # Persist workspace if provided in body
+                try:
+                    info = _agent_ws.set_workspace(str(root_s))
+                    _WORKSPACE["root"] = info["root"]
+                except Exception as e:
+                    return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+                max_steps = int(body.get("max_steps") or 8)
+                max_tokens = int(body.get("max_tokens") or 256)
+                temperature = float(body.get("temperature") if body.get("temperature") is not None else 0.2)
+                result = _agent_run(
+                    snap=snap,
+                    workspace=Path(_WORKSPACE["root"]),
+                    prompt=prompt,
+                    max_steps=max_steps,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                code = 200 if result.get("ok") else 400
+                return self._json(code, result)
             if path in ("/v1/chat/completions", "/api/chat"):
                 snap = _resolve_model_dir(body.get("model"), model)
                 requested = body.get("model")
@@ -1238,6 +1455,29 @@ def cmd_app(ns: argparse.Namespace) -> int:
 
 def cmd_bench(ns: argparse.Namespace) -> int:
     """Run fair stock vs kestrel bench, refresh chart, verify gates."""
+    if getattr(ns, "real", False):
+        script = ROOT / "tools" / "real_model_bench.py"
+        if not script.is_file():
+            print(f"missing {script}", file=sys.stderr)
+            return 1
+        return subprocess.call([sys.executable, str(script)], cwd=str(ROOT))
+    if getattr(ns, "qwen", False):
+        script = ROOT / "tools" / "qwen7b_bench.py"
+        if not script.is_file():
+            print(f"missing {script}", file=sys.stderr)
+            return 1
+        return subprocess.call([sys.executable, str(script)], cwd=str(ROOT))
+    if getattr(ns, "laptop", False):
+        # Max-feasible stress on this machine (synthetic MoE; not GLM-5.2/Kimi).
+        for name in ("laptop_limit_bench.py", "laptop_soak_bench.py"):
+            script = ROOT / "tools" / name
+            if not script.is_file():
+                print(f"missing {script}", file=sys.stderr)
+                return 1
+            rc = subprocess.call([sys.executable, str(script)], cwd=str(ROOT))
+            if rc != 0:
+                return rc
+        return 0
     script = ROOT / "tools" / "full_bench.py"
     verify = ROOT / "tools" / "verify_bench.py"
     chart = ROOT / "tools" / "render_bench_chart.py"
@@ -1319,6 +1559,21 @@ def main() -> int:
         "--smoke",
         action="store_true",
         help="after verify, also re-run one live 40-proc batch each side",
+    )
+    p.add_argument(
+        "--real",
+        action="store_true",
+        help="frontier MoE bench (needs KESTREL_SNAP); refuses glm_tiny",
+    )
+    p.add_argument(
+        "--qwen",
+        action="store_true",
+        help="Qwen2.5-7B without/with Kestrel Mac preview (needs ./kestrel pull … --weights)",
+    )
+    p.add_argument(
+        "--laptop",
+        action="store_true",
+        help="laptop-limit + concurrent soak on glm_stress (synthetic; pushes 16GB class)",
     )
 
     p = sp.add_parser("doctor", help="diagnostics")

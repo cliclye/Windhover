@@ -59,7 +59,16 @@ type PullProgress = {
   bytes?: number;
 };
 
-type Tab = "library" | "chat" | "advanced";
+type Tab = "library" | "chat" | "agent" | "advanced";
+
+type AgentStep = {
+  step: number;
+  assistant?: string;
+  tool_calls?: Array<Record<string, unknown>>;
+  tool_results?: Array<Record<string, unknown>>;
+  stats?: ChatStats;
+  done?: boolean;
+};
 
 const FAMILIES = [
   { id: "all", label: "All" },
@@ -137,6 +146,12 @@ export function App() {
     null
   );
   const [progress, setProgress] = useState<PullProgress | null>(null);
+  const [workspace, setWorkspace] = useState("");
+  const [agentInput, setAgentInput] = useState("");
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
+  const [agentSummary, setAgentSummary] = useState("");
+  const [tree, setTree] = useState<Array<{ name: string; path: string; type: string; size?: number | null }>>([]);
   const threadRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef<string | null>(null);
   const progressRef = useRef<PullProgress | null>(null);
@@ -404,6 +419,83 @@ export function App() {
     }
   }
 
+  async function applyWorkspace(path?: string) {
+    const root = (path ?? workspace).trim();
+    if (!root) {
+      setStatus("Enter a folder path on this Mac");
+      return;
+    }
+    try {
+      const r = await fetch(apiUrl("/api/workspace"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ root }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        setStatus(j.error || "Could not set workspace");
+        return;
+      }
+      setWorkspace(String(j.root));
+      setStatus(`Workspace: ${j.root}`);
+      const treeR = await fetch(apiUrl("/api/workspace/tree?path=.")).then((x) => x.json());
+      if (treeR.ok) setTree(treeR.entries || []);
+      else setTree([]);
+    } catch (e) {
+      setStatus(String(e));
+    }
+  }
+
+  async function runAgent() {
+    const text = agentInput.trim();
+    if (!text || agentBusy) return;
+    const modelId = activeModel || chatCapable[0]?.id;
+    if (!modelId) {
+      setStatus("Install a chat-capable model from Library first");
+      setTab("library");
+      return;
+    }
+    if (!workspace.trim()) {
+      setStatus("Select a workspace folder first");
+      return;
+    }
+    setAgentBusy(true);
+    setAgentSteps([]);
+    setAgentSummary("");
+    setStatus("Agent running…");
+    try {
+      await applyWorkspace(workspace);
+      const r = await fetch(apiUrl("/api/agent"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: modelId,
+          workspace,
+          prompt: text,
+          max_steps: 8,
+          max_tokens: 384,
+          temperature: 0.15,
+        }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        setStatus(j.error || "Agent failed");
+        setAgentSummary(String(j.error || "failed"));
+        return;
+      }
+      setAgentSteps((j.steps || []) as AgentStep[]);
+      setAgentSummary(String(j.summary || "done"));
+      setStatus(`Agent finished · ${j.step_count || 0} step(s)`);
+      const treeR = await fetch(apiUrl("/api/workspace/tree?path=.")).then((x) => x.json());
+      if (treeR.ok) setTree(treeR.entries || []);
+    } catch (e) {
+      setStatus(String(e));
+      setAgentSummary(String(e));
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
   return (
     <div className="shell">
       <div className="sky" aria-hidden />
@@ -473,6 +565,9 @@ export function App() {
             </button>
             <button type="button" className={tab === "chat" ? "active" : ""} onClick={() => setTab("chat")}>
               Chat
+            </button>
+            <button type="button" className={tab === "agent" ? "active" : ""} onClick={() => setTab("agent")}>
+              Agent
             </button>
             <button type="button" className={tab === "advanced" ? "active" : ""} onClick={() => setTab("advanced")}>
               Advanced
@@ -749,6 +844,144 @@ export function App() {
                 onClick={() => void send()}
               >
                 {sending ? "…" : "Send"}
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "agent" ? (
+          <section className="chat-pane agent-pane">
+            <header className="chat-head">
+              <div>
+                <h1>Agent</h1>
+                <p>Local LLM edits a folder you pick — list / read / write under that root only</p>
+              </div>
+              <label className="model-pick">
+                <span>Model</span>
+                <select
+                  value={activeModel}
+                  onChange={(e) => setActiveModel(e.target.value)}
+                  disabled={!chatCapable.length}
+                >
+                  {!chatCapable.length ? <option value="">Install a model</option> : null}
+                  {chatCapable.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name || m.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </header>
+
+            <div className="agent-workspace">
+              <label className="workspace-field">
+                <span>Folder</span>
+                <input
+                  value={workspace}
+                  onChange={(e) => setWorkspace(e.target.value)}
+                  placeholder="/path/to/your/project"
+                  disabled={agentBusy}
+                />
+              </label>
+              <button type="button" className="btn ghost" disabled={agentBusy} onClick={() => void applyWorkspace()}>
+                Use folder
+              </button>
+            </div>
+
+            <div className="agent-body">
+              <aside className="agent-tree" aria-label="Workspace files">
+                <strong>Files</strong>
+                {tree.length === 0 ? (
+                  <p className="muted">Set a folder to list files</p>
+                ) : (
+                  <ul>
+                    {tree.map((e) => (
+                      <li key={e.path} className={e.type === "dir" ? "dir" : "file"}>
+                        {e.type === "dir" ? "▸ " : ""}
+                        {e.name}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </aside>
+              <div className="agent-thread">
+                {agentSteps.length === 0 && !agentBusy ? (
+                  <div className="empty">
+                    <strong>Prompt the local agent.</strong>
+                    <span>
+                      Pick a project folder, choose a model (Coder 1.5B works well on 16GB), then ask it to
+                      change files — like a lightweight Cursor, fully on-device.
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    {agentSteps.map((s) => (
+                      <div className="agent-step" key={s.step}>
+                        <div className="agent-step-head">Step {s.step}</div>
+                        {s.tool_results?.length ? (
+                          <ul className="tool-log">
+                            {s.tool_results.map((tr, i) => (
+                              <li key={i}>
+                                <code>{String((tr as { tool?: string }).tool || "tool")}</code>
+                                {(tr as { ok?: boolean }).ok === false
+                                  ? ` · ${(tr as { error?: string }).error || "failed"}`
+                                  : (tr as { path?: string }).path
+                                    ? ` · ${(tr as { path?: string }).path}`
+                                    : (tr as { summary?: string }).summary
+                                      ? ` · ${(tr as { summary?: string }).summary}`
+                                      : " · ok"}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {s.assistant ? (
+                          <div className="bubble assistant md">
+                            <MarkdownBody text={s.assistant.slice(0, 1200)} />
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                    {agentBusy ? (
+                      <div className="bubble assistant thinking" aria-live="polite">
+                        <span className="think-dots">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        Agent working in your folder…
+                      </div>
+                    ) : null}
+                    {agentSummary && !agentBusy ? (
+                      <div className="bubble assistant">
+                        <strong>Done.</strong> {agentSummary}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="composer">
+              <textarea
+                value={agentInput}
+                onChange={(e) => setAgentInput(e.target.value)}
+                placeholder="e.g. Add a hello() function to main.py and a one-line docstring"
+                rows={2}
+                disabled={agentBusy}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void runAgent();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn primary"
+                disabled={agentBusy || !chatCapable.length}
+                onClick={() => void runAgent()}
+              >
+                {agentBusy ? "…" : "Run"}
               </button>
             </div>
           </section>

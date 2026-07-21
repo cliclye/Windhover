@@ -1,0 +1,307 @@
+{
+  "generated_at": "2026-07-21T20:41:33.559137+00:00",
+  "host": {
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpu": "Apple M4",
+    "mem_gb": 16.0
+  },
+  "model": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct",
+  "gates": {
+    "g1_kernel_ceiling": {
+      "result": {
+        "probe": "g1",
+        "shapes": {
+          "gate_1.5b": {
+            "O": 8960,
+            "I": 1536,
+            "threads": 4,
+            "int8_row": {
+              "gbs": 237.9,
+              "ms": 0.058
+            },
+            "int4_row": {
+              "gbs": 94.8,
+              "ms": 0.073,
+              "rel_err": 0.598
+            },
+            "int4_g64": {
+              "gbs": 90.3,
+              "ms": 0.081,
+              "rel_err": 0.125
+            }
+          },
+          "down_1.5b": {
+            "O": 1536,
+            "I": 8960,
+            "threads": 4,
+            "int8_row": {
+              "gbs": 255.0,
+              "ms": 0.054
+            },
+            "int4_row": {
+              "gbs": 95.7,
+              "ms": 0.072,
+              "rel_err": 0.57
+            },
+            "int4_g64": {
+              "gbs": 91.4,
+              "ms": 0.08,
+              "rel_err": 0.0811
+            }
+          },
+          "lm_1.5b": {
+            "O": 151936,
+            "I": 1536,
+            "threads": 4,
+            "int8_row": {
+              "gbs": 73.2,
+              "ms": 3.195
+            },
+            "int4_row": {
+              "gbs": 78.1,
+              "ms": 1.501,
+              "rel_err": 0.619
+            },
+            "int4_g64": {
+              "gbs": 77.3,
+              "ms": 1.603,
+              "rel_err": 0.136
+            }
+          },
+          "gate_7b": {
+            "O": 18944,
+            "I": 3584,
+            "threads": 4,
+            "int8_row": {
+              "gbs": 79.8,
+              "ms": 0.852
+            },
+            "int4_row": {
+              "gbs": 86.4,
+              "ms": 0.394,
+              "rel_err": 0.525
+            },
+            "int4_g64": {
+              "gbs": 86.1,
+              "ms": 0.419,
+              "rel_err": 0.085
+            }
+          },
+          "down_7b": {
+            "O": 3584,
+            "I": 18944,
+            "threads": 4,
+            "int8_row": {
+              "gbs": 81.3,
+              "ms": 0.835
+            },
+            "int4_row": {
+              "gbs": 87.8,
+              "ms": 0.387,
+              "rel_err": 0.517
+            },
+            "int4_g64": {
+              "gbs": 85.7,
+              "ms": 0.421,
+              "rel_err": 0.0897
+            }
+          }
+        }
+      },
+      "criterion": "int4-g64 GEMV >= 55 GB/s effective on 4 P-threads (big shapes)",
+      "measured_min_gbs": 77.3,
+      "pass": true,
+      "notes": "int4_row rel_err vs f64 is several x worse than int4_g64 on outlier-heavy rows; g64 kernel costs <5% bandwidth vs row scales."
+    },
+    "g5_sme2_prefill": {
+      "result": {
+        "probe": "g5",
+        "O": 8960,
+        "I": 1536,
+        "S": 64,
+        "sdot_pertoken": {
+          "ms": 3.61,
+          "gops": 487
+        },
+        "i8mm": {
+          "ms": 6.92,
+          "gops": 255,
+          "match": 1
+        },
+        "sme2": {
+          "ms": 0.93,
+          "gops": 1896,
+          "match": 1
+        }
+      },
+      "criterion": "SME2 int8 GEMM >= 2x best NEON path at S=64",
+      "measured_ratio": 3.89,
+      "pass": true
+    },
+    "g4_mmap_residency": {
+      "result": {
+        "probe": "g4",
+        "file_gb": 3.09,
+        "footprint_gb": {
+          "start": 0.0,
+          "mapped": 0.0,
+          "touched": 0.0,
+          "under_pressure": 0.0,
+          "end": 0.0
+        },
+        "cold_pagein_gbs": 0.67,
+        "warm_touch_gbs": 49.81,
+        "retouch_after_pressure_gbs": 2037.93
+      },
+      "criterion": "mmap'd clean pages stay out of phys_footprint; warm re-touch fast; no compressor spiral under pressure",
+      "pass": true,
+      "notes": "phys_footprint is what macOS pressure/jetsam accounting uses; file-backed clean pages are reclaimable without swap."
+    },
+    "g3_speculation": {
+      "sweep": {
+        "nmin2_k8": {
+          "code": {
+            "tokens": 121870,
+            "steps": 76547,
+            "tokens_per_step": 1.592,
+            "draft_acceptance": 0.143,
+            "modeled_speedup": 1.195
+          },
+          "prose": {
+            "tokens": 11682,
+            "steps": 9714,
+            "tokens_per_step": 1.202,
+            "draft_acceptance": 0.081,
+            "modeled_speedup": 1.003
+          }
+        },
+        "nmin3_k8": {
+          "code": {
+            "tokens": 121870,
+            "steps": 84820,
+            "tokens_per_step": 1.437,
+            "draft_acceptance": 0.19,
+            "modeled_speedup": 1.214
+          },
+          "prose": {
+            "tokens": 11682,
+            "steps": 10345,
+            "tokens_per_step": 1.129,
+            "draft_acceptance": 0.127,
+            "modeled_speedup": 1.044
+          }
+        },
+        "nmin3_k12": {
+          "code": {
+            "tokens": 121870,
+            "steps": 83988,
+            "tokens_per_step": 1.451,
+            "draft_acceptance": 0.135,
+            "modeled_speedup": 1.145
+          },
+          "prose": {
+            "tokens": 11682,
+            "steps": 10328,
+            "tokens_per_step": 1.13,
+            "draft_acceptance": 0.088,
+            "modeled_speedup": 1.01
+          }
+        },
+        "nmin4_k8": {
+          "code": {
+            "tokens": 121870,
+            "steps": 91765,
+            "tokens_per_step": 1.328,
+            "draft_acceptance": 0.245,
+            "modeled_speedup": 1.199
+          },
+          "prose": {
+            "tokens": 11682,
+            "steps": 10738,
+            "tokens_per_step": 1.087,
+            "draft_acceptance": 0.185,
+            "modeled_speedup": 1.048
+          }
+        }
+      },
+      "best_config": "nmin3_k8",
+      "criterion": "modeled decode multiplier >= 1.25x on code/agent text (prose must not regress)",
+      "measured_code_speedup": 1.214,
+      "pass": false,
+      "decision": "MARGINAL: ~1.2x on code, ~1.0x on prose. Speculation is demoted from core pillar to opt-in flag (WH_SPEC=1) for code/agent workloads; excluded from headline projections. Revisit with session-level suffix reuse (agent edit loops repeat far more than a linear read of this corpus).",
+      "notes": "Proxy acceptance vs ground-truth continuations of repo text; upper-bounds n-gram-only acceptance on similar distributions."
+    },
+    "g6_ssd_streaming": {
+      "result": {
+        "probe": "g6",
+        "file_gb": 10.74,
+        "runs": {
+          "24KBx1": 0.43,
+          "24KBx2": 0.83,
+          "24KBx4": 1.26,
+          "24KBx8": 1.79,
+          "32KBx1": 0.56,
+          "32KBx2": 1.01,
+          "32KBx4": 1.53,
+          "32KBx8": 2.06,
+          "64KBx1": 0.95,
+          "64KBx2": 1.73,
+          "64KBx4": 2.29,
+          "64KBx8": 2.92
+        }
+      },
+      "criterion": "cold random reads >= 1.5 GB/s at chosen AU bundle size",
+      "measured_64kb_gbs": 2.92,
+      "measured_32kb_gbs": 2.06,
+      "pass": true,
+      "decision": "AU cold-fetch granularity = 64KB min (32KB is borderline, 24KB fails); batch neuron bundles into >=64KB reads."
+    },
+    "g2_quality": {
+      "device": "mps",
+      "seq_len": 1024,
+      "eval_windows": 22,
+      "corpus_tokens": 133552,
+      "variants": {
+        "baseline_fp16": {
+          "ppl": 11.741296092124617,
+          "delta_pct": 0.0
+        },
+        "today_profile": {
+          "ppl": 14.365430108968797,
+          "delta_pct": 22.35
+        },
+        "wh_a_all4": {
+          "ppl": 12.189934295008275,
+          "delta_pct": 3.82
+        },
+        "wh_b_attn8": {
+          "ppl": 12.121835401694858,
+          "delta_pct": 3.24
+        },
+        "wh_c_attn8_lm8": {
+          "ppl": 12.02624048644888,
+          "delta_pct": 2.43
+        },
+        "wh_c_attn8_lm8+kv8g32": {
+          "ppl": 12.07108382332723,
+          "delta_pct": 2.81
+        },
+        "wh_c_attn8_lm8+cats25": {
+          "ppl": 12.136329751949404,
+          "realized_sparsity": 0.257,
+          "delta_pct": 3.36
+        },
+        "wh_c_attn8_lm8+cats40": {
+          "ppl": 12.758774276183452,
+          "realized_sparsity": 0.398,
+          "delta_pct": 8.67
+        }
+      },
+      "best_wh_profile": "wh_c_attn8_lm8",
+      "criterion": "best WH profile <= today_profile +0.5pp PPL at ~40% fewer bytes; kv8g32 adds <=0.5pp; report CATS level fitting +2pp",
+      "pass": true,
+      "sparsity_decision": "cats25"
+    }
+  }
+}

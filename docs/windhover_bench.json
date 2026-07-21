@@ -1,0 +1,120 @@
+{
+  "generated_at": "2026-07-21T22:08:21.804713+00:00",
+  "host": {
+    "platform": "darwin",
+    "logical_cpu": "10",
+    "physical_cpu": "10",
+    "mem_bytes": "17179869184",
+    "cpu_brand": "Apple M4",
+    "mem_gb": 16.0
+  },
+  "protocol": {
+    "prompt": "Write four short bullet points about local MoE inference on a laptop.",
+    "max_new_tokens": 32,
+    "trials": 2,
+    "warmup": 1,
+    "metric": "decode_only from [wh] / @@WH_STATS@@",
+    "windhover": "default kestrel-engine (KPK mmap + CATS + int8 KV)",
+    "legacy": "WH=0 dense.c path when pack still loads"
+  },
+  "models": {
+    "1.5b": {
+      "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct/kpk",
+      "kpk": true,
+      "windhover": {
+        "runs": [
+          {
+            "ok": true,
+            "rc": 0,
+            "wall_s": 1.073,
+            "path": "windhover",
+            "text": "- Install Python and necessary libraries\n- Download and install MoE inference software\n- Run inference on laptop\n- Analyze results and make decisions<|im_end|>",
+            "stderr_tail": "[wh] CATS sparsity on: target 25% (calibrated taus)\n[wh] /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct/kpk | qwen2 L=28 D=1536 I=8960 | 1.02 GB pack | load 0.00s | footprint 0.07 GB\n[wh] prefill 22 tok in 0.42s (52.7 tok/s)\n[wh] decode 49.55 tok/s (30 tok, 29 fwd) | prefill 52.7 tok/s | RSS 1.02 GB | footprint 0.07 GB\n[wh] sparsity 22.8% | ~0.92 GB/tok | au hot=5614613 cold_fetch=0 cold_drop=0 (0.0%) saved=2.87GB | weights=1.02GB total=1.02GB budget=0.00GB\n",
+            "decode_tok_s": 49.55,
+            "tokens": 30,
+            "forwards": 29,
+            "prefill_tok_s": 52.7,
+            "rss_gb": 1.02,
+            "footprint_gb": 0.07,
+            "sparsity_pct": 22.8,
+            "prefill_tokens": 22,
+            "bytes_per_tok": 916960742,
+            "au_hit_pct": 100.0
+          },
+          {
+            "ok": true,
+            "rc": 0,
+            "wall_s": 1.101,
+            "path": "windhover",
+            "text": "- Install Python and necessary libraries\n- Download and install MoE inference software\n- Run inference on laptop\n- Analyze results and make decisions<|im_end|>",
+            "stderr_tail": "[wh] CATS sparsity on: target 25% (calibrated taus)\n[wh] /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct/kpk | qwen2 L=28 D=1536 I=8960 | 1.02 GB pack | load 0.00s | footprint 0.07 GB\n[wh] prefill 22 tok in 0.43s (51.4 tok/s)\n[wh] decode 48.22 tok/s (30 tok, 29 fwd) | prefill 51.4 tok/s | RSS 1.02 GB | footprint 0.07 GB\n[wh] sparsity 22.8% | ~0.92 GB/tok | au hot=5614613 cold_fetch=0 cold_drop=0 (0.0%) saved=2.87GB | weights=1.02GB total=1.02GB budget=0.00GB\n",
+            "decode_tok_s": 48.22,
+            "tokens": 30,
+            "forwards": 29,
+            "prefill_tok_s": 51.4,
+            "rss_gb": 1.02,
+            "footprint_gb": 0.07,
+            "sparsity_pct": 22.8,
+            "prefill_tokens": 22,
+            "bytes_per_tok": 916960742,
+            "au_hit_pct": 100.0
+          }
+        ],
+        "mean_decode_tok_s": 48.885,
+        "mean_prefill_tok_s": 52.05,
+        "mean_rss_gb": 1.02,
+        "mean_footprint_gb": 0.07,
+        "mean_sparsity_pct": 22.8
+      }
+    },
+    "7b": {
+      "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-7B-Instruct/kpk",
+      "kpk": true,
+      "windhover": {
+        "runs": [
+          {
+            "ok": true,
+            "rc": 0,
+            "wall_s": 5.171,
+            "path": "windhover",
+            "text": "- Local MoE (Mixture of Experts) inference on a laptop allows for efficient computation by dynamically allocating tasks to the most suitable expert model.\n- Utilizes",
+            "stderr_tail": "[wh] CATS sparsity: target 25% (online calibration during prefill)\n[wh] /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-7B-Instruct/kpk | qwen2 L=28 D=3584 I=18944 | 4.44 GB pack | load 0.00s | footprint 0.07 GB\n[wh] prefill 22 tok in 2.25s (9.8 tok/s)\n[wh] decode 11.21 tok/s (32 tok, 31 fwd) | prefill 9.8 tok/s | RSS 4.21 GB | footprint 0.08 GB\n[wh] sparsity 26.1% | ~3.87 GB/tok | au hot=12149237 cold_fetch=0 cold_drop=0 (0.0%) saved=17.31GB | weights=4.44GB total=4.44GB budget=0.00GB\n",
+            "decode_tok_s": 11.21,
+            "tokens": 32,
+            "forwards": 31,
+            "prefill_tok_s": 9.8,
+            "rss_gb": 4.21,
+            "footprint_gb": 0.08,
+            "sparsity_pct": 26.1,
+            "prefill_tokens": 22,
+            "bytes_per_tok": 3872931392,
+            "au_hit_pct": 100.0
+          },
+          {
+            "ok": true,
+            "rc": 0,
+            "wall_s": 5.288,
+            "path": "windhover",
+            "text": "- Local MoE (Mixture of Experts) inference on a laptop allows for efficient computation by dynamically allocating tasks to the most suitable expert model.\n- Utilizes",
+            "stderr_tail": "[wh] CATS sparsity: target 25% (online calibration during prefill)\n[wh] /Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-7B-Instruct/kpk | qwen2 L=28 D=3584 I=18944 | 4.44 GB pack | load 0.00s | footprint 0.07 GB\n[wh] prefill 22 tok in 2.32s (9.5 tok/s)\n[wh] decode 11.02 tok/s (32 tok, 31 fwd) | prefill 9.5 tok/s | RSS 4.21 GB | footprint 0.08 GB\n[wh] sparsity 26.1% | ~3.87 GB/tok | au hot=12149237 cold_fetch=0 cold_drop=0 (0.0%) saved=17.31GB | weights=4.44GB total=4.44GB budget=0.00GB\n",
+            "decode_tok_s": 11.02,
+            "tokens": 32,
+            "forwards": 31,
+            "prefill_tok_s": 9.5,
+            "rss_gb": 4.21,
+            "footprint_gb": 0.08,
+            "sparsity_pct": 26.1,
+            "prefill_tokens": 22,
+            "bytes_per_tok": 3872931392,
+            "au_hit_pct": 100.0
+          }
+        ],
+        "mean_decode_tok_s": 11.115,
+        "mean_prefill_tok_s": 9.65,
+        "mean_rss_gb": 4.21,
+        "mean_footprint_gb": 0.08,
+        "mean_sparsity_pct": 26.1
+      }
+    }
+  }
+}

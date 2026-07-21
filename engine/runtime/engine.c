@@ -35,11 +35,13 @@
 #endif
 #include "tok.h"
 #include "dense.h"
+#include "windhover.h"
 #include "tier.h"
 #include "grammar.h"                              /* metodo F: draft grammaticali (#48) */
 #include "schema_gbnf.h"                          /* SCHEMA=: JSON-Schema -> GBNF for method F */
 #include "decode_batch.h"
 #include "budget.h"
+#include "au.h"                                   /* Windhover shared residency ledger */
 #ifdef _OPENMP
 #include <omp.h>                                  /* scratch per-thread nell'attention */
 #else
@@ -4659,6 +4661,22 @@ static void run_text(Model *m, const char *snap, const char *prompt, int ngen){
     printf("speculation: %.2f tokens/forward (%llu forwards per %llu tokens) | MTP acceptance %.0f%% (%llu/%llu)\n",
         m->n_fw?(double)m->n_emit/m->n_fw:1.0, (unsigned long long)m->n_fw, (unsigned long long)m->n_emit,
         m->mtp_prop?100.0*m->mtp_acc/m->mtp_prop:0.0, (unsigned long long)m->mtp_acc, (unsigned long long)m->mtp_prop);
+    {   /* Windhover shared ledger: MoE experts are AUs (pin + LRU slabs) */
+        int64_t resident=0;
+        for(int i=0;i<=c->n_layers;i++){
+            if(m->ecache && m->ecache[i])
+                for(int z=0;z<m->ecn[i];z++) if(m->ecache[i][z].slab||m->ecache[i][z].fslab)
+                    resident+=qt_bytes(&m->ecache[i][z].g)+qt_bytes(&m->ecache[i][z].u)+qt_bytes(&m->ecache[i][z].d);
+            if(m->pin && m->npin && m->pin[i])
+                for(int z=0;z<m->npin[i];z++)
+                    resident+=qt_bytes(&m->pin[i][z].g)+qt_bytes(&m->pin[i][z].u)+qt_bytes(&m->pin[i][z].d);
+        }
+        char ledb[256];
+        au_ledger_set_budget(budget_active_target_bytes());
+        au_ledger_report("moe_experts", resident, (int64_t)m->hits, (int64_t)m->miss);
+        au_ledger_line(ledb, sizeof(ledb));
+        printf("AU ledger: %s\n", ledb);
+    }
     if(g_cp_enq) printf("couple: %ld cross-layer prefetch hints enqueued\n", g_cp_enq);
     if(g_gr_prop) printf("grammar: %.0f%% acceptance (%llu/%llu forced drafts)\n",
         100.0*g_gr_acc/g_gr_prop, (unsigned long long)g_gr_acc, (unsigned long long)g_gr_prop);
@@ -6029,6 +6047,10 @@ int main(int argc, char **argv){
     }
 #endif
     const char *snap=getenv("SNAP"); if(!snap){fprintf(stderr,"SNAP=<dir>\n");return 1;}
+    /* Windhover: pre-quantized KPK packs (mmap + sparse working set) — any
+     * supported dense family. WH=0 forces the legacy load-time-quant path. */
+    if((!getenv("WH") || atoi(getenv("WH"))) && wh_can_run(snap))
+        return wh_run(argc, argv);
     /* Dense Qwen2/Qwen3/Llama/Mistral packs share this binary — same int4+IDOT family. */
     if(dense_is_arch(snap)) return dense_run(argc, argv);
     g_nopack = getenv("NOPACK")?1:0;
@@ -6432,6 +6454,20 @@ int main(int argc, char **argv){
         g_draft, m.n_fw?(double)m.n_emit/m.n_fw:1.0, (unsigned long long)m.n_fw, (unsigned long long)m.n_emit);
     printf("Expert cache hit rate: %.1f%% (hit=%llu miss=%llu) | RSS: %.2f GB | %.1f tok/s\n",
            tot?100.0*m.hits/tot:0.0, (unsigned long long)m.hits, (unsigned long long)m.miss, rss_gb(), n_new/dt);
+    {   /* Windhover shared ledger: MoE experts are AUs too (expert LRU slabs) */
+        int64_t resident=0;
+        for(int i=0;i<=m.c.n_layers;i++){
+            if(m.ecache && m.ecache[i])
+                for(int z=0;z<m.ecn[i];z++) if(m.ecache[i][z].slab) resident+=qt_bytes(&m.ecache[i][z].g)+qt_bytes(&m.ecache[i][z].u)+qt_bytes(&m.ecache[i][z].d);
+            if(m.pin && m.npin && m.pin[i])
+                for(int z=0;z<m.npin[i];z++) resident+=qt_bytes(&m.pin[i][z].g)+qt_bytes(&m.pin[i][z].u)+qt_bytes(&m.pin[i][z].d);
+        }
+        char ledb[256];
+        au_ledger_set_budget(budget_active_target_bytes());
+        au_ledger_report("moe_experts", resident, (int64_t)m.hits, (int64_t)m.miss);
+        au_ledger_line(ledb, sizeof(ledb));
+        printf("AU ledger: %s\n", ledb);
+    }
     profile_print(&m,dt);
 #ifdef COLI_CUDA
     if(m.gpu_expert_count) printf("CUDA expert tier: %d resident experts (%.2f GB) | %llu calls served from VRAM\n",

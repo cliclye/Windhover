@@ -193,7 +193,8 @@ def _is_impostor_pack(snap: Path) -> bool:
 
 
 def _dense_engine_supported(snap: Path) -> bool:
-    """True when kestrel-engine dense path can load this SNAP (Qwen2/3, Llama, Mistral)."""
+    """True when kestrel-engine dense/Windhover path can load this SNAP
+    (Qwen2/3, Llama, Mistral, Gemma2/3, Phi-3)."""
     cfg_path = snap / "config.json"
     if not cfg_path.is_file():
         return False
@@ -201,7 +202,7 @@ def _dense_engine_supported(snap: Path) -> bool:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     except Exception:
         return False
-    # MoE packs use engine.c (same int4+IDOT family), not dense.c
+    # MoE packs use engine.c (same int4+IDOT family), not dense/windhover
     if cfg.get("n_routed_experts") or cfg.get("num_experts") or cfg.get("num_local_experts"):
         return False
     arches = " ".join(str(a) for a in (cfg.get("architectures") or []))
@@ -211,21 +212,72 @@ def _dense_engine_supported(snap: Path) -> bool:
             "MixtralForCausalLM",
             "Qwen2MoeForCausalLM",
             "Qwen3MoeForCausalLM",
-            "Gemma2ForCausalLM",
-            "Gemma3ForCausalLM",
-            "Phi3ForCausalLM",
         )
     ):
         return False
     mt = str(cfg.get("model_type") or "").lower()
-    if mt in ("gemma", "gemma2", "gemma3", "phi", "phi3"):
-        return False
-    if mt in ("qwen2", "qwen3", "llama", "mistral"):
+    if mt in ("qwen2", "qwen3", "llama", "mistral", "gemma2", "gemma3", "phi3"):
         return True
     return any(
         x in arches
-        for x in ("Qwen2ForCausalLM", "Qwen3ForCausalLM", "LlamaForCausalLM", "MistralForCausalLM")
+        for x in (
+            "Qwen2ForCausalLM",
+            "Qwen3ForCausalLM",
+            "LlamaForCausalLM",
+            "MistralForCausalLM",
+            "Gemma2ForCausalLM",
+            "Gemma3ForCausalLM",
+            "Phi3ForCausalLM",
+        )
     )
+
+
+def _has_kpk(snap: Path) -> bool:
+    """True when a Windhover KPK pack exists (snap/kpk or snap itself)."""
+    for d in (snap / "kpk", snap):
+        kj = d / "kestrel.json"
+        if kj.is_file():
+            try:
+                if "windhover" in json.loads(kj.read_text(encoding="utf-8")):
+                    return True
+            except Exception:
+                pass
+    return False
+
+
+def _windhover_supported(snap: Path) -> bool:
+    """True when tools/kestrel_pack.py can convert this pack for the
+    Windhover runtime (dense qwen2/qwen3/llama/mistral/gemma2/gemma3/phi3)."""
+    cfg_path = snap / "config.json"
+    if not cfg_path.is_file():
+        return False
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if cfg.get("n_routed_experts") or cfg.get("num_experts") or cfg.get("num_local_experts"):
+        return False
+    mt = str(cfg.get("model_type") or "").lower()
+    return mt in ("qwen2", "qwen3", "llama", "mistral", "gemma2", "gemma3", "phi3")
+
+
+def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
+    """Run the one-time Windhover convert (quant + calibrate + AWQ). ~1-2 min/GB."""
+    tool = ROOT / "tools" / "kestrel_pack.py"
+    if not tool.is_file() or os.environ.get("KESTREL_NO_KPK"):
+        return False
+    if _has_kpk(snap):
+        return True
+    if job_id:
+        _job_set(job_id, status="running", pct=98, message="Windhover convert (int4-g64 + calibrate)…")
+    print("running Windhover convert (one-time quantize + calibrate)…")
+    rc = subprocess.call([sys.executable, str(tool), "--snap", str(snap)])
+    if rc != 0:
+        # calibration needs torch; fall back to plain quant pack
+        rc = subprocess.call(
+            [sys.executable, str(tool), "--snap", str(snap), "--no-calib", "--no-awq"]
+        )
+    return rc == 0 and _has_kpk(snap)
 
 
 def _chat_mode(snap: Path) -> str:
@@ -238,9 +290,9 @@ def _chat_mode(snap: Path) -> str:
     if _is_impostor_pack(snap):
         return "blocked"
     if chat == "preview":
-        # Real small-model downloads: prefer dense engine when supported
+        # Real small-model downloads: prefer the engine when supported
         if meta.get("weights") and _has_real_weights(snap):
-            if _dense_engine_supported(snap):
+            if _has_kpk(snap) or _dense_engine_supported(snap):
                 return "engine"
             return "preview"
         return "blocked"
@@ -399,6 +451,7 @@ def _engine_chat(
     temperature: float,
     *,
     messages: list | None = None,
+    on_delta=None,
 ) -> tuple[str, dict]:
     import time
 
@@ -411,18 +464,71 @@ def _engine_chat(
     env["TEMP"] = str(temperature)
     env["QUIET"] = "1"
     env["DRAFT"] = "0"
-    p = subprocess.run(
-        [str(ENGINE_BIN), "64", "4", "4"],
-        cwd=str(ENGINE_DIR),
-        env=env,
-        capture_output=True,
-    )
+    env["WH_JSON_STATS"] = "1"
+
+    wh_stats: dict = {}
 
     def _dec(b: bytes) -> str:
         return (b or b"").decode("utf-8", errors="replace").strip()
 
-    text = _dec(p.stdout)
-    err = _dec(p.stderr)
+    if on_delta is None:
+        p = subprocess.run(
+            [str(ENGINE_BIN), "64", "4", "4"],
+            cwd=str(ENGINE_DIR),
+            env=env,
+            capture_output=True,
+        )
+        raw_out, err, rc = p.stdout, _dec(p.stderr), p.returncode
+    else:
+        # stream stdout bytes to the client as they arrive
+        proc = subprocess.Popen(
+            [str(ENGINE_BIN), "64", "4", "4"],
+            cwd=str(ENGINE_DIR),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        chunks: list[bytes] = []
+        pending = b""
+        while True:
+            b = proc.stdout.read(64)
+            if not b:
+                break
+            chunks.append(b)
+            pending += b
+            # hold back a partial UTF-8 tail and anything after the stats marker
+            if b"@@WH_STATS@@" in pending:
+                emit, _, _ = pending.partition(b"@@WH_STATS@@")
+                pending = b""
+            else:
+                emit, pending = pending, b""
+                for back in range(1, min(4, len(emit)) + 1):
+                    if emit[-back] & 0xC0 == 0xC0:  # UTF-8 lead byte in the tail
+                        pending = emit[-back:]
+                        emit = emit[:-back]
+                        break
+            if emit:
+                try:
+                    on_delta(emit.decode("utf-8", errors="replace"))
+                except Exception:
+                    proc.kill()
+                    raise
+        raw_out = b"".join(chunks)
+        err = _dec(proc.stderr.read())
+        rc = proc.wait()
+
+    text = _dec(raw_out)
+    if "@@WH_STATS@@" in text:
+        text, _, tail = text.partition("@@WH_STATS@@")
+        text = text.strip()
+        try:
+            wh_stats = json.loads(tail.strip().splitlines()[0])
+        except Exception:
+            wh_stats = {}
+
+    class _P:  # keep the legacy field names below working
+        returncode = rc
+    p = _P()
     elapsed = max(time.perf_counter() - t0, 1e-6)
     meta = _snap_meta(snap)
     if p.returncode != 0 and not text:
@@ -443,11 +549,11 @@ def _engine_chat(
             "not coherent English. For conversation, install **Kestrel Chat Preview**. "
             "For a real MoE, download full HF weights and convert."
         )
-    ntok = max(1, len((text or "").split()))
+    ntok = int(wh_stats.get("tokens") or max(1, len((text or "").split())))
     stats = {
         "rss_mb": round(_rss_mb(), 1),
         "latency_ms": round(elapsed * 1000, 1),
-        "tokens_per_sec": round(ntok / elapsed, 2),
+        "tokens_per_sec": wh_stats.get("decode_tok_s") or round(ntok / elapsed, 2),
         "completion_tokens": ntok,
         "backend": "kestrel-engine",
         "selected_model": meta.get("id") or snap.name,
@@ -455,6 +561,16 @@ def _engine_chat(
         "family": meta.get("family"),
         "engine": str(ENGINE_BIN),
     }
+    if wh_stats:
+        stats["windhover"] = {
+            "decode_tok_s": wh_stats.get("decode_tok_s"),
+            "prefill_tok_s": wh_stats.get("prefill_tok_s"),
+            "footprint_gb": wh_stats.get("footprint_gb"),
+            "sparsity_pct": wh_stats.get("sparsity_pct"),
+            "bytes_per_tok": wh_stats.get("bytes_per_tok"),
+            "au_hit_pct": wh_stats.get("au_hit_pct"),
+            "forwards": wh_stats.get("forwards"),
+        }
     _LAST_STATS.update(stats)
     return text, stats
 
@@ -1002,11 +1118,16 @@ def cmd_pull(ns: argparse.Namespace) -> int:
             )
             if rc == 0:
                 dest = out
+    elif _windhover_supported(dest):
+        # Dense pack → one-time Windhover KPK convert (mmap int4-g64 + calibration)
+        _kpk_convert(dest, job_id)
 
-    # Prefer catalog intent; upgrade preview→engine when dense layout matches.
-    # Frontier MoEs (GLM/Kimi/…) stay on engine.c — same int4+IDOT family as dense.
+    # Prefer catalog intent; upgrade preview→engine when the Windhover pack or
+    # dense layout matches. Frontier MoEs (GLM/Kimi/…) stay on engine.c.
     cat_chat = entry.get("chat")
-    if cat_chat in ("engine", "engine-oracle"):
+    if _has_kpk(dest):
+        chat_mode = "engine"
+    elif cat_chat in ("engine", "engine-oracle"):
         chat_mode = cat_chat
     elif _dense_engine_supported(dest):
         chat_mode = "engine"
@@ -1478,6 +1599,7 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                 temperature = float(
                     body.get("temperature") if body.get("temperature") is not None else 0.7
                 )
+                want_stream = bool(body.get("stream"))
                 stats: dict = {}
                 if mode == "preview":
                     text, stats = _preview_chat(messages, max_tokens, temperature, snap=snap)
@@ -1489,6 +1611,51 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                             prompt = m.get("content") or ""
                     if not ENGINE_BIN.is_file():
                         return self._json(503, {"error": "kestrel-engine missing — run: kestrel build"})
+                    if want_stream:
+                        # OpenAI-style SSE: chunks as the engine emits bytes
+                        mid_ = body.get("model") or _snap_meta(snap).get("id") or snap.name
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/event-stream")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("X-Accel-Buffering", "no")
+                        self.end_headers()
+
+                        def _sse(obj):
+                            try:
+                                self.wfile.write(
+                                    b"data: " + json.dumps(obj).encode() + b"\n\n")
+                                self.wfile.flush()
+                            except (BrokenPipeError, ConnectionResetError):
+                                raise
+
+                        def on_delta(piece: str):
+                            _sse({
+                                "id": "kestrel-chat",
+                                "object": "chat.completion.chunk",
+                                "model": mid_,
+                                "choices": [{"index": 0,
+                                             "delta": {"content": piece},
+                                             "finish_reason": None}],
+                            })
+
+                        try:
+                            _text, stats = _engine_chat(
+                                snap, prompt, max_tokens, temperature,
+                                messages=messages, on_delta=on_delta,
+                            )
+                            _sse({
+                                "id": "kestrel-chat",
+                                "object": "chat.completion.chunk",
+                                "model": mid_,
+                                "stats": stats,
+                                "choices": [{"index": 0, "delta": {},
+                                             "finish_reason": "stop"}],
+                            })
+                            self.wfile.write(b"data: [DONE]\n\n")
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
+                        return None
                     text, stats = _engine_chat(
                         snap, prompt, max_tokens, temperature, messages=messages
                     )
@@ -1559,6 +1726,12 @@ def cmd_bench(ns: argparse.Namespace) -> int:
         return subprocess.call([sys.executable, str(script)], cwd=str(ROOT))
     if getattr(ns, "dense", False):
         script = ROOT / "tools" / "dense_qwen_bench.py"
+        if not script.is_file():
+            print(f"missing {script}", file=sys.stderr)
+            return 1
+        return subprocess.call([sys.executable, str(script)], cwd=str(ROOT))
+    if getattr(ns, "windhover", False):
+        script = ROOT / "tools" / "windhover_bench.py"
         if not script.is_file():
             print(f"missing {script}", file=sys.stderr)
             return 1
@@ -1643,6 +1816,43 @@ def cmd_bench(ns: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_convert(ns: argparse.Namespace) -> int:
+    snap = Path(ns.model)
+    if not snap.is_dir():
+        snap = MODELS_DIR / ns.model.replace("/", "__")
+    if not snap.is_dir():
+        print(f"model not found: {ns.model}", file=sys.stderr)
+        return 1
+    if not _windhover_supported(snap):
+        print(f"{snap.name}: unsupported for Windhover (dense qwen2/qwen3/llama/"
+              "mistral/gemma2/gemma3/phi3 only)", file=sys.stderr)
+        return 1
+    if ns.force:
+        shutil.rmtree(snap / "kpk", ignore_errors=True)
+    tool = ROOT / "tools" / "kestrel_pack.py"
+    cmd = [sys.executable, str(tool), "--snap", str(snap),
+           "--attn-bits", str(ns.attn_bits)]
+    if ns.no_calib:
+        cmd += ["--no-calib", "--no-awq"]
+    rc = subprocess.call(cmd)
+    if rc == 0 and _has_kpk(snap):
+        meta = _snap_meta(snap)
+        _write_kestrel_meta(
+            snap,
+            str(meta.get("id") or snap.name.replace("__", "/")),
+            {},
+            runner=False,
+            chat="engine",
+            weights=True,
+            tier=meta.get("tier"),
+            source=meta.get("source"),
+            size_bytes=_dir_bytes(snap),
+            engine="kestrel-engine",
+        )
+        print(f"KPK ready: {snap / 'kpk'}")
+    return rc
+
+
 def main() -> int:
     _ensure_nofile()
     ap = argparse.ArgumentParser(prog="kestrel", description="Kestrel local MoE runtime")
@@ -1671,6 +1881,11 @@ def main() -> int:
         "--dense",
         action="store_true",
         help="Qwen2.5-Coder-1.5B without/with kestrel-engine dense path (needs pull + build)",
+    )
+    p.add_argument(
+        "--windhover",
+        action="store_true",
+        help="Windhover KPK bench (1.5B/7B under ~/.kestrel/models); writes docs/windhover_bench.json",
     )
     p.add_argument(
         "--qwen",
@@ -1717,6 +1932,12 @@ def main() -> int:
 
     sp.add_parser("purge-impostors", help="remove fake MoE stub installs")
 
+    p = sp.add_parser("convert", help="build a Windhover KPK pack from an installed dense model")
+    p.add_argument("model", help="catalog id or model directory")
+    p.add_argument("--no-calib", action="store_true", help="skip torch calibration (no AWQ/sparsity)")
+    p.add_argument("--attn-bits", type=int, default=8, choices=(4, 8))
+    p.add_argument("--force", action="store_true", help="re-convert even if a KPK pack exists")
+
     p = sp.add_parser("app", help="Library + Chat UI")
     p.add_argument("--model", default=None)
     p.add_argument("--host", default="127.0.0.1")
@@ -1734,6 +1955,7 @@ def main() -> int:
         "pull": cmd_pull,
         "uninstall": cmd_uninstall,
         "purge-impostors": cmd_purge_impostors,
+        "convert": cmd_convert,
         "app": cmd_app,
     }
     return handlers[ns.cmd](ns)

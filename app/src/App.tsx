@@ -41,6 +41,16 @@ type Msg = {
   stats?: ChatStats;
 };
 
+type WindhoverStats = {
+  decode_tok_s?: number;
+  prefill_tok_s?: number;
+  footprint_gb?: number;
+  sparsity_pct?: number;
+  bytes_per_tok?: number;
+  au_hit_pct?: number;
+  forwards?: number;
+};
+
 type ChatStats = {
   rss_mb?: number;
   latency_ms?: number;
@@ -50,6 +60,7 @@ type ChatStats = {
   selected_model?: string;
   preview_model?: string;
   family?: string;
+  windhover?: WindhoverStats;
 };
 
 type PullProgress = {
@@ -1061,6 +1072,66 @@ export function App() {
                 </div>
               </dl>
             </div>
+
+            {lastStats?.windhover ? (
+              <div className="adv-block">
+                <h2>Windhover</h2>
+                <dl className="kv">
+                  <div>
+                    <dt>Decode</dt>
+                    <dd>
+                      {lastStats.windhover.decode_tok_s != null
+                        ? `${lastStats.windhover.decode_tok_s} tok/s`
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Prefill</dt>
+                    <dd>
+                      {lastStats.windhover.prefill_tok_s != null
+                        ? `${lastStats.windhover.prefill_tok_s} tok/s`
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Working-set footprint</dt>
+                    <dd>
+                      {lastStats.windhover.footprint_gb != null
+                        ? `${lastStats.windhover.footprint_gb} GB`
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>FFN sparsity</dt>
+                    <dd>
+                      {lastStats.windhover.sparsity_pct != null
+                        ? `${lastStats.windhover.sparsity_pct}%`
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Bytes / token</dt>
+                    <dd>
+                      {lastStats.windhover.bytes_per_tok != null
+                        ? `${(lastStats.windhover.bytes_per_tok / 1e9).toFixed(2)} GB`
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>AU hot hit</dt>
+                    <dd>
+                      {lastStats.windhover.au_hit_pct != null
+                        ? `${lastStats.windhover.au_hit_pct}%`
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Forwards</dt>
+                    <dd>{lastStats.windhover.forwards ?? "—"}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
           </section>
         ) : null}
       </main>

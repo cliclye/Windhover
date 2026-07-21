@@ -27,6 +27,11 @@ CFLAGS  = -O3 $(OMPC) $(INCLUDES) -Wall -Wextra -Wno-unused-parameter -Wno-misle
 ifneq ($(ARCH),)
 CFLAGS += -mcpu=$(ARCH)
 endif
+# Optional SME2 int8 prefill GEMM (G5 gate). Build: make ARCH=native SME=1
+# Runtime still defaults to NEON; set WH_SME_RUNTIME=1 to enable (packs on the fly).
+ifeq ($(SME),1)
+CFLAGS += -DWH_SME -march=armv8.7-a+sme2
+endif
 LDFLAGS = -lm $(OMPL)
 else
 CC      ?= gcc
@@ -44,18 +49,24 @@ all: kestrel-engine
 memory/budget.o: memory/budget.c memory/budget.h
 	$(CC) $(CFLAGS) -c memory/budget.c -o memory/budget.o
 
-runtime/engine.o: runtime/engine.c memory/budget.h runtime/dense.h
+runtime/engine.o: runtime/engine.c memory/budget.h runtime/dense.h runtime/windhover.h
 	$(CC) $(CFLAGS) -c runtime/engine.c -o runtime/engine.o
 
 runtime/dense.o: runtime/dense.c runtime/dense.h io/tok.h io/st.h
 	$(CC) $(CFLAGS) -c runtime/dense.c -o runtime/dense.o
 
-kestrel-engine: runtime/engine.o runtime/dense.o memory/budget.o
-	$(CC) $(CFLAGS) -o $@ runtime/engine.o runtime/dense.o memory/budget.o $(LDFLAGS)
+runtime/windhover.o: runtime/windhover.c runtime/windhover.h runtime/model_desc.h runtime/au.h io/tok.h io/st.h memory/budget.h
+	$(CC) $(CFLAGS) -c runtime/windhover.c -o runtime/windhover.o
+
+runtime/au.o: runtime/au.c runtime/au.h
+	$(CC) $(CFLAGS) -c runtime/au.c -o runtime/au.o
+
+kestrel-engine: runtime/engine.o runtime/dense.o runtime/windhover.o runtime/au.o memory/budget.o
+	$(CC) $(CFLAGS) -o $@ runtime/engine.o runtime/dense.o runtime/windhover.o runtime/au.o memory/budget.o $(LDFLAGS)
 
 # SNAP path relative to engine/ — fixtures live in fixtures/
 test-oracle: kestrel-engine
 	SNAP=./fixtures/glm_tiny TF=1 ./kestrel-engine 64 16 16
 
 clean:
-	rm -f kestrel-engine runtime/engine.o runtime/dense.o memory/budget.o
+	rm -f kestrel-engine runtime/engine.o runtime/dense.o runtime/windhover.o runtime/au.o memory/budget.o

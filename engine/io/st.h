@@ -58,6 +58,7 @@ static int st_dtype_code(const char *s) {
     if (!strcmp(s, "F32"))  return 2;
     if (!strcmp(s, "U8"))   return 3;   /* dati quantizzati (int4 packed / int8) */
     if (!strcmp(s, "I8"))   return 3;
+    if (!strcmp(s, "I32"))  return 4;   /* indici (Windhover outlier columns) */
     fprintf(stderr, "unsupported dtype: %s\n", s); exit(1);
 }
 
@@ -280,6 +281,70 @@ static void st_read_raw_slice(shards *S, const char *name, int64_t byte_off, int
     int64_t boff = t->off + byte_off;
     if (pread(t->fd, out, nbytes, boff) != nbytes) { perror("pread raw slice"); exit(1); }
     if (drop) posix_fadvise(t->fd, boff, nbytes, POSIX_FADV_DONTNEED);
+}
+
+/* ---------------- Windhover: viste mmap zero-copy ----------------
+ * Mappa l'intero shard una sola volta (lazy) e restituisce puntatori interni
+ * ai tensori. Pagine file-backed CLEAN: il footprint fisico cresce solo con
+ * le pagine toccate e macOS puo' riprenderle senza swap/compressor (gate G4).
+ */
+#include <sys/mman.h>
+
+typedef struct {
+    const void *p;      /* dati del tensore dentro la mappa */
+    int64_t nbytes;
+    int64_t numel;
+    int dtype;          /* codici st_dtype_code: 0=BF16 1=F16 2=F32 3=U8/I8 */
+} st_view;
+
+static void *st_mmaps[ST_MAX_SHARDS];
+static int64_t st_mmap_len[ST_MAX_SHARDS];
+
+static const void *st_mmap_base(shards *S, int fd) {
+    for (int i = 0; i < S->nfd; i++) {
+        if (S->fds[i] != fd) continue;
+        if (!st_mmaps[i]) {
+            struct stat sst;
+            if (fstat(fd, &sst) != 0) { perror("fstat mmap"); exit(1); }
+            void *m = mmap(NULL, (size_t)sst.st_size, PROT_READ, MAP_SHARED, fd, 0);
+            if (m == MAP_FAILED) { perror("mmap shard"); exit(1); }
+            st_mmaps[i] = m;
+            st_mmap_len[i] = sst.st_size;
+        }
+        return st_mmaps[i];
+    }
+    return NULL;
+}
+
+/* Vista zero-copy su un tensore. 1 se trovato, 0 altrimenti. */
+static int st_view_get(shards *S, const char *name, st_view *v) {
+    st_tensor *t = st_find(S, name);
+    if (!t) return 0;
+    const void *base = st_mmap_base(S, t->fd);
+    if (!base) return 0;
+    v->p = (const char *)base + t->off;
+    v->nbytes = t->nbytes;
+    v->numel = t->numel;
+    v->dtype = t->dtype;
+    return 1;
+}
+
+/* Consiglio di residenza su una vista (WILLNEED per hot-set, DONTNEED per cold). */
+static void st_view_advise(const st_view *v, int willneed) {
+    if (!v->p || v->nbytes <= 0) return;
+    size_t pg = 16384;
+    uintptr_t a = (uintptr_t)v->p & ~(pg - 1);
+    size_t n = (size_t)((uintptr_t)v->p + v->nbytes - a);
+    madvise((void *)a, n, willneed ? MADV_WILLNEED : MADV_DONTNEED);
+}
+
+/* mlock/munlock del range (hot tier sotto budget). Best effort. */
+static int st_view_lock(const st_view *v, int lock) {
+    if (!v->p || v->nbytes <= 0) return 0;
+    size_t pg = 16384;
+    uintptr_t a = (uintptr_t)v->p & ~(pg - 1);
+    size_t n = (size_t)((uintptr_t)v->p + v->nbytes - a);
+    return lock ? mlock((void *)a, n) : munlock((void *)a, n);
 }
 
 #endif

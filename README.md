@@ -20,7 +20,7 @@
 
 **Kestrel** is a clean-slate product for running open Mixture-of-Experts models on your machine. It ships:
 
-- **`kestrel-engine`** — modular CPU runtime under [`engine/`](engine/): GLM MoE **and** dense Qwen2/Qwen3/Llama/Mistral (int8 attn + int4 MLP + SDOT IDOT — one kernel family)
+- **`kestrel-engine`** — modular CPU runtime under [`engine/`](engine/): GLM MoE **and** Windhover dense (Qwen2/3, Llama, Mistral, Gemma2/3, Phi-3 — KPK mmap, int8 KV, CATS sparse FFN, SDOT IDOT)
 - **Mac app** — Tauri shell around Library · Chat · Agent · Advanced
 - **CLI** — `./kestrel build | pull | app | chat | oracle`
 
@@ -44,7 +44,7 @@ Markdown replies, a thinking indicator, and per-message speed / RSS chips. Model
 
 ### Advanced
 
-Live telemetry: process RSS, latency, tok/s, selected model, backend, and the family → chat-model map.
+Live telemetry: process RSS, latency, tok/s, selected model, backend, and Windhover stats (decode/prefill, footprint, sparsity, AU hit).
 
 ![Kestrel Advanced](docs/screenshots/advanced.png)
 
@@ -52,24 +52,116 @@ Live telemetry: process RSS, latency, tok/s, selected model, backend, and the fa
 
 ## Performance
 
-### Important: what `glm_tiny` is
+All numbers below were **measured on this machine** (MacBook Air **M4**, **16 GB**, 4P+6E) unless marked otherwise. We never publish projected tok/s as facts.
 
-**`glm_tiny` is not a real language model.** It is a synthetic ~2 MB teacher-forcing oracle fixture (`vocab_size=256`, `hidden_size=128`, 5 tiny layers) used to prove numerics / scheduling and to compare the baseline engine path vs `kestrel-engine` on the **same laptop**. It is **not** GLM-5.2, Kimi K2.6, or any Hugging Face checkpoint.
+### Diagnosis — measured, not guessed
 
-### Same laptop · without Kestrel vs with Kestrel (micro-fixture)
+Evidence from this laptop and the pre-Windhover dense path:
 
-Measured on that synthetic `glm_tiny` oracle only:
+- **Decode is memory-bandwidth-bound.** Practical CPU stream bandwidth measured ~**74–90 GB/s** (4 P-threads). Pre-Windhover dense moved ~933 MB/token on Qwen2.5-Coder-1.5B at **33.2 tok/s** ⇒ **~31 GB/s** effective — only ~**40%** of the machine.
+- **Bytes/token was inflated:** int8 attention + int8 lm_head (~233 MB/token on 1.5B), **fp32 KV**, no FFN sparsity. Bigger models degraded faster — 7B moved ~5 GB/token and landed at ~**3.3 tok/s**.
+- **`dense.c` bottlenecks:** token-at-a-time prefill, ~13 OpenMP fork/joins per layer, load-time fp32→quant (~**4×** model-size RAM spike, ~10 s load).
+- **Coverage hole:** `dense_is_arch()` rejected Gemma/Phi → transformers preview (6+ GB RSS). No universal on-disk dense pack format.
+- **MoE already had** grouped-int4, i8mm S≥2, expert pin/LRU, PILOT, n-gram scaffolding — **not shared** with dense.
+- Repo experiments: MoE draft-verify loses (experts differ per position); full expert residency wins; active OMP spin steals shared power.
 
-- **12 batches × 40 processes per side**, warmup discarded, interleaved A/B
-- Both sides **32/32** oracle
+### The invention — Windhover
 
-Full dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/bench-without-vs-with-kestrel.svg`](docs/screenshots/bench-without-vs-with-kestrel.svg).
+One runtime idea: treat every model as a **sparse working set of activation units (AUs)** under a single byte budget. An AU is a MoE expert **or** a bundle of FFN neuron rows. Each AU lives in a tier (mlock hot / RAM warm / SSD cold via mmap); a predictor picks which AUs a token needs; kernels only touch those bytes.
+
+```mermaid
+flowchart LR
+    subgraph disk [KPK pack on SSD]
+        W["group-int4 weights · mmap"]
+        D["arch descriptor"]
+        H["hotness + CATS thresholds"]
+    end
+    subgraph engine [Windhover runtime]
+        P["Gate: TEAL / MoE router"]
+        T["AU tiers: pin · LRU · prefetch"]
+        B["Byte-budget ledger"]
+        K["SDOT/i8mm · int8 KV · S=64 prefill"]
+        S["Opt-in n-gram spec WH_SPEC=1"]
+    end
+    W --> T
+    D --> K
+    H --> P
+    P --> T
+    T --> K
+    B --> T
+    S --> K
+```
+
+**Five pillars (shipped):** KPK offline pack · mmap residency · bandwidth kernels · AU sparse execution (CATS dense / expert MoE) · turbo decode (opt-in; G3 demoted speculation from headline).
+
+### Phase-0 gates (go / no-go)
+
+Harness: [`tools/windhover_gates.py`](tools/windhover_gates.py) + [`tools/wh_kernel_bench.c`](tools/wh_kernel_bench.c) → [`docs/windhover_gates.json`](docs/windhover_gates.json).
+
+| Gate | Criterion | Result on this M4 |
+|---|---|---|
+| **G1** kernel ceiling | int4-g64 ≥55 GB/s @ 4P | **PASS** — ~77–91 GB/s on 1.5B/7B shapes |
+| **G2** quality (PPL) | WH profile beats “today”; CATS fit | **PASS** — WH-C +2.4% PPL (today +22%); **CATS 25%** OK, 40% too high |
+| **G3** n-gram spec | ≥1.25× on code | **FAIL / marginal** — ~1.21× code → **`WH_SPEC=1` opt-in only** |
+| **G4** mmap | clean eviction, no compressor spiral | **PASS** |
+| **G5** SME2 @ S=64 | ≥2× vs NEON | **PASS** — ~2.9–3.7× (runtime path experimental: `SME=1` + `WH_SME_RUNTIME=1`) |
+| **G6** SSD @ 64 KB | ≥1.5 GB/s | **PASS** — ~2.9 GB/s @ qd8 |
+
+### Headline: three-way comparison (same laptop)
+
+**Protocol:** decode-only tok/s (prefill excluded), greedy, chat-templated prompt. Sources: [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json), engine 7B dense probe, [`docs/windhover_bench.json`](docs/windhover_bench.json), [`docs/qwen7b_bench.json`](docs/qwen7b_bench.json).
+
+#### Qwen2.5-Coder-1.5B Instruct
+
+| | Without Kestrel | With Kestrel (pre-Windhover dense) | With Kestrel (**Windhover**) |
+|---|---:|---:|---:|
+| Path | `transformers` CPU · fp16 | `kestrel-engine` dense · int8/int4 | **KPK mmap · CATS · int8 KV** |
+| Decode tok/s | **20.6** | **33.2** | **48.9** |
+| Peak RSS | **6.18 GB** | **2.40 GB** | **1.02 GB** |
+| Prefill (Windhover) | — | — | **~52 tok/s** |
+| FFN sparsity | 0% | 0% | **~23%** |
+
+| Boost | Decode | RSS |
+|---|---:|---:|
+| Dense vs without | **+61%** | **−61%** |
+| **Windhover vs without** | **+137%** | **−83%** |
+| **Windhover vs dense** | **+47%** | **−58%** |
+
+#### Qwen2.5-7B Instruct
+
+| | Without Kestrel | With Kestrel (pre-Windhover dense) | With Kestrel (**Windhover**) |
+|---|---:|---:|---:|
+| Path | `transformers` CPU · fp16 | `kestrel-engine` dense probe | **KPK mmap · CATS · int8 KV** |
+| Decode tok/s | **~0.01** (swap-bound) | **~3.3** | **11.1** |
+| Peak RSS | **~9.0 GB** | **~8.2 GB** | **4.21 GB** |
+| Prefill (Windhover) | thrash | — | **~9.7 tok/s** |
+| FFN sparsity | 0% | 0% | **~26%** |
+| Pack on disk | ~15 GB fp16 | load-time quant | **~4.4 GB KPK** |
+
+| Boost | Decode | RSS |
+|---|---:|---:|
+| Dense vs without | swap → **usable (~3.3)** | ~−9% |
+| **Windhover vs without** | swap → **~11 tok/s** | **−53%** |
+| **Windhover vs dense** | **+237%** | **−49%** |
+
+**Honest takeaway:** Windhover closes most of the bandwidth gap on 1.5B and makes 7B comfortable on 16 GB without swap thrash. Prefer ≤3–4B for snappy chat; 7B is usable.
 
 ```bash
-python3 tools/full_bench.py          # micro-fixture protocol → docs/full_bench.json
-python3 tools/render_bench_chart.py
-python3 tools/verify_bench.py
+./kestrel pull Qwen/Qwen2.5-Coder-1.5B-Instruct --weights
+./kestrel convert ~/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct
+./kestrel build
+./kestrel bench --windhover   # → docs/windhover_bench.json
+./kestrel bench --dense       # transformers vs pre-WH dense A/B
 ```
+
+### Important: what `glm_tiny` is
+
+**`glm_tiny` is not a real language model.** It is a synthetic ~2 MB teacher-forcing oracle fixture used to prove numerics / scheduling. It is **not** GLM-5.2, Kimi, or any Hugging Face chat checkpoint.
+
+### Same laptop · without vs with (micro-fixture)
+
+- **12 batches × 40 processes per side**, warmup discarded, interleaved A/B · both sides **32/32** oracle  
+- Full dump: [`docs/full_bench.json`](docs/full_bench.json) · chart: [`docs/screenshots/bench-without-vs-with-kestrel.svg`](docs/screenshots/bench-without-vs-with-kestrel.svg)
 
 ![Without Kestrel vs with Kestrel](docs/screenshots/bench-without-vs-with-kestrel.svg)
 
@@ -81,98 +173,27 @@ python3 tools/verify_bench.py
 | Peak RSS (MB) | 5.83 | 5.20 | lower |
 | Oracle correctness | 32/32 | 32/32 | match |
 
-Welch on batch-mean pos/s is decisive on this fixture. **Do not** treat these % as tok/s claims on GLM-5.2 or Kimi.
+**Do not** treat these % as tok/s claims on GLM-5.2 or Kimi.
 
 ### Frontier MoE benches (GLM-5.2 / Kimi K2.6 / K2.7 Code)
 
-Frontier MoEs use **`engine/runtime/engine.c`** (`glm_moe_dsa`) — the same int4 expert + SDOT IDOT stack as the dense path, not a separate “slow path.” Absolute tok/s will not match the 1.5B dense bench (active experts + depth differ); the **kernel family and routing** are the same once a real SNAP is installed.
+Frontier MoEs use **`engine/runtime/engine.c`** (`glm_moe_dsa`) — same int4 expert + SDOT family, now reporting into the Windhover AU ledger. Absolute tok/s will not match the 1.5B dense bench.
 
-To fair-bench a **real** model the same way (without vs with `kestrel-engine` on this laptop) you need:
-
-1. Free disk for the HF download (~**600–756 GB**) plus convert room  
-2. `./kestrel pull <id> --weights` then FP8→int4 convert where required  
-3. `KESTREL_SNAP=<converted_dir> python3 tools/real_model_bench.py`
-
-| Model | Approx download | Status on this repo / typical Mac |
+| Model | Approx download | Status |
 |---|---:|---|
-| **GLM-5.2** (`zai-org/GLM-5.2-FP8`) | ~756 GB | **Not run** — needs download + convert |
+| **GLM-5.2** | ~756 GB | **Not run** — needs download + convert |
 | **Kimi K2.6** / **K2.7 Code** | ~600 GB | **Not run** — needs download + convert |
 | `glm_tiny` | ~0.002 GB | Measured above — **synthetic only** |
 
-```bash
-python3 tools/real_model_bench.py   # prints requirements; writes docs/real_model_bench.json
-# After you have a converted SNAP:
-KESTREL_SNAP=~/.kestrel/models/<converted> python3 tools/real_model_bench.py
-```
+Until a real SNAP exists locally, we **publish no invented GLM/Kimi speedups**. Status: [`docs/real_model_bench.json`](docs/real_model_bench.json).
 
-Until a real SNAP exists locally, we **publish no invented GLM/Kimi speedups**. Status file: [`docs/real_model_bench.json`](docs/real_model_bench.json).
+### Laptop-limit stress (synthetic MoE)
 
-### Real model · Qwen2.5-Coder-1.5B (dense engine · same laptop)
-
-`kestrel-engine` auto-detects dense Qwen2 / Qwen3 / Llama / Mistral packs (GQA + SwiGLU; Qwen3 optional q_norm/k_norm) and runs them on the **same** int8 + int4 + NEON IDOT family as the MoE path — not the transformers Mac-preview fallback. Absolute tok/s scales with size; the optimization path does not change per model.
-
-**Protocol (verified):** decode-only tok/s on both sides (prefill excluded), same chat-templated prompt, greedy, `max_new_tokens=48`, 1 warmup + 3 trials.
-
-Measured on a **MacBook Air M4 16 GB**:
-
-| | Without Kestrel | With Kestrel |
-|---|---|---|
-| Path | stock `transformers` · **CPU** · float16 | **`kestrel-engine` dense** · int8 q/k/v + int4 o/mlp + SDOT |
-| Decode tok/s | **~20.6** | **~33.2** |
-| Peak RSS | ~6.2 GB | **~2.4 GB** |
-| Δ tok/s | — | **+61%** |
-| Δ RSS | — | **−61%** |
-
-Full dump: [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json).
-
-```bash
-./kestrel pull Qwen/Qwen2.5-Coder-1.5B-Instruct --weights
-./kestrel build
-python3 tools/dense_qwen_bench.py
-# or: ./kestrel bench --dense
-```
-
-**Honest takeaway:** dense `kestrel-engine` beats stock transformers CPU on this 1.5B pack on **both** decode tok/s (**+61%**) and RSS (**−61%**), via int8 q/k/v, int4 o_proj+MLP, SDOT IDOT, and OpenMP attention heads. Under memory pressure the engine stayed ~25 tok/s while transformers fell to ~0.15 (swap) — usable vs thrash, but that raw % is not the quiet-machine headline. glm_tiny **+548%** remains a micro-fixture oracle — not a % claim on Qwen.
-
-### Real model · Qwen2.5-7B Instruct (same laptop)
-
-On 16 GB, stock fp16 7B was previously **swap-bound** (~0.01 tok/s via transformers/preview). The dense engine loads it in int8:
-
-| | Without Kestrel (legacy preview dump) | With Kestrel (dense engine probe) |
-|---|---|---|
-| Path | `transformers` CPU/MPS · float16 | **`kestrel-engine` dense** · int8 + IDOT |
-| Decode tok/s | **~0.01** (swap-bound) | **~3.3** (NGEN=24 probe) |
-| Peak RSS | ~9–10 GB | ~8.2 GB |
-| Output | thrashing | coherent (`Hi there!`) |
-
-Legacy preview-only dump: [`docs/qwen7b_bench.json`](docs/qwen7b_bench.json).
-
-```bash
-./kestrel pull Qwen/Qwen2.5-7B-Instruct --weights
-./kestrel build
-SNAP=~/.kestrel/models/Qwen__Qwen2.5-7B-Instruct \
-  PROMPT='…' NGEN=24 ./engine/kestrel-engine 64 4 4
-```
-
-**Honest takeaway:** for 7B on this Mac, the dense path is what makes generation usable. Prefer ≤3–4B for snappy chat; 7B works but stays heavy (~8 GB RSS).
-
-### Laptop-limit stress (synthetic MoE · pushes this machine)
-
-On a **MacBook Air M4 16 GB**, a **synthetic** MoE stress SNAP (`kestrel__glm-stress`, ~1.3 GB when present) was used for without/with `kestrel-engine` single-stream and concurrent soak. See [`docs/laptop_limit_bench.json`](docs/laptop_limit_bench.json) (single-stream: without ~201 tok/s, with ~185 tok/s, Δ **−7.7%** on that fixture).
+MacBook Air M4 16 GB · synthetic `kestrel__glm-stress`: without ~201 tok/s, with ~185 tok/s (Δ **−7.7%**). See [`docs/laptop_limit_bench.json`](docs/laptop_limit_bench.json). Not a frontier MoE claim.
 
 ```bash
 ./kestrel bench --laptop
 ```
-
-This is still **not** a frontier MoE claim.
-
-**What moved the needle on the micro-fixture (engine)**
-
-- Batched `lm_head` on the TF path  
-- DSA short-context skip where the baseline path still indexes every layer  
-- Attention / MoE / dense scratch reuse (`model_ws`, `attn_ws`)  
-- Lean TF path (skip unused DSA load, quieter I/O, clamped expert capacity)  
-- Hand NEON f32 matmul (Accelerate was tried and reverted — better internal pos/s, worse process wall + RSS)
 
 ---
 
@@ -195,7 +216,7 @@ This is still **not** a frontier MoE claim.
 
 1. **Library** lists open MoE families (GLM, Qwen, Kimi, DeepSeek, Mistral, Llama) plus a **Mac 16GB** filter.  
    - **Kestrel Chat Preview** — honest small on-device chat (SmolLM2).  
-   - **Mac 16GB** — small HF instruct models under ~20GB. Qwen2 / Qwen3 / Llama / Mistral-layout packs (incl. SmolLM2, TinyLlama, R1-distill-Qwen) route to **`kestrel-engine` dense**; Gemma / Phi stay on the Mac preview path until ported. Frontier MoEs (GLM-5.x, Kimi, …) use the MoE engine path after real download + convert.  
+   - **Mac 16GB** — small HF instruct models under ~20GB. Qwen2 / Qwen3 / Llama / Mistral / Gemma2/3 / Phi-3 packs route to **`kestrel-engine` Windhover** after `./kestrel convert` (KPK). Frontier MoEs (GLM-5.x, Kimi, …) use the MoE engine path after real download + convert.  
    - **Download weights** — real Hugging Face download for frontier MoEs (confirms size); **never** installs a tiny stub labeled as Kimi/Qwen/etc.  
 2. **Chat** only lists installs that are actually chat-capable. Requesting an uninstalled id (e.g. K2.6) returns an error — it will **not** silently use another model.  
 3. **Agent** — pick a folder on disk; a local model can list/read/edit files under that root only (Cursor-style, fully on-device). Prefer a small coder (e.g. Qwen2.5-Coder-1.5B) on 16GB Macs.  
@@ -261,7 +282,8 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) or the Mac `.app`.
 ```bash
 ./kestrel bench              # synthetic glm_tiny micro-fixture (not a real model)
 ./kestrel bench --smoke
-./kestrel bench --dense      # Qwen2.5-Coder-1.5B without/with dense engine
+./kestrel bench --windhover  # KPK Windhover A/B (1.5B/7B under ~/.kestrel/models)
+./kestrel bench --dense      # legacy transformers vs dense engine on 1.5B
 ./kestrel bench --qwen       # legacy Qwen2.5-7B preview-path dump
 
 ./kestrel bench --laptop     # glm_stress single-stream + concurrent soak (16GB class)
@@ -269,8 +291,8 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) or the Mac `.app`.
 ```
 
 Micro-fixture numbers: [`docs/full_bench.json`](docs/full_bench.json).  
-Qwen2.5-Coder dense engine: [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json).  
-Qwen2.5-7B (legacy preview): [`docs/qwen7b_bench.json`](docs/qwen7b_bench.json).  
+Windhover: [`docs/windhover_bench.json`](docs/windhover_bench.json), gates [`docs/windhover_gates.json`](docs/windhover_gates.json).  
+Qwen2.5-Coder dense (legacy A/B): [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json).  
 Laptop-limit: [`docs/laptop_limit_bench.json`](docs/laptop_limit_bench.json), [`docs/laptop_soak_bench.json`](docs/laptop_soak_bench.json).  
 Frontier status: [`docs/real_model_bench.json`](docs/real_model_bench.json).
 
@@ -280,7 +302,9 @@ Frontier status: [`docs/real_model_bench.json`](docs/real_model_bench.json).
 
 | Path | Role |
 |------|------|
-| [`engine/`](engine/) | Product CPU MoE engine → `kestrel-engine` |
+| [`engine/`](engine/) | Product CPU engine → `kestrel-engine` (MoE + Windhover) |
+| [`engine/runtime/windhover.c`](engine/runtime/windhover.c) | Windhover dense runtime (KPK, CATS, int8 KV) |
+| [`tools/kestrel_pack.py`](tools/kestrel_pack.py) | HF → KPK converter |
 | [`kestrel`](kestrel) | CLI + Library/Chat HTTP API |
 | [`app/`](app/) | Vite/React UI (Library · Chat · Advanced) |
 | [`desktop/`](desktop/) | Tauri macOS app |
@@ -318,3 +342,13 @@ Install is honest: **Chat Preview** / **Mac 16GB** models download real small HF
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE). Upstream attribution in [UPSTREAM.md](UPSTREAM.md).
+
+---
+
+## Star history
+
+<p align="center">
+  <a href="https://star-history.com/#cliclye/Kestrel&Date">
+    <img src="https://api.star-history.com/svg?repos=cliclye/Kestrel&type=Date" alt="Star History Chart" width="100%" />
+  </a>
+</p>

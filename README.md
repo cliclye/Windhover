@@ -52,7 +52,9 @@ Live telemetry: process RSS, latency, tok/s, selected model, backend, and Windho
 
 ## Performance
 
-All numbers below were **measured on this machine** (MacBook Air **M4**, **16 GB**, 4P+6E) unless marked otherwise. We never publish projected tok/s as facts.
+All **headline** numbers below were **measured on this machine** (MacBook Air **M4**, **16 GB**, 4P+6E) unless marked otherwise. We never publish projected tok/s as facts.
+
+After the code-quality pass we also **remeasured on Linux x86_64** (4 vCPU Xeon, **15.6 GB**) for the same 1.5B local-LLM protocol — see [Linux remeasure](#linux-x86_64-remeasure-after-code-quality). Absolute tok/s differ by host; **percent deltas** (with vs without Kestrel) are the fair cross-host signal.
 
 ### Diagnosis — measured, not guessed
 
@@ -111,6 +113,8 @@ Harness: [`tools/windhover_gates.py`](tools/windhover_gates.py) + [`tools/wh_ker
 
 **Protocol:** decode-only tok/s (prefill excluded), greedy, chat-templated prompt. Sources: [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json), engine 7B dense probe, [`docs/windhover_bench.json`](docs/windhover_bench.json), [`docs/qwen7b_bench.json`](docs/qwen7b_bench.json).
 
+Percent rule: **positive decode Δ = faster (better)** · **negative RSS Δ = lower memory (better)**.
+
 #### Qwen2.5-Coder-1.5B Instruct
 
 | | Without Kestrel | With Kestrel (pre-Windhover dense) | With Kestrel (**Windhover**) |
@@ -121,11 +125,11 @@ Harness: [`tools/windhover_gates.py`](tools/windhover_gates.py) + [`tools/wh_ker
 | Prefill (Windhover) | — | — | **~52 tok/s** |
 | FFN sparsity | 0% | 0% | **~23%** |
 
-| Boost | Decode | RSS |
+| Boost (vs baseline) | Decode tok/s | Peak RSS |
 |---|---:|---:|
-| Dense vs without | **+61%** | **−61%** |
-| **Windhover vs without** | **+137%** | **−83%** |
-| **Windhover vs dense** | **+47%** | **−58%** |
+| Dense vs **without** | **+61% better** | **−61% better** |
+| **Windhover vs without** | **+137% better** | **−83% better** |
+| **Windhover vs dense** | **+47% better** | **−58% better** |
 
 #### Qwen2.5-7B Instruct
 
@@ -138,19 +142,39 @@ Harness: [`tools/windhover_gates.py`](tools/windhover_gates.py) + [`tools/wh_ker
 | FFN sparsity | 0% | 0% | **~26%** |
 | Pack on disk | ~15 GB fp16 | load-time quant | **~4.4 GB KPK** |
 
-| Boost | Decode | RSS |
+| Boost (vs baseline) | Decode tok/s | Peak RSS |
 |---|---:|---:|
-| Dense vs without | swap → **usable (~3.3)** | ~−9% |
-| **Windhover vs without** | swap → **~11 tok/s** | **−53%** |
-| **Windhover vs dense** | **+237%** | **−49%** |
+| Dense vs **without** | swap → **usable (~3.3)** | ~−9% better |
+| **Windhover vs without** | swap → **~11 tok/s** | **−53% better** |
+| **Windhover vs dense** | **+237% better** | **−49% better** |
 
 **Honest takeaway:** Windhover closes most of the bandwidth gap on 1.5B and makes 7B comfortable on 16 GB without swap thrash. Prefer ≤3–4B for snappy chat; 7B is usable.
+
+### Linux x86_64 remeasure (after code quality)
+
+Same decode-only protocol on **Intel Xeon 4 vCPU · 15.6 GB** (not Apple Silicon). Sources: [`docs/dense_qwen_bench_linux.json`](docs/dense_qwen_bench_linux.json), [`docs/windhover_bench_linux.json`](docs/windhover_bench_linux.json).
+
+#### Qwen2.5-Coder-1.5B Instruct (Linux)
+
+| | Without Kestrel | With Kestrel (dense `WH=0`) | With Kestrel (**Windhover**) |
+|---|---:|---:|---:|
+| Path | `transformers` CPU · fp16 | `kestrel-engine` dense | **KPK · CATS · int8 KV** |
+| Decode tok/s | **6.84** | **11.93** | **13.44** |
+| Peak RSS | **6.18 GB** | **1.31 GB** | **1.03 GB** |
+
+| Boost (vs without) | Decode tok/s | Peak RSS |
+|---|---:|---:|
+| Dense vs **without** | **+74.5% better** | **−78.8% better** |
+| **Windhover vs without** | **+96.0% better** | **−83.3% better** |
+| Windhover vs dense | **+12.7% better** | **−21.4% better** |
+
+7B was not re-packed on this host (convert needs more than ~16 GB RAM to load fp16 weights). M4 7B numbers above still stand.
 
 ```bash
 ./kestrel pull Qwen/Qwen2.5-Coder-1.5B-Instruct --weights
 ./kestrel convert ~/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct
 ./kestrel build
-./kestrel bench --windhover   # → docs/windhover_bench.json
+./kestrel bench --windhover   # → docs/windhover_bench.json (+ without A/B)
 ./kestrel bench --dense       # transformers vs pre-WH dense A/B
 ```
 
@@ -162,14 +186,15 @@ Harness: [`tools/windhover_gates.py`](tools/windhover_gates.py) + [`tools/wh_ker
 
 - **12 batches × 40 processes per side**, warmup discarded, interleaved A/B · both sides **32/32** oracle  
 - Full dump: [`docs/full_bench.json`](docs/full_bench.json) · chart: [`docs/screenshots/bench-without-vs-with-kestrel.svg`](docs/screenshots/bench-without-vs-with-kestrel.svg)
+- Linux micro remeasure (not a LLM claim): [`docs/full_bench_linux.json`](docs/full_bench_linux.json)
 
 ![Without Kestrel vs with Kestrel](docs/screenshots/bench-without-vs-with-kestrel.svg)
 
 | Metric (batch means) | Without Kestrel | With Kestrel | Δ |
 |---|---:|---:|---:|
-| Prefill throughput (pos/s) | 11 978 | 77 563 | **+548%** |
+| Prefill throughput (pos/s) | 11 978 | 77 563 | **+548% better** |
 | 95% CI (pos/s) | 11 587–12 370 | 76 721–78 404 | non-overlap |
-| Batch wall (s) | 0.297 | 0.178 | **−40%** (faster) |
+| Batch wall (s) | 0.297 | 0.178 | **−40% better** (faster) |
 | Peak RSS (MB) | 5.83 | 5.20 | lower |
 | Oracle correctness | 32/32 | 32/32 | match |
 
@@ -293,6 +318,7 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) or the Mac `.app`.
 Micro-fixture numbers: [`docs/full_bench.json`](docs/full_bench.json).  
 Windhover: [`docs/windhover_bench.json`](docs/windhover_bench.json), gates [`docs/windhover_gates.json`](docs/windhover_gates.json).  
 Qwen2.5-Coder dense (legacy A/B): [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json).  
+Linux remeasure (1.5B with/without): [`docs/windhover_bench_linux.json`](docs/windhover_bench_linux.json), [`docs/dense_qwen_bench_linux.json`](docs/dense_qwen_bench_linux.json).  
 Laptop-limit: [`docs/laptop_limit_bench.json`](docs/laptop_limit_bench.json), [`docs/laptop_soak_bench.json`](docs/laptop_soak_bench.json).  
 Frontier status: [`docs/real_model_bench.json`](docs/real_model_bench.json).
 

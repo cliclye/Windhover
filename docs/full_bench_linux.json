@@ -1,0 +1,266 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-07-21T22:53:19.463849+00:00",
+    "methodology": {
+      "mode": "TF teacher-forcing (kestrel-engine fixtures/glm_tiny vs stock glm_tiny)",
+      "trial_definition": "one trial = 20 consecutive processes; 4 trials after 1 warmup batches",
+      "fairness": [
+        "no BENCH_LOOPS (stock does not have it)",
+        "identical stripped env",
+        "both ARCH=native OpenMP",
+        "same glm_tiny + ref_glm.json",
+        "page-cache warm (warmup discarded) \u2014 steady-state, not cold-start",
+        "primary binary: engine/kestrel-engine",
+        "interleaved stock/kestrel batches (not stock-then-kestrel)"
+      ],
+      "primary_metrics": [
+        "pos/s: engine-reported forward_all throughput (excludes load)",
+        "batch_wall_s: external wall for batch_size processes",
+        "wall_per_proc_s: batch_wall / batch_size"
+      ],
+      "limitations": [
+        "glm_tiny only \u2014 do not extrapolate to GLM-5.2",
+        "pos/s on tiny model is short; use batch means + CI"
+      ]
+    },
+    "stock_upstream_sha": "72d3d37231e922a6fa9afca16e08fa45842d5eb4",
+    "expected_upstream_sha": "72d3d37231e922a6fa9afca16e08fa45842d5eb4",
+    "sha_match": true,
+    "batches": 4,
+    "batch_size": 20,
+    "warmup_batches": 1
+  },
+  "stock": {
+    "name": "stock",
+    "binary": "/tmp/colibri-clone/c/glm",
+    "sha256": "5258f1cf8aadd989eebfa2bdd8973d38f4a50b2af2d34a12327219950d4bd0fd",
+    "all_correct": true,
+    "oracle": "32/32",
+    "n_batches": 4,
+    "batch_size": 20,
+    "n_processes_total": 80,
+    "pos_per_s_batch_means": {
+      "n": 4,
+      "mean": 12101.07875,
+      "median": 12057.057499999999,
+      "stdev": 141.00850195260082,
+      "min": 11991.335000000001,
+      "max": 12298.865,
+      "ci95_low": 11962.890418086452,
+      "ci95_high": 12239.26708191355
+    },
+    "pos_per_s_all_procs": {
+      "n": 80,
+      "mean": 12101.07875,
+      "median": 12151.2,
+      "stdev": 519.6637809573841,
+      "min": 10758.8,
+      "max": 13248.0,
+      "ci95_low": 11987.202403112804,
+      "ci95_high": 12214.955096887197
+    },
+    "batch_wall_s": {
+      "n": 4,
+      "mean": 0.10625707950021024,
+      "median": 0.10621272500429768,
+      "stdev": 0.0010374428251458344,
+      "min": 0.10505169999669306,
+      "max": 0.10755116799555253,
+      "ci95_low": 0.10524038553156732,
+      "ci95_high": 0.10727377346885315
+    },
+    "wall_per_proc_s": {
+      "n": 4,
+      "mean": 0.005312853975010512,
+      "median": 0.005310636250214884,
+      "stdev": 5.1872141257291916e-05,
+      "min": 0.005252584999834653,
+      "max": 0.005377558399777627,
+      "ci95_low": 0.005262019276578366,
+      "ci95_high": 0.005363688673442658
+    },
+    "max_rss_mb": {
+      "n": 8,
+      "mean": 5.36865234375,
+      "median": 5.37109375,
+      "stdev": 0.08686937680526204,
+      "min": 5.234375,
+      "max": 5.515625,
+      "ci95_low": 5.308454936841879,
+      "ci95_high": 5.428849750658121
+    },
+    "user_s": {
+      "n": 8,
+      "mean": 0.0075,
+      "median": 0.01,
+      "stdev": 0.004629100498862757,
+      "min": 0.0,
+      "max": 0.01,
+      "ci95_low": 0.004292197013530912,
+      "ci95_high": 0.010707802986469088
+    },
+    "sys_s": {
+      "n": 8,
+      "mean": 0.00125,
+      "median": 0.0,
+      "stdev": 0.0035355339059327377,
+      "min": 0.0,
+      "max": 0.01,
+      "ci95_low": -0.0012,
+      "ci95_high": 0.0037
+    },
+    "cpu_s": {
+      "n": 8,
+      "mean": 0.00875,
+      "median": 0.01,
+      "stdev": 0.0035355339059327377,
+      "min": 0.0,
+      "max": 0.01,
+      "ci95_low": 0.006300000000000001,
+      "ci95_high": 0.011200000000000002
+    }
+  },
+  "kestrel": {
+    "name": "kestrel",
+    "binary": "/workspace/engine/kestrel-engine",
+    "sha256": "ce86e1b2e7f2d0a31a024bd6e71c5d48cb52d61bbc41d6274c8a2edbeca9ac76",
+    "all_correct": true,
+    "oracle": "32/32",
+    "n_batches": 4,
+    "batch_size": 20,
+    "n_processes_total": 80,
+    "pos_per_s_batch_means": {
+      "n": 4,
+      "mean": 11082.528750000001,
+      "median": 11093.6625,
+      "stdev": 56.00103724857772,
+      "min": 11010.960000000001,
+      "max": 11131.83,
+      "ci95_low": 11027.647733496395,
+      "ci95_high": 11137.409766503608
+    },
+    "pos_per_s_all_procs": {
+      "n": 80,
+      "mean": 11082.528750000001,
+      "median": 11139.650000000001,
+      "stdev": 289.1869642674359,
+      "min": 10156.6,
+      "max": 11540.3,
+      "ci95_low": 11019.15786238974,
+      "ci95_high": 11145.899637610262
+    },
+    "batch_wall_s": {
+      "n": 4,
+      "mean": 0.12523114675059333,
+      "median": 0.12484052550280467,
+      "stdev": 0.0012191694422917065,
+      "min": 0.12426728299760725,
+      "max": 0.1269762529991567,
+      "ci95_low": 0.12403636069714745,
+      "ci95_high": 0.1264259328040392
+    },
+    "wall_per_proc_s": {
+      "n": 4,
+      "mean": 0.006261557337529667,
+      "median": 0.006242026275140233,
+      "stdev": 6.0958472114585295e-05,
+      "min": 0.006213364149880362,
+      "max": 0.0063488126499578355,
+      "ci95_low": 0.006201818034857373,
+      "ci95_high": 0.006321296640201961
+    },
+    "max_rss_mb": {
+      "n": 8,
+      "mean": 6.095703125,
+      "median": 6.0703125,
+      "stdev": 0.10026645583233992,
+      "min": 5.9765625,
+      "max": 6.296875,
+      "ci95_low": 6.026222015972302,
+      "ci95_high": 6.165184234027698
+    },
+    "user_s": {
+      "n": 8,
+      "mean": 0.0075,
+      "median": 0.01,
+      "stdev": 0.004629100498862757,
+      "min": 0.0,
+      "max": 0.01,
+      "ci95_low": 0.004292197013530912,
+      "ci95_high": 0.010707802986469088
+    },
+    "sys_s": {
+      "n": 8,
+      "mean": 0.00125,
+      "median": 0.0,
+      "stdev": 0.0035355339059327377,
+      "min": 0.0,
+      "max": 0.01,
+      "ci95_low": -0.0012,
+      "ci95_high": 0.0037
+    },
+    "cpu_s": {
+      "n": 8,
+      "mean": 0.00875,
+      "median": 0.01,
+      "stdev": 0.0035355339059327377,
+      "min": 0.0,
+      "max": 0.01,
+      "ci95_low": 0.006300000000000001,
+      "ci95_high": 0.011200000000000002
+    }
+  },
+  "comparison": {
+    "throughput_pos_per_s": {
+      "stock_mean": 12101.07875,
+      "kestrel_mean": 11082.528750000001,
+      "delta_pct": -8.417018193522617,
+      "welch_on_batch_means": {
+        "t": 13.42654511678007,
+        "df": 3.92338098016332,
+        "p_approx": 4.2267550870051277e-41
+      },
+      "ci95_stock": [
+        11962.890418086452,
+        12239.26708191355
+      ],
+      "ci95_kestrel": [
+        11027.647733496395,
+        11137.409766503608
+      ]
+    },
+    "batch_wall_s": {
+      "stock_mean": 0.10625707950021024,
+      "kestrel_mean": 0.12523114675059333,
+      "delta_pct": 17.856755841238368,
+      "welch": {
+        "t": -23.705263562722124,
+        "df": 5.850190817459748,
+        "p_approx": 3.182067275631241e-124
+      }
+    },
+    "wall_per_proc_s": {
+      "stock_mean": 0.005312853975010512,
+      "kestrel_mean": 0.006261557337529667,
+      "delta_pct": 17.85675584123838
+    },
+    "correctness": {
+      "stock_all_ok": true,
+      "kestrel_all_ok": true
+    },
+    "goal_10pct_throughput": false
+  },
+  "host": {
+    "platform": "linux",
+    "system": "Linux",
+    "machine": "x86_64",
+    "python": "3.12.3",
+    "logical_cpu": "4",
+    "cpu_brand": "Intel(R) Xeon(R) Processor",
+    "mem_bytes": "16792023040",
+    "physical_cpu": "1",
+    "mem_gb": 15.6
+  },
+  "note": "Linux x86_64 remeasure of glm_tiny micro-fixture only \u2014 not a local LLM claim. Mac M4 numbers remain the product headline in full_bench.json.",
+  "remeasure_note": "Remeasured on Linux x86_64 cloud host after code-quality pass. MacBook Air M4 numbers in the non-_linux JSON files remain the product headline."
+}

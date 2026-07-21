@@ -16,19 +16,20 @@ def host_info() -> dict:
         "python": sys.version.split()[0],
         "logical_cpu": str(os.cpu_count() or 0),
     }
-    # macOS sysctl
-    for key, flag in (
-        ("logical_cpu", "hw.logicalcpu"),
-        ("physical_cpu", "hw.physicalcpu"),
-        ("mem_bytes", "hw.memsize"),
-        ("cpu_brand", "machdep.cpu.brand_string"),
-    ):
-        try:
-            out[key] = subprocess.check_output(
-                ["sysctl", "-n", flag], text=True, timeout=2
-            ).strip()
-        except Exception:
-            pass
+    # macOS sysctl only — Linux `sysctl` looks under /proc/sys and spams errors.
+    if sys.platform == "darwin":
+        for key, flag in (
+            ("logical_cpu", "hw.logicalcpu"),
+            ("physical_cpu", "hw.physicalcpu"),
+            ("mem_bytes", "hw.memsize"),
+            ("cpu_brand", "machdep.cpu.brand_string"),
+        ):
+            try:
+                out[key] = subprocess.check_output(
+                    ["sysctl", "-n", flag], text=True, timeout=2
+                ).strip()
+            except Exception:
+                pass
     # Linux /proc
     if "cpu_brand" not in out:
         try:
@@ -49,14 +50,12 @@ def host_info() -> dict:
             pass
     if "physical_cpu" not in out:
         try:
-            out["physical_cpu"] = str(
-                len({
-                    l.split(":")[1].strip()
-                    for l in Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore").splitlines()
-                    if l.startswith("physical id")
-                })
-                or out.get("logical_cpu", "0")
-            )
+            ids = {
+                l.split(":")[1].strip()
+                for l in Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore").splitlines()
+                if l.startswith("physical id")
+            }
+            out["physical_cpu"] = str(len(ids) or out.get("logical_cpu", "0"))
         except Exception:
             out["physical_cpu"] = out.get("logical_cpu", "0")
     if "mem_bytes" in out:

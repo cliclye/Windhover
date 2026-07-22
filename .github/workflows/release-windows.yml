@@ -30,13 +30,14 @@ jobs:
             msystem: UCRT64
             msys_env: ucrt64
             asset: Windhover-Windows-x64.exe
-            pacman: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-openmp make
+            # OpenMP via gcc-libs (libgomp); *-openmp package name is gone on UCRT64.
+            pacman: mingw-w64-ucrt-x86_64-gcc make
           - runner: windows-11-arm
             triple: aarch64-pc-windows-msvc
             msystem: CLANGARM64
             msys_env: clangarm64
             asset: Windhover-Windows-arm64.exe
-            pacman: mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-openmp make
+            pacman: mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-llvm-openmp make
 
     defaults:
       run:

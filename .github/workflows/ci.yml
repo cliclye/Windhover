@@ -89,7 +89,8 @@ jobs:
         with:
           msystem: UCRT64
           update: true
-          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-openmp make
+          # OpenMP comes via gcc-libs (libgomp); the old *-openmp package was renamed/removed.
+          install: mingw-w64-ucrt-x86_64-gcc make
       - name: Build + oracle
         shell: msys2 {0}
         run: |

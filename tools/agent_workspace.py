@@ -123,8 +123,11 @@ def pick_folder(prompt: str = "Choose a folder for Windhover Agent") -> dict[str
 def list_dir(root: Path, rel: str = ".") -> dict[str, Any]:
     root = root.resolve()
     d = resolve_under(root, rel)
+    # Models sometimes pass a file path; list its parent instead of failing.
+    if d.is_file():
+        d = d.parent
     if not d.is_dir():
-        raise NotADirectoryError(str(d))
+        raise NotADirectoryError(str(d.relative_to(root) if d != root else "."))
     entries = []
     for child in sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
         if child.name == ".git":
@@ -144,7 +147,11 @@ def list_dir(root: Path, rel: str = ".") -> dict[str, Any]:
         )
         if len(entries) >= _MAX_LIST:
             break
-    return {"ok": True, "path": str(Path(rel or ".")), "entries": entries}
+    try:
+        shown = str(d.relative_to(root)) if d != root else "."
+    except ValueError:
+        shown = str(Path(rel or "."))
+    return {"ok": True, "path": shown, "entries": entries}
 
 
 def read_file(root: Path, rel: str) -> dict[str, Any]:
@@ -349,48 +356,116 @@ def _loose_json_tool(raw: str) -> dict[str, Any] | None:
     return out
 
 
-AGENT_SYSTEM = """You are Windhover Agent, a local coding assistant. You edit files ONLY inside the user workspace using tools.
+AGENT_SYSTEM = """You are Windhover Agent, a local coding assistant.
+You change files ONLY inside the user workspace by calling tools.
+Follow the USER task only — never invent a different app or demo task.
 
-Preferred tool format (easy for local models):
+## Tools (emit exactly ONE tool per reply)
 
-TOOL read_file
-path: main.py
+Format A — line form:
+
+TOOL <name>
+<path or fields>
 END
 
-TOOL str_replace
-path: main.py
-old: def add(a, b):
-    return a + b
-new: def add(a, b):
-    \"\"\"Return a + b.\"\"\"
-    return a + b
-END
+Allowed names and fields:
+- list_dir      path: <relative dir, or .>
+- read_file     path: <relative file>
+- write_file    path: <relative file>
+                content: <full new file text>
+- str_replace   path: <relative file>
+                old: <exact text to find — copy from a prior read_file result>
+                new: <replacement text>
+- finish        summary: <what you did for THIS user request>
 
-TOOL write_file
-path: hello.py
-content: print("hi")
-END
+You may also use a fenced JSON tool block (one tool only):
 
-TOOL list_dir
-path: .
-END
-
-TOOL finish
-summary: short summary of what you changed
-END
-
-You may also use a fenced JSON tool block:
 ```tool
-{"name":"read_file","path":"main.py"}
+{"name":"list_dir","path":"."}
 ```
 
-Rules:
+```tool
+{"name":"read_file","path":"<relative-file>"}
+```
+
+```tool
+{"name":"str_replace","path":"<relative-file>","old":"<exact old text>","new":"<replacement>"}
+```
+
+```tool
+{"name":"finish","summary":"<what you did for this user request>"}
+```
+
+## Hard rules
+- Do what the user asked. Paths and code must match THEIR workspace and request.
+- NEVER replay format examples, sample paths, or sample code as your answer.
+- NEVER claim the project is some other invented app (or invent unrelated filenames) unless the user said so.
+- Prefer list_dir or read_file first when you need context.
 - Prefer str_replace for small edits; copy old text EXACTLY from read_file output.
-- Read a file before editing it.
-- After a successful write/str_replace, call finish.
-- Do not invent tools. Do not escape the workspace.
-- Keep content UTF-8. Be concise. Emit ONE tool at a time.
+- After a successful write_file/str_replace that completes the request, call finish.
+- Do not invent tools. Do not escape the workspace. UTF-8 only. Be concise.
 """
+
+# Phrases/paths from older prompts that tiny models still regurgitate.
+_ECHO_MARKERS = (
+    '"""Return a + b."""',
+    "Return a + b.",
+    'content: print("hi")',
+    'print("hi")',
+    "This app is a simple calculator",
+    "performs basic arithmetic operations",
+    "path: hello.py",
+    "def add(a, b):",
+    "Here is a sample user task",
+    "sample user task",
+)
+
+
+def looks_like_format_echo(text: str, user_prompt: str) -> bool:
+    """True when the model is parroting demo tool scripts instead of the user task."""
+    t = text or ""
+    if not t.strip():
+        return False
+    prompt_l = (user_prompt or "").lower()
+    hits = 0
+    for marker in _ECHO_MARKERS:
+        if marker in t:
+            # Allow if the user actually asked about that content.
+            if marker.lower() in prompt_l:
+                continue
+            # Special-case: user mentioned add/hello intentionally.
+            if "hello.py" in marker and "hello.py" in prompt_l:
+                continue
+            if "def add" in marker and ("def add" in prompt_l or "add(a" in prompt_l):
+                continue
+            if "calculator" in marker.lower() and "calculator" in prompt_l:
+                continue
+            hits += 1
+    # Multiple demo tools dumped in one reply is a strong echo signal.
+    demo_tools = sum(
+        1
+        for name in ("read_file", "str_replace", "write_file", "list_dir", "finish")
+        if re.search(rf"(?:^|\n)TOOL\s+{name}\b", t, re.IGNORECASE)
+    )
+    if demo_tools >= 3 and hits >= 1:
+        return True
+    return hits >= 2
+
+
+def workspace_listing(root: str | Path, limit: int = 40) -> str:
+    """Short top-level listing so the model grounds on real files."""
+    try:
+        info = list_dir(Path(root), ".")
+    except Exception as e:
+        return f"(could not list workspace: {type(e).__name__}: {e})"
+    lines = []
+    for e in info.get("entries") or []:
+        kind = "dir" if e.get("type") == "dir" else "file"
+        lines.append(f"- {e.get('path')} ({kind})")
+        if len(lines) >= limit:
+            lines.append("- …")
+            break
+    return "\n".join(lines) if lines else "(empty workspace)"
 
 
 def build_agent_messages(
@@ -400,12 +475,17 @@ def build_agent_messages(
     history: list[dict[str, str]] | None = None,
     tool_results: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
+    listing = workspace_listing(workspace_root)
     msgs: list[dict[str, str]] = [
         {
             "role": "system",
-            "content": AGENT_SYSTEM
-            + f"\n\nWorkspace root: {workspace_root}\n"
-            + "Paths in tools are relative to this root.",
+            "content": (
+                AGENT_SYSTEM
+                + f"\n\nWorkspace root: {workspace_root}\n"
+                + "Paths in tools are relative to this root.\n\n"
+                + "Current workspace (top level):\n"
+                + listing
+            ),
         }
     ]
     for h in history or []:
@@ -413,7 +493,16 @@ def build_agent_messages(
         content = (h.get("content") or "").strip()
         if content and role in ("user", "assistant"):
             msgs.append({"role": role, "content": content})
-    msgs.append({"role": "user", "content": user_prompt})
+    msgs.append(
+        {
+            "role": "user",
+            "content": (
+                "USER TASK (do only this):\n"
+                + (user_prompt or "").strip()
+                + "\n\nRespond with exactly one tool call for this task."
+            ),
+        }
+    )
     if tool_results:
         blob = json.dumps(tool_results, indent=2)[:40_000]
         msgs.append(
@@ -422,7 +511,8 @@ def build_agent_messages(
                 "content": (
                     "Tool results from the last step(s):\n```json\n"
                     + blob
-                    + "\n```\nContinue. Call another tool or finish."
+                    + "\n```\nContinue the USER TASK above. Call another tool or finish. "
+                    "Do not switch to an unrelated demo."
                 ),
             }
         )

@@ -1,0 +1,215 @@
+{
+  "model": "microsoft/Phi-4-mini-instruct",
+  "ngen": 96,
+  "transformers_device": "mps:0",
+  "mean_engine_tok_s": 19.8,
+  "mean_tf_tok_s": 2.54,
+  "peak_engine_rss_mb": 3809.3,
+  "peak_tf_rss_mb": 5321.7,
+  "prompts": [
+    {
+      "prompt": "Hi \u2014 reply in one short sentence.",
+      "engine": {
+        "ok": true,
+        "wall_s": 1.507,
+        "decode_tok_s": 13.83,
+        "tokens": 10,
+        "rss_mb": 3799.0,
+        "reply": "Hello! How can I assist you today?"
+      },
+      "transformers": {
+        "ok": true,
+        "wall_s": 2.801,
+        "decode_tok_s": 3.93,
+        "tokens": 11,
+        "rss_mb": 5321.7,
+        "reply": "Sure, go ahead! What's on your mind?",
+        "device": "mps:0"
+      },
+      "speedup": 3.52,
+      "engine_isolated": {
+        "prompt": "Hi \u2014 reply in one short sentence.",
+        "decode_tok_s": 13.83,
+        "rss_mb": 3799.0,
+        "wall_s": 1.507,
+        "tokens": 10,
+        "reply": "Hello! How can I assist you today?"
+      }
+    },
+    {
+      "prompt": "What is 17 times 19? Reply with the number only.",
+      "engine": {
+        "ok": true,
+        "wall_s": 1.406,
+        "decode_tok_s": 27.76,
+        "tokens": 2,
+        "rss_mb": 3799.0,
+        "reply": "323"
+      },
+      "transformers": {
+        "ok": true,
+        "wall_s": 2.379,
+        "decode_tok_s": 0.84,
+        "tokens": 2,
+        "rss_mb": 5321.7,
+        "reply": "323",
+        "device": "mps:0"
+      },
+      "speedup": 33.05,
+      "engine_isolated": {
+        "prompt": "What is 17 times 19? Reply with the number only.",
+        "decode_tok_s": 27.76,
+        "rss_mb": 3799.0,
+        "wall_s": 1.406,
+        "tokens": 2,
+        "reply": "323"
+      }
+    },
+    {
+      "prompt": "Solve for x: x^2 + 3x + 6x = 0. Give both roots briefly.",
+      "engine": {
+        "ok": true,
+        "wall_s": 9.902,
+        "decode_tok_s": 12.16,
+        "tokens": 96,
+        "rss_mb": 3809.3,
+        "reply": "First, let's simplify the equation by combining like terms:  x^2 + 3x + 6x = 0 x^2 + 9x = 0  Now, we can factor out an x"
+      },
+      "transformers": {
+        "ok": true,
+        "wall_s": 17.938,
+        "decode_tok_s": 5.35,
+        "tokens": 96,
+        "rss_mb": 5321.7,
+        "reply": "To solve the quadratic equation \\( x^2 + 3x + 6x = 0 \\), we first simplify the equation by combining like terms:  \\[ x^2 + 9x = 0 \\]  Next, we factor out the co",
+        "device": "mps:0"
+      },
+      "speedup": 2.27,
+      "engine_isolated": {
+        "prompt": "Solve for x: x^2 + 3x + 6x = 0. Give both roots briefly.",
+        "decode_tok_s": 12.16,
+        "rss_mb": 3809.3,
+        "wall_s": 9.902,
+        "tokens": 96,
+        "reply": "First, let's simplify the equation by combining like terms:  x^2 + 3x + 6x = 0 x^2 + 9x = 0  Now, we can factor out an x"
+      }
+    },
+    {
+      "prompt": "A train travels 60 mph for 2.5 hours. How many miles does it travel? Number only.",
+      "engine": {
+        "ok": true,
+        "wall_s": 1.819,
+        "decode_tok_s": 29.88,
+        "tokens": 2,
+        "rss_mb": 3799.0,
+        "reply": "150"
+      },
+      "transformers": {
+        "ok": true,
+        "wall_s": 3.608,
+        "decode_tok_s": 0.55,
+        "tokens": 2,
+        "rss_mb": 5321.7,
+        "reply": "150",
+        "device": "mps:0"
+      },
+      "speedup": 54.33,
+      "engine_isolated": {
+        "prompt": "A train travels 60 mph for 2.5 hours. How many miles does it travel? Number only.",
+        "decode_tok_s": 29.88,
+        "rss_mb": 3799.0,
+        "wall_s": 1.819,
+        "tokens": 2,
+        "reply": "150"
+      }
+    },
+    {
+      "prompt": "What is the capital of France? One word.",
+      "engine": {
+        "ok": true,
+        "wall_s": 1.024,
+        "decode_tok_s": 29.62,
+        "tokens": 2,
+        "rss_mb": 3799.0,
+        "reply": "Paris"
+      },
+      "transformers": {
+        "ok": true,
+        "wall_s": 1.968,
+        "decode_tok_s": 1.02,
+        "tokens": 2,
+        "rss_mb": 5321.7,
+        "reply": "Paris",
+        "device": "mps:0"
+      },
+      "speedup": 29.04,
+      "engine_isolated": {
+        "prompt": "What is the capital of France? One word.",
+        "decode_tok_s": 29.62,
+        "rss_mb": 3799.0,
+        "wall_s": 1.024,
+        "tokens": 2,
+        "reply": "Paris"
+      }
+    },
+    {
+      "prompt": "Write a one-line Python function `add(xs)` that returns the sum of a list.",
+      "engine": {
+        "ok": true,
+        "wall_s": 2.53,
+        "decode_tok_s": 13.94,
+        "tokens": 14,
+        "rss_mb": 3799.0,
+        "reply": "```python def add(xs):     return sum(xs) ```"
+      },
+      "transformers": {
+        "ok": true,
+        "wall_s": 8.003,
+        "decode_tok_s": 1.75,
+        "tokens": 14,
+        "rss_mb": 5321.7,
+        "reply": "```python def add(xs):     return sum(xs) ```",
+        "device": "mps:0"
+      },
+      "speedup": 7.97,
+      "engine_isolated": {
+        "prompt": "Write a one-line Python function `add(xs)` that returns the sum of a list.",
+        "decode_tok_s": 13.94,
+        "rss_mb": 3799.0,
+        "wall_s": 2.53,
+        "tokens": 14,
+        "reply": "```python def add(xs):     return sum(xs) ```"
+      }
+    },
+    {
+      "prompt": "List three bullet points on why local LLMs matter.",
+      "engine": {
+        "ok": true,
+        "wall_s": 9.641,
+        "decode_tok_s": 11.44,
+        "tokens": 96,
+        "rss_mb": 3799.0,
+        "reply": "- **Cultural Relevance**: Local LLMs are trained on region-specific data, making them more culturally relevant and sensi"
+      },
+      "transformers": {
+        "ok": true,
+        "wall_s": 22.202,
+        "decode_tok_s": 4.32,
+        "tokens": 96,
+        "rss_mb": 5321.7,
+        "reply": "- **Cultural Relevance and Contextual Understanding**: Local Large Language Models (LLMs) are trained on region-specific data, which allows them to understand a",
+        "device": "mps:0"
+      },
+      "speedup": 2.65,
+      "engine_isolated": {
+        "prompt": "List three bullet points on why local LLMs matter.",
+        "decode_tok_s": 11.44,
+        "rss_mb": 3799.0,
+        "wall_s": 9.641,
+        "tokens": 96,
+        "reply": "- **Cultural Relevance**: Local LLMs are trained on region-specific data, making them more culturally relevant and sensi"
+      }
+    }
+  ],
+  "note": "engine metrics from isolated hot runs; transformers from MPS A/B (peak RSS includes loaded model)"
+}

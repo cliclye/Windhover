@@ -1,0 +1,98 @@
+{
+  "model": "microsoft/Phi-4-mini-instruct",
+  "backend": "windhover-engine",
+  "ts": "2026-07-22T22:02:57.231930+00:00",
+  "ngen": 96,
+  "accuracy": 1.0,
+  "decode_tok_s_mean": 27.13,
+  "cases": [
+    {
+      "prompt": "Hi \u2014 reply in one short sentence.",
+      "expect": null,
+      "ok": true,
+      "correct": null,
+      "wall_s": 5.555,
+      "decode_tok_s": 18.47,
+      "tokens": 10,
+      "rope": "[wh] RoPE: rotary_dim=96/128 partial=0.750 attn_scale=1.1902",
+      "reply": "Hello! How can I assist you today?"
+    },
+    {
+      "prompt": "What is 17 times 19? Reply with the number only.",
+      "expect": "\\b323\\b",
+      "ok": true,
+      "correct": true,
+      "wall_s": 0.792,
+      "decode_tok_s": 32.68,
+      "tokens": 2,
+      "rope": "[wh] RoPE: rotary_dim=96/128 partial=0.750 attn_scale=1.1902",
+      "reply": "323"
+    },
+    {
+      "prompt": "Compute 12 times 12. Digits only.",
+      "expect": "\\b144\\b",
+      "ok": true,
+      "correct": true,
+      "wall_s": 0.699,
+      "decode_tok_s": 32.09,
+      "tokens": 2,
+      "rope": "[wh] RoPE: rotary_dim=96/128 partial=0.750 attn_scale=1.1902",
+      "reply": "144"
+    },
+    {
+      "prompt": "What is 25 times 4? Number only.",
+      "expect": "\\b100\\b",
+      "ok": true,
+      "correct": true,
+      "wall_s": 0.706,
+      "decode_tok_s": 32.41,
+      "tokens": 2,
+      "rope": "[wh] RoPE: rotary_dim=96/128 partial=0.750 attn_scale=1.1902",
+      "reply": "100"
+    },
+    {
+      "prompt": "Solve for x: x^2 + 3x + 6x = 0. Give both roots briefly.",
+      "expect": "x\\s*\\(\\s*x\\s*\\+\\s*9\\s*\\)|(?:\\b0\\b.*-9)|(?:-9.*\\b0\\b)",
+      "ok": true,
+      "correct": true,
+      "wall_s": 6.8,
+      "decode_tok_s": 16.97,
+      "tokens": 96,
+      "rope": "[wh] RoPE: rotary_dim=96/128 partial=0.750 attn_scale=1.1902",
+      "reply": "First, let's simplify the equation by combining like terms:\n\nx^2 + 3x + 6x = 0\nx^2 + 9x = 0\n\nNow, we can factor out an x:\n\nx(x + 9) = 0\n\nNow, we have two possible solutions for x:\n\n1) x = 0\n2) x + 9 = 0 => x = -9\n\nSo, the roots of the equation are"
+    },
+    {
+      "prompt": "A train travels 60 mph for 2.5 hours. How many miles does it travel? Number only.",
+      "expect": "\\b150\\b",
+      "ok": true,
+      "correct": true,
+      "wall_s": 1.249,
+      "decode_tok_s": 32.75,
+      "tokens": 2,
+      "rope": "[wh] RoPE: rotary_dim=96/128 partial=0.750 attn_scale=1.1902",
+      "reply": "150"
+    },
+    {
+      "prompt": "What is the capital of France? One word.",
+      "expect": "\\bparis\\b",
+      "ok": true,
+      "correct": true,
+      "wall_s": 0.728,
+      "decode_tok_s": 33.68,
+      "tokens": 2,
+      "rope": "[wh] RoPE: rotary_dim=96/128 partial=0.750 attn_scale=1.1902",
+      "reply": "Paris"
+    },
+    {
+      "prompt": "Write a one-line Python function `add(xs)` that returns the sum of a list.",
+      "expect": "def\\s+add\\s*\\(|sum\\s*\\(",
+      "ok": true,
+      "correct": true,
+      "wall_s": 1.76,
+      "decode_tok_s": 17.98,
+      "tokens": 14,
+      "rope": "[wh] RoPE: rotary_dim=96/128 partial=0.750 attn_scale=1.1902",
+      "reply": "```python\ndef add(xs):\n    return sum(xs)\n```"
+    }
+  ]
+}

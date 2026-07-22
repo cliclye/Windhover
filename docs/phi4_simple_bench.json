@@ -1,0 +1,55 @@
+{
+  "model": "microsoft/Phi-4-mini-instruct",
+  "prompt": "Hi",
+  "ngen": 48,
+  "trials": 3,
+  "with_engine": {
+    "speed_tok_s": 14.67,
+    "peak_ram_mb": 2662.4,
+    "runs": [
+      {
+        "tok_s": 7.97,
+        "tokens": 10,
+        "ram_mb": 2539.5,
+        "reply": "Hello! How can I help you today?"
+      },
+      {
+        "tok_s": 21.8,
+        "tokens": 10,
+        "ram_mb": 2662.4,
+        "reply": "Hello! How can I help you today?"
+      },
+      {
+        "tok_s": 14.25,
+        "tokens": 10,
+        "ram_mb": 2662.4,
+        "reply": "Hello! How can I help you today?"
+      }
+    ]
+  },
+  "without_engine": {
+    "speed_tok_s": 6.72,
+    "peak_ram_mb": 4226.0,
+    "device": "mps:0",
+    "runs": [
+      {
+        "tok_s": 1.76,
+        "tokens": 10,
+        "ram_mb": 4226.0,
+        "reply": "Hello! How can I assist you today?"
+      },
+      {
+        "tok_s": 9.12,
+        "tokens": 10,
+        "ram_mb": 4226.0,
+        "reply": "Hello! How can I assist you today?"
+      },
+      {
+        "tok_s": 9.27,
+        "tokens": 10,
+        "ram_mb": 4226.0,
+        "reply": "Hello! How can I assist you today?"
+      }
+    ]
+  }
+}

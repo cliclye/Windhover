@@ -98,6 +98,68 @@ static void *balloc(int64_t n) {
     if (!p) { fprintf(stderr, "[wh] OOM %lld bytes\n", (long long)n); exit(1); }
     return p;
 }
+static int wh_is_stop(const int *stops, int nstop, int tok) {
+    for (int i = 0; i < nstop; i++) if (stops[i] == tok) return 1;
+    return 0;
+}
+
+/* Pull every eos_token_id from config.json / generation_config.json (scalar or array). */
+static void wh_add_eos_from_json_file(const char *path, int *stops, int *nstop, int cap) {
+    long n = 0;
+    char *buf = wh_read_file_(path, &n);
+    if (!buf) return;
+    char *arena = NULL;
+    jval *r = json_parse(buf, &arena);
+    if (!r) { free(buf); return; }
+    jval *eo = json_get(r, "eos_token_id");
+    if (eo) {
+        if (eo->t == J_NUM) {
+            int id = (int)eo->num;
+            if (id >= 0 && *nstop < cap && !wh_is_stop(stops, *nstop, id))
+                stops[(*nstop)++] = id;
+        } else if (eo->t == J_ARR) {
+            for (int i = 0; i < eo->len && *nstop < cap; i++) {
+                if (eo->kids[i]->t != J_NUM) continue;
+                int id = (int)eo->kids[i]->num;
+                if (id >= 0 && !wh_is_stop(stops, *nstop, id))
+                    stops[(*nstop)++] = id;
+            }
+        }
+    }
+    free(buf);
+    free(arena);
+}
+
+static void wh_arm_chat_stops(Tok *T, WhDesc *d, const char *snap,
+                              int *stops, int *nstop, int cap) {
+    *nstop = 0;
+    #define WH_ADD_STOP(id) do { \
+        int _id = (id); \
+        if (_id >= 0 && *nstop < cap && !wh_is_stop(stops, *nstop, _id)) \
+            stops[(*nstop)++] = _id; \
+    } while (0)
+    /* Family-specific chat end markers first (critical for Phi / Llama / Gemma). */
+    WH_ADD_STOP(tok_id_of(T, "<|end|>"));
+    WH_ADD_STOP(tok_id_of(T, "<|im_end|>"));
+    WH_ADD_STOP(tok_id_of(T, "<|eot_id|>"));
+    WH_ADD_STOP(tok_id_of(T, "<|eom_id|>"));
+    WH_ADD_STOP(tok_id_of(T, "<end_of_turn>"));
+    WH_ADD_STOP(tok_id_of(T, "<eos>"));
+    WH_ADD_STOP(tok_id_of(T, "</s>"));
+    WH_ADD_STOP(tok_id_of(T, "<|endoftext|>"));
+    /* Also stop if the model starts the next role (runaway after missed EOS). */
+    WH_ADD_STOP(tok_id_of(T, "<|user|>"));
+    WH_ADD_STOP(tok_id_of(T, "<|system|>"));
+    WH_ADD_STOP(tok_id_of(T, "<|im_start|>"));
+    WH_ADD_STOP(d->eos_id);
+    #undef WH_ADD_STOP
+    /* Merge every eos_token_id from HF configs (Phi lists [<|end|>, <|endoftext|>]). */
+    char path[2048];
+    snprintf(path, sizeof(path), "%s/generation_config.json", snap);
+    wh_add_eos_from_json_file(path, stops, nstop, cap);
+    snprintf(path, sizeof(path), "%s/config.json", snap);
+    wh_add_eos_from_json_file(path, stops, nstop, cap);
+}
 
 /* ------------------------------------------------------------- weight refs */
 
@@ -137,8 +199,9 @@ typedef struct {
     int8_t **K8, **V8;                 /* [l] -> [kvh][max_t][hd] */
     wh_f16 **KS, **VS;                 /* [l] -> [kvh][max_t][hd/WH_KVG] */
     int max_t, kv_len;
-    /* rope table */
-    float *rope_cos, *rope_sin;        /* [max_t][hd/2] */
+    /* rope table: [max_t][rope_half] where rope_half = rope_dim/2 */
+    float *rope_cos, *rope_sin;
+    int rope_dim, rope_half;
     /* scratch */
     float *x, *nrm, *tmp, *q, *k, *v, *ctx, *sc, *g, *u, *logit; /* batched: [S][*] */
     int8_t *xq; float *sx; int32_t *xqsum;   /* activation quant [S][I], [S], [S][ng] */
@@ -271,6 +334,44 @@ static inline void axpy_i4g_row(float *acc, const uint8_t *w4, const wh_f16 *sc,
         }
     }
 #endif
+}
+
+/* int8-row axpy: acc += hj * rs * q8[0..I) */
+static inline void axpy_i8_row(float *acc, const int8_t *q8, float rs, float hj, int I) {
+    float s = hj * rs;
+    int i = 0;
+#if defined(__ARM_NEON)
+    float32x4_t vs = vdupq_n_f32(s);
+    for (; i + 16 <= I; i += 16) {
+        int8x16_t q = vld1q_s8(q8 + i);
+        int16x8_t w0 = vmovl_s8(vget_low_s8(q)), w1 = vmovl_s8(vget_high_s8(q));
+        float32x4_t a0 = vld1q_f32(acc + i), a1 = vld1q_f32(acc + i + 4);
+        float32x4_t a2 = vld1q_f32(acc + i + 8), a3 = vld1q_f32(acc + i + 12);
+        a0 = vfmaq_f32(a0, vcvtq_f32_s32(vmovl_s16(vget_low_s16(w0))), vs);
+        a1 = vfmaq_f32(a1, vcvtq_f32_s32(vmovl_s16(vget_high_s16(w0))), vs);
+        a2 = vfmaq_f32(a2, vcvtq_f32_s32(vmovl_s16(vget_low_s16(w1))), vs);
+        a3 = vfmaq_f32(a3, vcvtq_f32_s32(vmovl_s16(vget_high_s16(w1))), vs);
+        vst1q_f32(acc + i, a0); vst1q_f32(acc + i + 4, a1);
+        vst1q_f32(acc + i + 8, a2); vst1q_f32(acc + i + 12, a3);
+    }
+#endif
+    for (; i < I; i++) acc[i] += s * (float)q8[i];
+}
+
+static inline void deq_i8_row(const int8_t *q8, float rs, float *out, int I) {
+    int i = 0;
+#if defined(__ARM_NEON)
+    float32x4_t vs = vdupq_n_f32(rs);
+    for (; i + 16 <= I; i += 16) {
+        int8x16_t q = vld1q_s8(q8 + i);
+        int16x8_t w0 = vmovl_s8(vget_low_s8(q)), w1 = vmovl_s8(vget_high_s8(q));
+        vst1q_f32(out + i, vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(w0))), vs));
+        vst1q_f32(out + i + 4, vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(w0))), vs));
+        vst1q_f32(out + i + 8, vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(w1))), vs));
+        vst1q_f32(out + i + 12, vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(w1))), vs));
+    }
+#endif
+    for (; i < I; i++) out[i] = rs * (float)q8[i];
 }
 
 /* dequant one int4-g64 row into f32 (for down^T axpy) */
@@ -638,7 +739,7 @@ static void wh_load_cats(WModel *m, const char *snap) {
     long n = 0;
     char *buf = wh_read_file_(path, &n);
     m->cats_tau = falloc(m->d.layers);
-    int level = 25;
+    int level = 0;  /* default off — sparsity is opt-in for max quality */
     const char *e = getenv("WH_SPARSE");
     if (e) level = atoi(e);
     if (level <= 0) { free(buf); return; }
@@ -655,7 +756,11 @@ static void wh_load_cats(WModel *m, const char *snap) {
                 m->cats_tau[i] = t ? (float)t->num : 0.f;
             }
             loaded = 1;
-            fprintf(stderr, "[wh] CATS sparsity on: target %d%% (calibrated taus)\n", level);
+            {
+                const char *qe = getenv("QUIET");
+                if (!(qe && atoi(qe)))
+                    fprintf(stderr, "[wh] CATS sparsity on: target %d%% (calibrated taus)\n", level);
+            }
         }
         free(arena);
     }
@@ -665,8 +770,12 @@ static void wh_load_cats(WModel *m, const char *snap) {
         m->tau_target_pct = level;
         m->tau_res = falloc((int64_t)m->d.layers * WH_TAU_RES);
         m->tau_n = (int *)balloc((int64_t)m->d.layers * 4);
-        fprintf(stderr, "[wh] CATS sparsity: target %d%% (online calibration "
-                "during prefill)\n", level);
+        {
+            const char *qe = getenv("QUIET");
+            if (!(qe && atoi(qe)))
+                fprintf(stderr, "[wh] CATS sparsity: target %d%% (online calibration "
+                        "during prefill)\n", level);
+        }
     }
     free(buf);
 }
@@ -773,9 +882,17 @@ static void wh_model_init(WModel *m, const char *snap) {
                     "tools/kestrel_pack.py\n", snap);
             exit(1);
         }
-        if (l->downT.fmt != WT_I4G || !l->downT.q4 || !l->downT.sc || !l->downT.zp) {
-            fprintf(stderr, "[wh] layer %d downT must be int4-g64 (fmt=%d)\n",
+        if (l->downT.fmt != WT_I4G && l->downT.fmt != WT_I8R) {
+            fprintf(stderr, "[wh] layer %d downT must be int4-g64 or int8-row (fmt=%d)\n",
                     i, (int)l->downT.fmt);
+            exit(1);
+        }
+        if (l->downT.fmt == WT_I4G && (!l->downT.q4 || !l->downT.sc || !l->downT.zp)) {
+            fprintf(stderr, "[wh] layer %d downT int4 missing scales\n", i);
+            exit(1);
+        }
+        if (l->downT.fmt == WT_I8R && (!l->downT.q8 || !l->downT.rs)) {
+            fprintf(stderr, "[wh] layer %d downT int8 missing scales\n", i);
             exit(1);
         }
         if (l->q.fmt == WT_NONE || l->gate.fmt == WT_NONE) {
@@ -927,9 +1044,9 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
                 for (int hh = 0; hh < KV; hh++)
                     rmsnorm_row(k + hh * hd, k + hh * hd, l->k_norm, hd, d->eps,
                                 d->norm == WH_NORM_RMS_GEMMA);
-            const float *cs = m->rope_cos + (int64_t)p * (hd / 2);
-            const float *sn = m->rope_sin + (int64_t)p * (hd / 2);
-            int half = hd / 2;
+            const float *cs = m->rope_cos + (int64_t)p * m->rope_half;
+            const float *sn = m->rope_sin + (int64_t)p * m->rope_half;
+            int half = m->rope_half;
             for (int hh = 0; hh < H; hh++) {
                 float *qh = q + hh * hd;
                 for (int j = 0; j < half; j++) {
@@ -1038,7 +1155,7 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
                                      tau * m->tau_scale_cold, m->Jkeep);
                 m->ffn_rows_kept += kept;
                 int rowb_up = (l->up.fmt == WT_I4G ? D / 2 + ngD * 4 : D + 4);
-                int rowb_dn = D / 2 + ngD * 4;
+                int rowb_dn = (l->downT.fmt == WT_I4G ? D / 2 + ngD * 4 : D + 4);
                 au_note_bytes_saved(&m->au, (int64_t)(I - kept) * (rowb_up + rowb_dn));
                 /* compact kept list */
                 int nK = 0;
@@ -1069,12 +1186,17 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
                             uj = (float)dot_i8i8(l->up.q8 + (int64_t)j * D, xq, D) *
                                  l->up.rs[j] * sx;
                         hj = m->g[(int64_t)s * I + j] * uj;
-                        axpy_i4g_row(acc, l->downT.q4 + (int64_t)j * (D >> 1),
-                                     l->downT.sc + (int64_t)j * ngD,
-                                     l->downT.zp + (int64_t)j * ngD, hj, D);
-                        for (int k = 0; k < l->downT.noc; k++)
-                            acc[l->downT.oci[k]] +=
-                                hj * (float)l->downT.oc[(int64_t)j * l->downT.noc + k];
+                        if (l->downT.fmt == WT_I8R) {
+                            axpy_i8_row(acc, l->downT.q8 + (int64_t)j * D,
+                                        l->downT.rs[j], hj, D);
+                        } else {
+                            axpy_i4g_row(acc, l->downT.q4 + (int64_t)j * (D >> 1),
+                                         l->downT.sc + (int64_t)j * ngD,
+                                         l->downT.zp + (int64_t)j * ngD, hj, D);
+                            for (int k = 0; k < l->downT.noc; k++)
+                                acc[l->downT.oci[k]] +=
+                                    hj * (float)l->downT.oc[(int64_t)j * l->downT.noc + k];
+                        }
                     }
                 }
                 memset(out, 0, (size_t)D * sizeof(float));
@@ -1104,20 +1226,29 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
                 #pragma omp for schedule(static) nowait
                 for (int j = 0; j < I; j++) {
                     if (S == 1) {
-                        axpy_i4g_row(acc, l->downT.q4 + (int64_t)j * (D >> 1),
-                                     l->downT.sc + (int64_t)j * ngD,
-                                     l->downT.zp + (int64_t)j * ngD, m->g[j], D);
-                        for (int k = 0; k < l->downT.noc; k++)
-                            acc[l->downT.oci[k]] +=
-                                m->g[j] * (float)l->downT.oc[(int64_t)j * l->downT.noc + k];
+                        if (l->downT.fmt == WT_I8R) {
+                            axpy_i8_row(acc, l->downT.q8 + (int64_t)j * D,
+                                        l->downT.rs[j], m->g[j], D);
+                        } else {
+                            axpy_i4g_row(acc, l->downT.q4 + (int64_t)j * (D >> 1),
+                                         l->downT.sc + (int64_t)j * ngD,
+                                         l->downT.zp + (int64_t)j * ngD, m->g[j], D);
+                            for (int k = 0; k < l->downT.noc; k++)
+                                acc[l->downT.oci[k]] +=
+                                    m->g[j] * (float)l->downT.oc[(int64_t)j * l->downT.noc + k];
+                        }
                         continue;
                     }
-                    deq_i4g_row(l->downT.q4 + (int64_t)j * (D >> 1),
-                                l->downT.sc + (int64_t)j * ngD,
-                                l->downT.zp + (int64_t)j * ngD, dq, D);
-                    for (int k = 0; k < l->downT.noc; k++)
-                        dq[l->downT.oci[k]] +=
-                            (float)l->downT.oc[(int64_t)j * l->downT.noc + k];
+                    if (l->downT.fmt == WT_I8R)
+                        deq_i8_row(l->downT.q8 + (int64_t)j * D, l->downT.rs[j], dq, D);
+                    else {
+                        deq_i4g_row(l->downT.q4 + (int64_t)j * (D >> 1),
+                                    l->downT.sc + (int64_t)j * ngD,
+                                    l->downT.zp + (int64_t)j * ngD, dq, D);
+                        for (int k = 0; k < l->downT.noc; k++)
+                            dq[l->downT.oci[k]] +=
+                                (float)l->downT.oc[(int64_t)j * l->downT.noc + k];
+                    }
                     for (int s = 0; s < S; s++) {
                         float hj = m->g[(int64_t)s * I + j];
                         if (hj == 0.f) continue;
@@ -1330,19 +1461,32 @@ static void wh_alloc_scratch(WModel *m, int max_t) {
     m->Jlist = (int *)balloc((int64_t)I * 4);
     m->Jmag = falloc(I);
     m->Jkeep = (unsigned char *)balloc(I);
-    m->rope_cos = falloc((int64_t)max_t * (hd / 2));
-    m->rope_sin = falloc((int64_t)max_t * (hd / 2));
+    /* Phi-4 / partial RoPE: rotate only rope_dim dims; inv_freq uses /rope_dim */
     {
-        float *inv_freq = falloc(hd / 2);
-        for (int j = 0; j < hd / 2; j++)
-            inv_freq[j] = powf(d->rope_theta, -2.f * j / (float)hd);
+        int rdim = d->rope_dim > 0 ? d->rope_dim : hd;
+        if (rdim < 2) rdim = 2;
+        if (rdim > hd) rdim = hd;
+        if (rdim & 1) rdim--;
+        int half = rdim / 2;
+        float attn_scale = d->rope_attn_scale > 0.f ? d->rope_attn_scale : 1.f;
+        m->rope_dim = rdim;
+        m->rope_half = half;
+        m->rope_cos = falloc((int64_t)max_t * half);
+        m->rope_sin = falloc((int64_t)max_t * half);
+        float *inv_freq = falloc(half);
+        for (int j = 0; j < half; j++)
+            inv_freq[j] = powf(d->rope_theta, -2.f * j / (float)rdim);
         for (int p = 0; p < max_t; p++)
-            for (int j = 0; j < hd / 2; j++) {
+            for (int j = 0; j < half; j++) {
                 float ang = (float)p * inv_freq[j];
-                m->rope_cos[(int64_t)p * (hd / 2) + j] = cosf(ang);
-                m->rope_sin[(int64_t)p * (hd / 2) + j] = sinf(ang);
+                m->rope_cos[(int64_t)p * half + j] = attn_scale * cosf(ang);
+                m->rope_sin[(int64_t)p * half + j] = attn_scale * sinf(ang);
             }
         free(inv_freq);
+        if (rdim != hd || fabsf(attn_scale - 1.f) > 1e-4f)
+            fprintf(stderr,
+                    "[wh] RoPE: rotary_dim=%d/%d partial=%.3f attn_scale=%.4f\n",
+                    rdim, hd, d->partial_rotary, attn_scale);
     }
 }
 
@@ -1413,11 +1557,16 @@ int wh_run(int argc, char **argv) {
     snprintf(tkp, sizeof(tkp), "%s/tokenizer.json", snap);
     Tok T;
     tok_load(&T, tkp);
-    int eos = tok_id_of(&T, "<|im_end|>");
-    if (eos < 0) eos = tok_id_of(&T, "<|endoftext|>");
-    if (eos < 0) eos = tok_id_of(&T, "<end_of_turn>");
-    if (eos < 0) eos = tok_id_of(&T, "<|end|>");
-    if (eos < 0) eos = d->eos_id;
+    /* Arm every known chat EOS from special tokens + HF generation_config arrays.
+     * Missing a family end-marker (e.g. Phi <|end|>) causes runaway decode. */
+    int stops[16];
+    int nstop = 0;
+    wh_arm_chat_stops(&T, d, snap, stops, &nstop, (int)(sizeof(stops) / sizeof(stops[0])));
+    if (!quiet && nstop > 0) {
+        fprintf(stderr, "[wh] stop tokens:");
+        for (int i = 0; i < nstop; i++) fprintf(stderr, " %d", stops[i]);
+        fputc('\n', stderr);
+    }
 
     int cap = (int)strlen(prompt) + 64;
     if (cap < 256) cap = 256;
@@ -1533,8 +1682,8 @@ int wh_run(int argc, char **argv) {
         ids[cur_len++] = next;
         generated++;
         if (spec_on) spec_update(ids, cur_len);
-        /* Never emit stop/EOS control tokens (e.g. <|im_end|>) into chat text. */
-        if ((eos >= 0 && next == eos) || (d->eos_id >= 0 && next == d->eos_id)) break;
+        /* Never emit stop/EOS control tokens (e.g. <|end|>, <|im_end|>) into chat text. */
+        if (wh_is_stop(stops, nstop, next)) break;
         int nch = tok_decode(&T, &next, 1, outbuf, (int)sizeof(outbuf) - 1);
         if (nch > 0) { outbuf[nch] = 0; fputs(outbuf, stdout); fflush(stdout); }
         if (generated >= ngen) break;
@@ -1561,7 +1710,7 @@ int wh_run(int argc, char **argv) {
                     accepted_total++;
                     acc++;
                     if (spec_on) spec_update(ids, cur_len);
-                    if ((eos >= 0 && am == eos) || generated >= ngen) break;
+                    if (wh_is_stop(stops, nstop, am) || generated >= ngen) break;
                     int nc2 = tok_decode(&T, &am, 1, outbuf, (int)sizeof(outbuf) - 1);
                     if (nc2 > 0) { outbuf[nc2] = 0; fputs(outbuf, stdout); fflush(stdout); }
                 } else break;
@@ -1570,7 +1719,7 @@ int wh_run(int argc, char **argv) {
             M.kv_len = cur_len;
             float *last = M.logit + (int64_t)acc * d->vocab;
             next = sample_logits(last, d->vocab, temp, topk, topp);
-            if ((eos >= 0 && ids[cur_len - 1] == eos)) break;
+            if (wh_is_stop(stops, nstop, ids[cur_len - 1])) break;
         } else {
             wh_forward(&M, &ids[cur_len - 1], 1, cur_len - 1, 0);
             steps++;

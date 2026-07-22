@@ -17,7 +17,7 @@ on:
       tag:
         description: "GitHub Release tag to upload into (e.g. v0.1.0)"
         required: true
-        default: "v0.2.0"
+        default: "v0.3.0"
 
 permissions:
   contents: write
@@ -216,6 +216,10 @@ jobs:
           make_latest: true
           generate_release_notes: true
           body: |
+            ## Windhover 0.3.0
+
+            Phi-4 Mini **engine fidelity**: correct math/reasoning at engine speed (partial RoPE + int8 FFN quant). See [CHANGELOG.md](https://github.com/cliclye/Windhover/blob/main/CHANGELOG.md).
+
             ## Download
 
             ### macOS
@@ -228,5 +232,12 @@ jobs:
             ### First launch notes
             - **macOS:** unsigned — Gatekeeper may require Open Anyway ([docs/DOWNLOAD.md](https://github.com/cliclye/Windhover/blob/main/docs/DOWNLOAD.md)).
             - **Windows:** unsigned — SmartScreen may require More info → Run anyway.
+
+            ### What's new (0.3.0)
+            - Engine: Phi-3/4 partial RoPE + longrope attention scale
+            - KPK: int8 o/gate/up/down for Phi-class widths; AWQ retained
+            - Chat: accurate engine path for Phi; transformers fallback for garbage
+            - UI: Agent/Chat shell, live status strip, catalog refresh
+            - Bench: Phi-4 Mini engine 100% accuracy suite (~20 tok/s, ~3.8 GB) vs transformers (~2.5 tok/s, ~5.3 GB)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

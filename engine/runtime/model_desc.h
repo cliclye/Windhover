@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include "json.h"
 
 typedef enum { WH_ACT_SILU = 0, WH_ACT_GELU_TANH = 1 } WhAct;
@@ -39,7 +40,12 @@ typedef struct {
     float query_scale;     /* attention 1/sqrt(query_pre_attn_scalar or head_dim) */
     int fused_qkv;         /* phi3 on-disk layout (split by converter) */
     int fused_gate_up;     /* phi3 */
-    int max_position;      /* clamp CTX (phi3 longrope not implemented) */
+    int max_position;      /* clamp CTX */
+    /* RoPE fidelity (Phi-4 Mini: partial_rotary_factor=0.75 + longrope attn scale) */
+    float partial_rotary;  /* 1.0 = rotate full head_dim */
+    float rope_attn_scale; /* multiply cos/sin (longrope attention_factor) */
+    int rope_dim;          /* even; dims that receive RoPE (<= head_dim) */
+    int rope_orig_max;     /* original_max_position_embeddings (longrope) */
 } WhDesc;
 
 static const char *WH_DENSE_TYPES[] = {
@@ -118,6 +124,55 @@ static int wh_desc_from_config(const char *snap, WhDesc *d) {
     d->act = WH_ACT_SILU;
     d->norm = WH_NORM_RMS;
     d->query_scale = 0.f; /* 0 -> 1/sqrt(head_dim) */
+    d->partial_rotary = 1.f;
+    d->rope_attn_scale = 1.f;
+    d->rope_orig_max = 0;
+
+    /* partial_rotary_factor (Phi-3/4): only first fraction of head_dim is rotated */
+    {
+        float pr = wh_jf_(r, "partial_rotary_factor", 1.f);
+        if (pr > 0.f && pr <= 1.f) d->partial_rotary = pr;
+    }
+
+    /* longrope / rope_scaling: attention scale even for short prompts */
+    {
+        jval *rs = json_get(r, "rope_scaling");
+        if (!rs) rs = json_get(r, "rope_parameters");
+        int orig = wh_ji_(r, "original_max_position_embeddings", 0);
+        if (rs && rs->t == J_OBJ) {
+            jval *tp = json_get(rs, "type");
+            if (!tp) tp = json_get(rs, "rope_type");
+            jval *o2 = json_get(rs, "original_max_position_embeddings");
+            if (o2) orig = (int)o2->num;
+            jval *pr = json_get(rs, "partial_rotary_factor");
+            if (pr && pr->num > 0 && pr->num <= 1.0)
+                d->partial_rotary = (float)pr->num;
+            /* Phi longrope attention_factor = sqrt(1 + log(factor)/log(orig_max)) */
+            if (tp && tp->t == J_STR &&
+                (!strcmp(tp->str, "longrope") || !strcmp(tp->str, "su"))) {
+                if (orig <= 0) orig = 4096;
+                d->rope_orig_max = orig;
+                float factor = 1.f;
+                jval *fac = json_get(rs, "factor");
+                if (fac) factor = (float)fac->num;
+                else if (d->max_position > 0 && orig > 0)
+                    factor = (float)d->max_position / (float)orig;
+                if (factor > 1.f && orig > 1)
+                    d->rope_attn_scale = sqrtf(1.f + logf(factor) / logf((float)orig));
+            }
+        } else if (orig > 0) {
+            d->rope_orig_max = orig;
+        }
+    }
+
+    d->rope_dim = d->head_dim;
+    if (d->partial_rotary < 1.f - 1e-6f && d->head_dim > 0) {
+        int rd = (int)(d->head_dim * d->partial_rotary);
+        if (rd < 2) rd = 2;
+        if (rd > d->head_dim) rd = d->head_dim;
+        if (rd & 1) rd--; /* must be even for half-split Neox RoPE */
+        d->rope_dim = rd;
+    }
 
     if (!strcmp(d->model_type, "qwen2")) {
         d->qkv_bias = 1;

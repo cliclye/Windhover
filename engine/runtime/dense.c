@@ -801,9 +801,71 @@ int dense_run(int argc, char **argv) {
     snprintf(tkp, sizeof(tkp), "%s/tokenizer.json", snap);
     Tok T;
     tok_load(&T, tkp);
-    int eos = tok_id_of(&T, "<|im_end|>");
-    if (eos < 0) eos = tok_id_of(&T, "<|endoftext|>");
-    if (eos < 0) eos = c->eos_id;
+    int stops[12];
+    int nstop = 0;
+    #define D_ADD_STOP(id) do { \
+        int _id = (id); \
+        if (_id >= 0) { \
+            int _dup = 0; \
+            for (int _i = 0; _i < nstop; _i++) if (stops[_i] == _id) { _dup = 1; break; } \
+            if (!_dup && nstop < (int)(sizeof(stops)/sizeof(stops[0]))) stops[nstop++] = _id; \
+        } \
+    } while (0)
+    D_ADD_STOP(tok_id_of(&T, "<|end|>"));
+    D_ADD_STOP(tok_id_of(&T, "<|im_end|>"));
+    D_ADD_STOP(tok_id_of(&T, "<|eot_id|>"));
+    D_ADD_STOP(tok_id_of(&T, "<|eom_id|>"));
+    D_ADD_STOP(tok_id_of(&T, "<end_of_turn>"));
+    D_ADD_STOP(tok_id_of(&T, "<eos>"));
+    D_ADD_STOP(tok_id_of(&T, "</s>"));
+    D_ADD_STOP(tok_id_of(&T, "<|endoftext|>"));
+    D_ADD_STOP(tok_id_of(&T, "<|user|>"));
+    D_ADD_STOP(tok_id_of(&T, "<|system|>"));
+    D_ADD_STOP(tok_id_of(&T, "<|im_start|>"));
+    D_ADD_STOP(c->eos_id);
+    #undef D_ADD_STOP
+    /* Merge generation_config.json eos_token_id array when present. */
+    {
+        char gpath[2048];
+        snprintf(gpath, sizeof(gpath), "%s/generation_config.json", snap);
+        FILE *gf = fopen(gpath, "rb");
+        if (gf) {
+            fseek(gf, 0, SEEK_END);
+            long gn = ftell(gf);
+            fseek(gf, 0, SEEK_SET);
+            if (gn > 0 && gn < 1 << 20) {
+                char *gbuf = malloc((size_t)gn + 1);
+                if (gbuf && fread(gbuf, 1, (size_t)gn, gf) == (size_t)gn) {
+                    gbuf[gn] = 0;
+                    char *arena = NULL;
+                    jval *gr = json_parse(gbuf, &arena);
+                    jval *eo = gr ? json_get(gr, "eos_token_id") : NULL;
+                    if (eo && eo->t == J_NUM) {
+                        int id = (int)eo->num;
+                        if (id >= 0) {
+                            int dup = 0;
+                            for (int i = 0; i < nstop; i++) if (stops[i] == id) { dup = 1; break; }
+                            if (!dup && nstop < 12) stops[nstop++] = id;
+                        }
+                    } else if (eo && eo->t == J_ARR) {
+                        for (int i = 0; i < eo->len && nstop < 12; i++) {
+                            if (eo->kids[i]->t != J_NUM) continue;
+                            int id = (int)eo->kids[i]->num;
+                            if (id < 0) continue;
+                            int dup = 0;
+                            for (int j = 0; j < nstop; j++) if (stops[j] == id) { dup = 1; break; }
+                            if (!dup) stops[nstop++] = id;
+                        }
+                    }
+                    free(arena);
+                }
+                free(gbuf);
+            }
+            fclose(gf);
+        }
+    }
+    int eos = nstop > 0 ? stops[0] : -1;
+    (void)eos;
 
     int cap = (int)strlen(prompt) + 64;
     if (cap < 256) cap = 256;
@@ -841,9 +903,10 @@ int dense_run(int argc, char **argv) {
     for (int s = 0; s < ngen; s++) {
         int tok = argmax(logit, c->vocab);
         generated++;
-        /* Stop before emit so control tokens like <|im_end|> never hit stdout. */
-        if (eos >= 0 && tok == eos) break;
-        if (c->eos_id >= 0 && tok == c->eos_id) break;
+        /* Stop before emit so control tokens like <|end|> / <|im_end|> never hit stdout. */
+        int hit = 0;
+        for (int i = 0; i < nstop; i++) if (stops[i] == tok) { hit = 1; break; }
+        if (hit) break;
         int nch = tok_decode(&T, &tok, 1, outbuf, (int)sizeof(outbuf) - 1);
         if (nch > 0) {
             outbuf[nch] = 0;

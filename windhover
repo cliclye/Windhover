@@ -33,6 +33,37 @@ ROOT = Path(os.environ.get("WINDHOVER_ROOT", Path(__file__).resolve().parent))
 ENGINE_DIR = ROOT / "engine"
 
 
+def _ml_python() -> str:
+    """Python with torch/transformers (project venv preferred over system)."""
+    for cand in (
+        ROOT / "c" / ".venv" / "bin" / "python",
+        ROOT / "c" / ".venv" / "Scripts" / "python.exe",
+        ROOT / ".venv" / "bin" / "python",
+        ROOT / ".venv" / "Scripts" / "python.exe",
+    ):
+        if cand.is_file():
+            return str(cand)
+    return sys.executable
+
+
+def _ensure_ml_imports() -> None:
+    """Prefer the project venv site-packages so transformers/torch resolve."""
+    venv_py = Path(_ml_python())
+    if venv_py == Path(sys.executable):
+        return
+    # Typical layout: …/.venv/lib/pythonX.Y/site-packages
+    for site in venv_py.parent.parent.glob("lib/python*/site-packages"):
+        sp = str(site)
+        if sp not in sys.path:
+            sys.path.insert(0, sp)
+        break
+    for site in venv_py.parent.parent.glob("Lib/site-packages"):
+        sp = str(site)
+        if sp not in sys.path:
+            sys.path.insert(0, sp)
+        break
+
+
 def _engine_bin() -> Path:
     """Resolve windhover-engine, preferring .exe on Windows.
 
@@ -109,6 +140,50 @@ def _rss_mb() -> float:
         return 0.0
 
 
+def _strip_engine_noise(text: str) -> str:
+    """Remove windhover-engine log lines that must never appear as chat answers."""
+    import re
+
+    if not text:
+        return text
+    lines = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            lines.append(line)
+            continue
+        if re.match(r"^\[(?:wh|WH|CUDA|DSA|COLI|coli|windhover)\]", s):
+            continue
+        if re.match(r"^CATS sparsity", s, re.I):
+            continue
+        if re.search(r"\btok/s\b", s) and re.search(r"\b(?:prefill|decode|RSS|MB)\b", s, re.I):
+            continue
+        if re.match(r"^@@WH_STATS@@", s):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _truncate_repetition(text: str) -> str:
+    """Cut degenerate loops like 'How can I help you? How can I help you?'."""
+    import re
+
+    if not text or len(text) < 40:
+        return text
+    # Exact phrase repeated 3+ times
+    m = re.search(r"(.{12,120}?)(?:\s*\1){2,}", text, flags=re.DOTALL)
+    if m:
+        return text[: m.start() + len(m.group(1))].rstrip()
+    # Long runs of the same short token / punctuation
+    m = re.search(r"((?:\|\\s*){8,})", text)
+    if m:
+        return text[: m.start()].rstrip()
+    m = re.search(r"(\b\w{1,3}\b(?:\s+\b\w{1,3}\b){20,})", text)
+    if m:
+        return text[: m.start()].rstrip()
+    return text
+
+
 def _clean_chat_text(text: str, *, soft: bool = False) -> str:
     """Strip chat-template / control tokens and tidy layout for UI display.
 
@@ -118,7 +193,42 @@ def _clean_chat_text(text: str, *, soft: bool = False) -> str:
 
     if not text:
         return text
-    s = text
+    s = _strip_engine_noise(text)
+    # Cut runaway decode at the first turn-ending marker (Phi <|end|>, ChatML, etc.)
+    if not soft:
+        cut = None
+        for marker in (
+            "<|end|>",
+            "<|im_end|>",
+            "<|eot_id|>",
+            "<end_of_turn>",
+            "<|user|>",
+            "<|assistant|>",
+            "<|system|>",
+        ):
+            idx = s.find(marker)
+            if idx >= 0 and (cut is None or idx < cut):
+                cut = idx
+        if cut is not None:
+            s = s[:cut]
+        # Collapse obvious phrase loops (missed EOS / degenerate sampling).
+        s = _truncate_repetition(s)
+    # Reasoning / chain-of-thought — never show to the user
+    s = re.sub(r"<think\b[^>]*>.*?</think>", "", s, flags=re.DOTALL | re.IGNORECASE)
+    s = re.sub(r"<thinking\b[^>]*>.*?</thinking>", "", s, flags=re.DOTALL | re.IGNORECASE)
+    s = re.sub(
+        r"<redacted_reasoning\b[^>]*>.*?</redacted_reasoning>",
+        "",
+        s,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    s = re.sub(r"<reason\b[^>]*>.*?</reason>", "", s, flags=re.DOTALL | re.IGNORECASE)
+    # Orphan open reasoning tags (model forgot to close)
+    s = re.sub(r"<think\b[^>]*>.*\Z", "", s, flags=re.DOTALL | re.IGNORECASE)
+    s = re.sub(r"<thinking\b[^>]*>.*\Z", "", s, flags=re.DOTALL | re.IGNORECASE)
+    s = re.sub(r"<redacted_reasoning\b[^>]*>.*\Z", "", s, flags=re.DOTALL | re.IGNORECASE)
+    # Stray closing tags left behind
+    s = re.sub(r"</(?:think|thinking|redacted_reasoning|reason)\s*>", "", s, flags=re.IGNORECASE)
     # ChatML / Qwen / Llama / Gemma / Phi style control tokens
     s = re.sub(r"<\|[^|>]+?\|>", "", s)
     s = re.sub(r"</?s>", "", s)
@@ -298,6 +408,57 @@ def _dense_engine_supported(snap: Path) -> bool:
     )
 
 
+def _engine_faithful(snap: Path) -> bool:
+    """False when the pack needs RoPE/features windhover-engine does not implement yet.
+
+    Phi-4 Mini partial RoPE + longrope attention scale are supported in windhover.c.
+    Yarn/dynamic/linear scaling still fall back to transformers when HF weights exist.
+    """
+    candidates = [snap / "config.json"]
+    if snap.name == "kpk":
+        candidates.insert(0, snap.parent / "config.json")
+    cfg = None
+    for cfg_path in candidates:
+        if not cfg_path.is_file():
+            continue
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            break
+        except Exception:
+            continue
+    if not cfg:
+        return True
+    rs = cfg.get("rope_scaling") or cfg.get("rope_parameters") or {}
+    if isinstance(rs, dict):
+        rtype = str(rs.get("type") or rs.get("rope_type") or "").lower()
+        if rtype in ("yarn", "dynamic", "linear"):
+            return False
+    return True
+
+
+def _looks_like_engine_garbage(text: str) -> bool:
+    """Heuristic for degenerate engine decode (nulls, hex soup, phrase loops)."""
+    import re
+
+    t = (text or "").strip()
+    if not t:
+        return True
+    if "\x00" in t or t.count("\ufffd") >= 3:
+        return True
+    if re.search(r"[|]{8,}", t) or re.search(r"[.]{12,}", t):
+        return True
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", t):
+        return True
+    if re.search(r"(\b\w{1,4}\b(?:\s+\b\w{1,4}\b){25,})", t):
+        return True
+    if re.search(r"(.{12,80}?)(?:\s*\1){2,}", t, flags=re.DOTALL):
+        return True
+    weird = sum(1 for c in t if ord(c) < 32 and c not in "\n\t\r")
+    if len(t) > 40 and weird / len(t) > 0.05:
+        return True
+    return False
+
+
 def _has_kpk(snap: Path) -> bool:
     """True when a Windhover KPK pack exists (snap/kpk or snap itself)."""
     for d in (snap / "kpk", snap):
@@ -337,11 +498,12 @@ def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
     if job_id:
         _job_set(job_id, status="running", pct=98, message="Windhover convert (int4-g64 + calibrate)…")
     print("running Windhover convert (one-time quantize + calibrate)…")
-    rc = subprocess.call([sys.executable, str(tool), "--snap", str(snap)])
+    py = _ml_python()
+    rc = subprocess.call([py, str(tool), "--snap", str(snap)])
     if rc != 0:
         # calibration needs torch; fall back to plain quant pack
         rc = subprocess.call(
-            [sys.executable, str(tool), "--snap", str(snap), "--no-calib", "--no-awq"]
+            [py, str(tool), "--snap", str(snap), "--no-calib", "--no-awq"]
         )
     return rc == 0 and _has_kpk(snap)
 
@@ -349,26 +511,38 @@ def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
 def _chat_mode(snap: Path) -> str:
     """Return preview | engine | engine-oracle | blocked."""
     meta = _snap_meta(snap)
-    mid = str(meta.get("id") or "").replace("__", "/")
+    mid = str(meta.get("id") or snap.name).replace("__", "/")
     chat = meta.get("chat")
     if mid.endswith("chat-preview") or meta.get("source") == "preview":
         return "preview"
-    if _is_impostor_pack(snap):
-        return "blocked"
-    if chat == "preview":
-        # Real small-model downloads: prefer the engine when supported
-        if meta.get("weights") and _has_real_weights(snap):
-            if _has_kpk(snap) or _dense_engine_supported(snap):
-                return "engine"
-            return "preview"
+    if _is_demo_pack(snap) or _is_impostor_pack(snap):
         return "blocked"
     if chat == "engine-oracle" or mid.startswith(("windhover/glm-tiny", "kestrel/glm-tiny")):
         return "engine-oracle"
     if meta.get("runner") and mid.startswith(("windhover/", "kestrel/")):
         return "engine-oracle"
+
+    has_w = _has_real_weights(snap)
+    has_k = _has_kpk(snap) or any((snap / "kpk").glob("kpk-*.safetensors")) if (snap / "kpk").is_dir() else _has_kpk(snap)
+
+    # Incomplete HF checkout (tokenizer only, download interrupted) — not chat-capable.
+    if not has_w and not has_k:
+        return "blocked"
+
+    # Prefer windhover-engine when a real KPK pack exists — unless the arch
+    # needs features the engine lacks (Phi-4 partial RoPE / longrope).
+    if has_k:
+        if _engine_faithful(snap) or not has_w:
+            return "engine"
+        return "preview"
+
+    # HF safetensors present but not converted yet → transformers chat.
+    if has_w:
+        return "preview"
+
     if _is_tiny_stub(snap) and not mid.startswith(("windhover/", "kestrel/")):
         return "blocked"
-    return "engine"
+    return "blocked"
 
 
 def _format_engine_prompt(snap: Path, messages: list | None, flat_prompt: str) -> str:
@@ -417,9 +591,10 @@ def _preview_chat(
     *,
     snap: Path | None = None,
 ) -> tuple[str, dict]:
-    """On-device transformers chat for Chat Preview and Mac-16GB small HF models."""
+    """On-device transformers chat for Mac-16GB small HF models."""
     import time
 
+    _ensure_ml_imports()
     t0 = time.perf_counter()
     meta = _snap_meta(snap) if snap else {}
     repo = meta.get("preview_repo") or meta.get("hf_repo") or PREVIEW_REPO
@@ -432,12 +607,28 @@ def _preview_chat(
 
         if load_src not in _PREVIEW_PIPES:
             sys.stderr.write(f"[windhover] loading small model: {load_src}…\n")
-            tok = AutoTokenizer.from_pretrained(load_src, trust_remote_code=True)
+            # Phi-3/4 ship with native transformers support; remote modeling_phi3.py
+            # can break on newer transformers (LossKwargs). Prefer trust_remote_code=False.
+            trust_remote = True
+            try:
+                from pathlib import Path as _P
+                import json as _j
+
+                _cfgp = _P(load_src) / "config.json"
+                if _cfgp.is_file():
+                    _cfg = _j.loads(_cfgp.read_text())
+                    _mt = str(_cfg.get("model_type") or "").lower()
+                    _arches = " ".join(str(a) for a in (_cfg.get("architectures") or []))
+                    if _mt == "phi3" or "Phi3ForCausalLM" in _arches:
+                        trust_remote = False
+            except Exception:
+                pass
+            tok = AutoTokenizer.from_pretrained(load_src, trust_remote_code=trust_remote)
             dtype = torch.float16 if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else torch.float32
             model = AutoModelForCausalLM.from_pretrained(
                 load_src,
                 torch_dtype=dtype,
-                trust_remote_code=True,
+                trust_remote_code=trust_remote,
                 low_cpu_mem_usage=True,
             )
             if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -475,8 +666,23 @@ def _preview_chat(
         inputs = {k: v.to(device) for k, v in inputs.items()}
         gen_kwargs = {
             "max_new_tokens": max(16, min(int(max_tokens), 512)),
-            "pad_token_id": tok.eos_token_id,
+            "pad_token_id": tok.pad_token_id or tok.eos_token_id,
         }
+        # Honor full eos_token_id lists (Phi-4: [<|end|>, <|endoftext|>]).
+        eos_ids = getattr(model.config, "eos_token_id", None)
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+
+            gcfg = _Path(load_src) / "generation_config.json"
+            if gcfg.is_file():
+                ge = _json.loads(gcfg.read_text()).get("eos_token_id")
+                if ge is not None:
+                    eos_ids = ge
+        except Exception:
+            pass
+        if eos_ids is not None:
+            gen_kwargs["eos_token_id"] = eos_ids
         if float(temperature) > 0:
             gen_kwargs.update(do_sample=True, temperature=max(float(temperature), 0.05))
         else:
@@ -531,6 +737,8 @@ def _engine_chat(
     env["QUIET"] = "1"
     env["DRAFT"] = "0"
     env["WH_JSON_STATS"] = "1"
+    # Prefer accuracy in Chat; speed seekers can set WH_SPARSE explicitly.
+    env.setdefault("WH_SPARSE", "0")
 
     wh_stats: dict = {}
 
@@ -597,13 +805,18 @@ def _engine_chat(
     p = _P()
     elapsed = max(time.perf_counter() - t0, 1e-6)
     meta = _snap_meta(snap)
-    if p.returncode != 0 and not text:
-        text = err or f"engine exited {p.returncode}"
-    elif not text and err:
-        if "tokenizer" in err.lower() or "No such file" in err:
-            text = "Model pack incomplete — re-install from Library."
+    # Never surface engine stderr logs as the chat answer.
+    if not text:
+        if p.returncode != 0:
+            text = (
+                "The engine failed to generate a reply for this pack. "
+                "Try another installed Hugging Face model, or re-install from Library."
+            )
         else:
-            text = err.splitlines()[-1] if err else "(empty generation)"
+            text = (
+                "The model returned an empty reply. Try again with a shorter prompt, "
+                "or pick a different installed model."
+            )
     bad = sum(
         1
         for ch in text
@@ -611,9 +824,8 @@ def _engine_chat(
     )
     if text and bad > max(3, len(text) // 3):
         text = (
-            "windhover-engine ran this pack, but the weights are a random oracle fixture — "
-            "not coherent English. For conversation, install **Windhover Chat Preview**. "
-            "For a real MoE, download full HF weights and convert."
+            "windhover-engine ran this pack, but the output is not readable text. "
+            "Install a real Hugging Face Mac 16GB model from Library, or re-download weights."
         )
     ntok = int(wh_stats.get("tokens") or max(1, len((text or "").split())))
     stats = {
@@ -638,7 +850,7 @@ def _engine_chat(
             "forwards": wh_stats.get("forwards"),
         }
     _LAST_STATS.update(stats)
-    return text, stats
+    return _clean_chat_text(text) if text else text, stats
 
 
 def _agent_run(
@@ -650,6 +862,7 @@ def _agent_run(
     max_tokens: int = 256,
     temperature: float = 0.2,
     ollama_model: str | None = None,
+    on_progress=None,
 ) -> dict:
     """Host-side tool loop: local LLM proposes tools; we execute under workspace."""
     if _agent_ws is None:
@@ -657,6 +870,13 @@ def _agent_run(
     root = workspace.resolve()
     if not root.is_dir():
         return {"ok": False, "error": f"workspace not a directory: {root}"}
+
+    def _progress(message: str, **extra) -> None:
+        if callable(on_progress):
+            try:
+                on_progress(message=message, **extra)
+            except Exception:
+                pass
 
     if ollama_model:
         mode = "ollama"
@@ -666,38 +886,86 @@ def _agent_run(
         mode = _chat_mode(snap)
         if mode == "blocked":
             return {"ok": False, "error": "model is a fake stub — uninstall it"}
-        if mode not in ("preview", "engine", "engine-oracle"):
+        if mode not in ("preview", "engine"):
             return {"ok": False, "error": f"model not chat-capable (mode={mode})"}
+        if mode == "preview" and not _has_real_weights(snap):
+            return {"ok": False, "error": "model has no real Hugging Face weights"}
 
     steps: list[dict] = []
     tool_results: list[dict] = []
     final_summary = ""
     last_text = ""
     wrote_ok = False
+    echo_retries = 0
+    prompt_l = prompt.lower()
     edit_intent = any(
-        w in prompt.lower()
+        w in prompt_l
         for w in (
-            "edit",
-            "change",
-            "add",
-            "insert",
-            "fix",
-            "write",
-            "create",
-            "update",
-            "refactor",
+            "edit ",
+            "change ",
+            "insert ",
+            "fix ",
+            "write ",
+            "create ",
+            "update ",
+            "refactor ",
             "docstring",
             "str_replace",
-            "implement",
+            "implement ",
+            "add a ",
+            "add the ",
+            "add an ",
+            "add docstring",
+            "add comment",
+            "add function",
+            "add method",
+            "add file",
+        )
+    ) or prompt_l.strip().startswith(("edit", "fix", "write", "create", "implement", "refactor"))
+    explore_intent = (not edit_intent) and any(
+        w in prompt_l
+        for w in (
+            "what is",
+            "what's",
+            "whats ",
+            "explain",
+            "describe",
+            "summarize",
+            "overview",
+            "codebase",
+            "this project",
+            "this repo",
+            "this folder",
+            "how does",
+            "list ",
         )
     )
 
+    _progress("Starting…", step=0, steps=[], phase="start")
+
     for step_i in range(max(1, min(int(max_steps), 12))):
+        _progress(
+            f"Step {step_i + 1}: waiting on the model…",
+            step=step_i + 1,
+            steps=list(steps),
+            phase="thinking",
+        )
         messages = _agent_ws.build_agent_messages(
             user_prompt=prompt,
             workspace_root=str(root),
             tool_results=tool_results or None,
         )
+        if explore_intent and step_i == 0 and not tool_results:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "This is an explore/question task (not an edit). "
+                        "Call list_dir on . first, then finish with a clear answer. "
+                        "Do not invent files or write anything."
+                    ),
+                }
+            )
         if edit_intent and not wrote_ok and step_i > 0:
             messages.append(
                 {
@@ -705,7 +973,8 @@ def _agent_run(
                     "content": (
                         "You have not successfully written a file yet. "
                         "You MUST call str_replace or write_file before finish. "
-                        "Do not call finish until a write tool returns ok:true."
+                        "Do not call finish until a write tool returns ok:true. "
+                        "Stay on the USER TASK — do not invent a calculator or hello.py demo."
                     ),
                 }
             )
@@ -720,8 +989,45 @@ def _agent_run(
             text, stats = _engine_chat(
                 snap, flat[-4000:], max_tokens, temperature, messages=messages
             )
-        last_text = text or ""
+        last_text = _clean_chat_text(text or "")
+
+        if _agent_ws.looks_like_format_echo(last_text, prompt) and echo_retries < 2:
+            echo_retries += 1
+            listing = (
+                ", ".join(p.name for p in sorted(root.iterdir())[:12])
+                if root.is_dir()
+                else ""
+            )
+            tool_results = [
+                {
+                    "ok": False,
+                    "error": (
+                        "Rejected: reply looked like a canned demo (calculator/hello.py), "
+                        "not the user task. Call ONE real tool for the USER TASK only"
+                        + (f" (workspace has: {listing})." if listing else ".")
+                    ),
+                }
+            ]
+            steps.append(
+                {
+                    "step": step_i + 1,
+                    "assistant": last_text[:4000],
+                    "tool_calls": [],
+                    "tool_results": list(tool_results),
+                    "echo_rejected": True,
+                    "stats": {
+                        "tokens_per_sec": stats.get("tokens_per_sec"),
+                        "latency_ms": stats.get("latency_ms"),
+                        "backend": stats.get("backend"),
+                    },
+                }
+            )
+            _progress("Rejected demo echo — retrying…", step=step_i + 1, steps=list(steps), phase="retry")
+            continue
+
         calls = _agent_ws.parse_tool_calls(last_text)
+        if len(calls) > 1:
+            calls = calls[:1]
         step: dict = {
             "step": step_i + 1,
             "assistant": last_text[:4000],
@@ -743,6 +1049,7 @@ def _agent_run(
                 ]
                 step["tool_results"] = tool_results
                 steps.append(step)
+                _progress("Waiting for a valid tool call…", step=step_i + 1, steps=list(steps), phase="retry")
                 continue
             final_summary = last_text.strip() or "(no tool calls; empty reply)"
             step["done"] = True
@@ -751,8 +1058,16 @@ def _agent_run(
 
         tool_results = []
         finished = False
+        name = ""
         for call in calls:
             name = (call.get("name") or call.get("tool") or "").strip()
+            _progress(
+                f"Running {name or 'tool'}…",
+                step=step_i + 1,
+                steps=list(steps) + [step],
+                phase="tool",
+                tool=name,
+            )
             if name == "finish" and edit_intent and not wrote_ok:
                 result = {
                     "tool": "finish",
@@ -776,7 +1091,7 @@ def _agent_run(
         model_id = f"ollama/{ollama_model}"
     else:
         model_id = _snap_meta(snap).get("id") or (snap.name if snap else None)
-    return {
+    out = {
         "ok": True,
         "workspace": str(root),
         "model": model_id,
@@ -785,6 +1100,9 @@ def _agent_run(
         "step_count": len(steps),
         "wrote": wrote_ok,
     }
+    _progress("Done", step=len(steps), steps=list(steps), phase="done")
+    return out
+
 
 
 def _ensure_nofile() -> None:
@@ -881,9 +1199,17 @@ def cmd_plan(ns: argparse.Namespace) -> int:
     return 0
 
 
+def _engine_snap(model: Path) -> Path:
+    """Prefer the Windhover KPK pack directory when present."""
+    kpk = model / "kpk"
+    if kpk.is_dir() and (_has_kpk(model) or (kpk / "kestrel.json").is_file() or any(kpk.glob("kpk-*.safetensors"))):
+        return kpk
+    return model
+
+
 def _engine_env(model: Path, ram: float | None) -> dict[str, str]:
     env = os.environ.copy()
-    env["SNAP"] = str(model)
+    env["SNAP"] = str(_engine_snap(model))
     env.pop("TF", None)
     if ram:
         env["RAM_GB"] = str(ram)
@@ -938,9 +1264,40 @@ def cmd_serve(ns: argparse.Namespace) -> int:
 
 
 def load_catalog() -> list[dict]:
-    if CATALOG_PATH.is_file():
-        return json.loads(CATALOG_PATH.read_text()).get("models", [])
-    return []
+    if not CATALOG_PATH.is_file():
+        return []
+    models = json.loads(CATALOG_PATH.read_text()).get("models", [])
+    # HF models only — never surface preview/fixture demos as installable engines.
+    out = []
+    for m in models:
+        mid = str(m.get("id") or "")
+        src = m.get("source")
+        if src in ("preview", "fixture"):
+            continue
+        if mid.endswith("chat-preview") or "glm-tiny" in mid:
+            continue
+        if not (m.get("hf_repo") or m.get("preview_repo")):
+            continue
+        if not m.get("hf_repo") and m.get("preview_repo"):
+            m = {**m, "hf_repo": m.get("preview_repo")}
+        out.append(m)
+    return out
+
+
+def _is_demo_pack(snap: Path) -> bool:
+    """Chat Preview / oracle fixture packs — not real HF engine installs."""
+    meta = _snap_meta(snap)
+    mid = str(meta.get("id") or snap.name).replace("__", "/")
+    if mid.endswith("chat-preview") or "glm-tiny" in mid:
+        return True
+    if meta.get("source") in ("preview", "fixture"):
+        return True
+    if meta.get("chat") == "engine-oracle":
+        return True
+    # Marker-only preview with no weights on disk
+    if meta.get("chat") == "preview" and not _has_real_weights(snap) and not meta.get("weights"):
+        return True
+    return False
 
 
 def _write_kestrel_meta(dest: Path, mid: str, entry: dict, **extra) -> None:
@@ -1111,28 +1468,16 @@ def cmd_pull(ns: argparse.Namespace) -> int:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     print(f"pulling {mid} → {dest}")
 
-    # Honest paths only — never copy glm_tiny and label it as Kimi/Qwen/etc.
-    if entry.get("source") == "fixture":
+    # Demos removed from catalog — refuse if an old client still asks.
+    if entry.get("source") in ("preview", "fixture") or mid.endswith("chat-preview") or "glm-tiny" in mid:
+        err = (
+            f"Refusing {mid}: Windhover only installs real Hugging Face models "
+            "(no Chat Preview / oracle fixture packs)."
+        )
+        print(err, file=sys.stderr)
         if job_id:
-            _job_set(job_id, status="running", pct=50, message="Installing engine demo…")
-        rc = _install_fixture(mid, entry, dest)
-        if job_id:
-            if rc == 0:
-                _job_set(job_id, status="done", pct=100, message="Installed engine demo")
-            else:
-                _job_set(job_id, status="error", error="fixture install failed", pct=0)
-        return rc
-    # Marker-only install for Chat Preview (weights come from HF cache on first chat).
-    if entry.get("source") == "preview":
-        if job_id:
-            _job_set(job_id, status="running", pct=50, message="Installing chat preview…")
-        rc = _install_preview(mid, entry, dest)
-        if job_id:
-            if rc == 0:
-                _job_set(job_id, status="done", pct=100, message="Installed chat preview")
-            else:
-                _job_set(job_id, status="error", error="preview install failed", pct=0)
-        return rc
+            _job_set(job_id, status="error", error=err, pct=0)
+        return 1
 
     try:
         size_gb = float(entry.get("size_gb") or 999)
@@ -1330,17 +1675,23 @@ def cmd_uninstall(ns: argparse.Namespace) -> int:
 
 
 def cmd_purge_impostors(_: argparse.Namespace) -> int:
-    """Remove tiny stubs / empty marker packs that were falsely labeled as real models."""
+    """Remove fake stubs and Chat Preview / oracle demo packs."""
     n = 0
-    for meta in list(_list_installed()):
-        if meta.get("source") == "ollama" or str(meta.get("id") or "").startswith("ollama/"):
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    for path in sorted(MODELS_DIR.iterdir()) if MODELS_DIR.is_dir() else []:
+        if not path.is_dir() or path.name.startswith("."):
             continue
-        path = Path(meta.get("path") or "")
-        if path.is_dir() and _is_impostor_pack(path):
-            print(f"purging impostor pack: {meta.get('id')} → {path}")
-            shutil.rmtree(path)
-            n += 1
-    print(f"purged {n} impostor pack(s)")
+        mid = path.name.replace("__", "/")
+        if mid.startswith("ollama/"):
+            continue
+        kill = _is_impostor_pack(path) or _is_demo_pack(path)
+        if not kill:
+            continue
+        kind = "demo" if _is_demo_pack(path) else "impostor"
+        print(f"purging {kind} pack: {mid} → {path}")
+        shutil.rmtree(path)
+        n += 1
+    print(f"purged {n} fake/demo pack(s)")
     return 0
 
 
@@ -1513,14 +1864,17 @@ def _ollama_chat(
         "engine": "ollama",
     }
     _LAST_STATS.update(stats)
-    return text or "(empty ollama generation)", stats
+    return _clean_chat_text(text) or "(empty ollama generation)", stats
 
 
 def _list_installed() -> list[dict]:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     out = []
     for p in sorted(MODELS_DIR.iterdir()) if MODELS_DIR.is_dir() else []:
-        if not p.is_dir():
+        if not p.is_dir() or p.name.startswith("."):
+            continue
+        if _is_demo_pack(p):
+            # Hide demos from the Library/Chat pickers (purge removes them on app start).
             continue
         meta = {
             "id": p.name,
@@ -1536,14 +1890,30 @@ def _list_installed() -> list[dict]:
                 pass
         mode = _chat_mode(p)
         meta["chat_mode"] = mode
-        meta["chat_ok"] = mode in ("preview", "engine", "engine-oracle")
-        meta["impostor"] = mode == "blocked" or _is_impostor_pack(p)
+        has_kpk_files = _has_kpk(p) or (
+            (p / "kpk").is_dir() and any((p / "kpk").glob("kpk-*.safetensors"))
+        )
+        incomplete = (not _has_real_weights(p)) and (not has_kpk_files)
+        meta["incomplete"] = bool(incomplete)
+        # Real HF engine packs, or transformers fallback only when real weights exist.
+        meta["chat_ok"] = mode == "engine" or (mode == "preview" and _has_real_weights(p))
+        # Partial / in-progress downloads are incomplete — not fake stubs.
+        if incomplete:
+            meta["impostor"] = bool(
+                meta.get("impostor") is True
+                or meta.get("runner") is True
+                or _is_tiny_stub(p)
+            )
+        else:
+            meta["impostor"] = mode == "blocked" or _is_impostor_pack(p)
         meta["size_bytes"] = _dir_bytes(p)
         meta["weight_bytes"] = _weight_bytes(p)
-        meta["has_weights"] = _has_real_weights(p) or str(meta.get("id", "")).endswith("chat-preview")
-        if meta["impostor"]:
+        meta["has_weights"] = _has_real_weights(p)
+        if meta["impostor"] or incomplete:
             meta["chat_ok"] = False
             meta["ready"] = False
+        if incomplete and not meta.get("description"):
+            meta["description"] = "Incomplete download — reinstall from Library to fetch model weights."
         out.append(meta)
     # Virtual entries for models already installed in Ollama (no re-download).
     out.extend(_ollama_list_models())
@@ -1861,7 +2231,7 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                             {
                                 "ok": False,
                                 "error": (
-                                    "Model not installed. Install Chat Preview / a Mac 16GB coder "
+                                    "Model not installed. Install a Mac 16GB Hugging Face model "
                                     "from Library, or select an Ollama model (ollama/…)."
                                 ),
                             },
@@ -1872,25 +2242,103 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                 except Exception as e:
                     return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
                 max_steps = int(body.get("max_steps") or 8)
-                max_tokens = int(body.get("max_tokens") or 256)
+                max_tokens = int(body.get("max_tokens") or 384)
                 temperature = float(body.get("temperature") if body.get("temperature") is not None else 0.2)
-                result = _agent_run(
-                    snap=snap,
-                    workspace=Path(_WORKSPACE["root"]),
-                    prompt=prompt,
-                    max_steps=max_steps,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    ollama_model=ollama_tag,
+                want_async = bool(body.get("async", True))
+
+                def _run_agent():
+                    return _agent_run(
+                        snap=snap,
+                        workspace=Path(_WORKSPACE["root"]),
+                        prompt=prompt,
+                        max_steps=max_steps,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        ollama_model=ollama_tag,
+                    )
+
+                if not want_async:
+                    result = _run_agent()
+                    code = 200 if result.get("ok") else 400
+                    return self._json(code, result)
+
+                job_id = str(uuid.uuid4())
+                _job_set(
+                    job_id,
+                    status="running",
+                    pct=5,
+                    message="Starting…",
+                    kind="agent",
+                    steps=[],
+                    phase="start",
+                    prompt=prompt[:500],
                 )
-                code = 200 if result.get("ok") else 400
-                return self._json(code, result)
+
+                def _worker() -> None:
+                    try:
+                        def on_progress(message: str = "", **extra):
+                            steps = extra.get("steps") or []
+                            phase = extra.get("phase") or "running"
+                            step_n = int(extra.get("step") or 0)
+                            pct = min(95, 10 + step_n * 12)
+                            if phase == "done":
+                                pct = 100
+                            _job_set(
+                                job_id,
+                                status="running" if phase != "done" else "running",
+                                pct=pct,
+                                message=message or phase,
+                                kind="agent",
+                                steps=steps,
+                                phase=phase,
+                                tool=extra.get("tool"),
+                                step=step_n,
+                            )
+
+                        result = _agent_run(
+                            snap=snap,
+                            workspace=Path(_WORKSPACE["root"]),
+                            prompt=prompt,
+                            max_steps=max_steps,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            ollama_model=ollama_tag,
+                            on_progress=on_progress,
+                        )
+                        _job_set(
+                            job_id,
+                            status="done" if result.get("ok") else "error",
+                            pct=100,
+                            message="Done" if result.get("ok") else (result.get("error") or "failed"),
+                            kind="agent",
+                            steps=result.get("steps") or [],
+                            summary=result.get("summary"),
+                            result=result,
+                            phase="done",
+                            error=None if result.get("ok") else (result.get("error") or "failed"),
+                        )
+                    except Exception as e:
+                        _job_set(
+                            job_id,
+                            status="error",
+                            pct=0,
+                            message=f"{type(e).__name__}: {e}",
+                            kind="agent",
+                            error=f"{type(e).__name__}: {e}",
+                            phase="error",
+                        )
+
+                threading.Thread(target=_worker, daemon=True).start()
+                return self._json(
+                    200,
+                    {"ok": True, "async": True, "job_id": job_id, "status": "running"},
+                )
             if path in ("/v1/chat/completions", "/api/chat"):
                 requested = body.get("model")
                 messages = body.get("messages") or []
                 if not any((m.get("content") or "").strip() for m in messages if m.get("role") == "user"):
                     return self._json(400, {"error": "empty prompt"})
-                max_tokens = int(body.get("max_tokens") or 128)
+                max_tokens = int(body.get("max_tokens") or 512)
                 temperature = float(
                     body.get("temperature") if body.get("temperature") is not None else 0.7
                 )
@@ -1948,12 +2396,12 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                         {
                             "error": (
                                 f"Model {requested!r} is not installed. "
-                                "Install **Windhover Chat Preview** for local chat, "
-                                "Download weights from Library, or pick an **Ollama** model "
+                                "Install a **Mac 16GB** Hugging Face model from Library, "
+                                "download full weights, or pick an **Ollama** model "
                                 "(shown when `ollama serve` is running)."
                                 if requested and requested not in ("kestrel", "default", "auto", None)
-                                else "No model loaded. Install **Windhover Chat Preview** from Library, "
-                                "or start Ollama to use preinstalled models."
+                                else "No model loaded. Install a Hugging Face model from Library "
+                                "(Mac 16GB filter), or start Ollama."
                             ),
                             "requested": requested,
                         },
@@ -1961,15 +2409,27 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                 mode = _chat_mode(snap)
                 if mode == "blocked":
                     mid = _snap_meta(snap).get("id") or snap.name
+                    incomplete = not _has_real_weights(snap) and not _has_kpk(snap)
+                    if incomplete:
+                        return self._json(
+                            400,
+                            {
+                                "error": (
+                                    f"{mid} is incomplete — model weights never finished downloading. "
+                                    "Uninstall it in Library, then Install again (Mac 16GB) to get real weights."
+                                ),
+                                "incomplete": True,
+                                "id": mid,
+                            },
+                        )
                     return self._json(
                         400,
                         {
                             "error": (
-                                f"{mid} is a fake stub (tiny weights labeled as a frontier MoE). "
-                                "It was never the real model. Uninstall it, then either install "
-                                "**Windhover Chat Preview** or Download real weights with confirmation."
+                                f"{mid} can’t chat (missing weights or fake stub). "
+                                "Uninstall it, then install a real Hugging Face Mac 16GB model from Library."
                             ),
-                            "impostor": True,
+                            "impostor": _is_impostor_pack(snap),
                             "id": mid,
                         },
                     )
@@ -2033,6 +2493,24 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                         snap, prompt, max_tokens, temperature, messages=messages
                     )
                     backend = "windhover-engine"
+                    # If KPK/engine path produced no usable answer but HF weights exist,
+                    # fall back to transformers so Chat still works.
+                    bad_eng = (
+                        not (text or "").strip()
+                        or str(text).startswith("The engine failed")
+                        or str(text).startswith("The model returned an empty")
+                        or str(text).startswith("windhover-engine ran this pack")
+                        or _looks_like_engine_garbage(str(text))
+                    )
+                    if bad_eng and _has_real_weights(snap):
+                        sys.stderr.write(
+                            "[windhover] engine reply unusable — falling back to transformers\n"
+                        )
+                        text, stats = _preview_chat(
+                            messages, max_tokens, temperature, snap=snap
+                        )
+                        backend = "preview"
+                        stats = {**stats, "fallback_from": "windhover-engine"}
                 return self._json(
                     200,
                     {
@@ -2071,21 +2549,19 @@ def cmd_app(ns: argparse.Namespace) -> int:
         if pkg.is_file() and not os.environ.get("WINDHOVER_APP_NO_AUTOPULL"):
             print("building app…")
             subprocess.call(["npm", "run", "build"], cwd=str(ROOT / "app"))
-    # Remove fake MoE stubs left from older builds
+    # Remove fake MoE stubs + Chat Preview / oracle demos
     cmd_purge_impostors(argparse.Namespace())
     model = Path(ns.model) if ns.model else None
     if model is None:
-        installed = [m for m in _list_installed() if m.get("chat_ok")]
+        installed = [
+            m
+            for m in _list_installed()
+            if m.get("chat_ok")
+            and not str(m.get("id") or "").startswith("ollama/")
+            and m.get("path")
+        ]
         if installed:
-            # Prefer chat-preview when present
-            preview = next((m for m in installed if str(m.get("id", "")).endswith("chat-preview")), None)
-            pick = preview or installed[0]
-            model = Path(pick["path"])
-        elif not os.environ.get("WINDHOVER_APP_NO_AUTOPULL"):
-            cmd_pull(argparse.Namespace(model_id="windhover/chat-preview", weights=False))
-            installed = _list_installed()
-            if installed:
-                model = Path(installed[0]["path"])
+            model = Path(installed[0]["path"])
     return _serve_library_api(ns.host, ns.port, model)
 
 
@@ -2203,11 +2679,19 @@ def cmd_convert(ns: argparse.Namespace) -> int:
     if ns.force:
         shutil.rmtree(snap / "kpk", ignore_errors=True)
     tool = ROOT / "tools" / "kestrel_pack.py"
-    cmd = [sys.executable, str(tool), "--snap", str(snap),
+    py = _ml_python()
+    cmd = [py, str(tool), "--snap", str(snap),
            "--attn-bits", str(ns.attn_bits)]
     if ns.no_calib:
         cmd += ["--no-calib", "--no-awq"]
     rc = subprocess.call(cmd)
+    if rc != 0 and not ns.no_calib:
+        # calibration needs torch; fall back to plain quant pack
+        print("convert with calib failed — retrying without AWQ/calib…", file=sys.stderr)
+        rc = subprocess.call(
+            [py, str(tool), "--snap", str(snap), "--attn-bits", str(ns.attn_bits),
+             "--no-calib", "--no-awq"]
+        )
     if rc == 0 and _has_kpk(snap):
         meta = _snap_meta(snap)
         _write_kestrel_meta(

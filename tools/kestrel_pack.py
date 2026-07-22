@@ -448,28 +448,36 @@ def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8):
             put_i8(p + "self_attn.q_proj.weight", wq)
             put_i8(p + "self_attn.k_proj.weight", wk)
             put_i8(p + "self_attn.v_proj.weight", wv)
-        put_g64(p + "self_attn.o_proj.weight", wo)
-        # Sub-1B models are far more quant-sensitive and their absolute byte
-        # cost is small: keep gate/up at int8 rows there (parity: Qwen3-0.6B
-        # gate/up int4-g64 alone costs cos 0.989 -> compounds below 0.99).
-        if D <= 1024:
+        # o_proj int8 for Phi-class widths — int4 here also skews near-tied tokens.
+        if D <= 4096:
+            put_i8(p + "self_attn.o_proj.weight", wo)
+        else:
+            put_g64(p + "self_attn.o_proj.weight", wo)
+        # Small/medium dense models are quant-sensitive on FFN up-projections.
+        # Keep gate/up at int8 through Phi-4 Mini (D=3072); int4-g64 alone can
+        # flip near-tied arithmetic tokens (323 vs 357 on 17×19).
+        if D <= 4096:
             put_i8(p + "mlp.gate_proj.weight", wg)
             put_i8(p + "mlp.up_proj.weight", wu)
         else:
             put_g64(p + "mlp.gate_proj.weight", wg)
             put_g64(p + "mlp.up_proj.weight", wu)
-        # down stored TRANSPOSED [inter, hidden]: neuron j's output column is
-        # a contiguous row, so gate/up/down^T rows skip uniformly (sparse FFN)
-        # and an AU bundle (64 neurons) is one sequential read per tensor.
-        # 16 fp16 outlier columns (activation dims) absorb the residual-stream
-        # outliers that int4 groups along hidden cannot represent.
-        put_g64(p + "mlp.down_proj.weight.t", np.ascontiguousarray(wd.T),
-                outlier_cols=16)
+        # down stored TRANSPOSED [inter, hidden]. Phi-class widths: int8 rows
+        # (accuracy); larger models keep int4-g64 + outlier columns.
+        if D <= 4096:
+            put_i8(p + "mlp.down_proj.weight.t", np.ascontiguousarray(wd.T))
+        else:
+            put_g64(p + "mlp.down_proj.weight.t", np.ascontiguousarray(wd.T),
+                    outlier_cols=16)
         if (i + 1) % 8 == 0 or i == L - 1:
             log(f"layer {i + 1}/{L} quantized")
 
     meta_fmt["attn_qkv"] = f"int{attn_bits}" + ("_g64" if attn_bits == 4 else "_row")
-    meta_fmt["attn_o"] = meta_fmt["mlp"] = "int4_g64_asym"
+    if D <= 4096:
+        meta_fmt["attn_o"] = "int8_row"
+        meta_fmt["mlp"] = "int8_row"  # gate/up/down^T int8
+    else:
+        meta_fmt["attn_o"] = meta_fmt["mlp"] = "int4_g64_asym"
     meta_fmt["embed"] = "int8_row"
 
     # --- write shards (~1.8GB max per file) ---

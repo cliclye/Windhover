@@ -81,6 +81,49 @@ type AgentStep = {
   done?: boolean;
 };
 
+type AgentToolResult = {
+  tool?: string;
+  ok?: boolean;
+  error?: string;
+  path?: string;
+  summary?: string;
+  entries?: unknown[];
+};
+
+/** Cursor-style one-liners for tool activity (collapsed by default). */
+function toolActivityLabel(tr: AgentToolResult): string {
+  const tool = String(tr.tool || "tool");
+  const path = tr.path ? String(tr.path) : "";
+  if (tr.ok === false) return `${tool} failed${path ? ` · ${path}` : ""}`;
+  if (tool.includes("read")) return path ? `Read ${path}` : "Read file";
+  if (tool.includes("write") || tool.includes("edit") || tool.includes("create")) {
+    return path ? `Edited ${path}` : "Edited file";
+  }
+  if (tool.includes("list") || tool.includes("tree") || tool.includes("glob")) {
+    const n = Array.isArray(tr.entries) ? tr.entries.length : 0;
+    if (n > 0) return `Explored ${n} item${n === 1 ? "" : "s"}${path ? ` in ${path}` : ""}`;
+    return path ? `Listed ${path}` : "Listed folder";
+  }
+  if (tr.summary) return String(tr.summary);
+  return path ? `${tool} · ${path}` : tool;
+}
+
+function toolActivityGroup(results: AgentToolResult[]): string {
+  if (!results.length) return "";
+  const labels = results.map(toolActivityLabel);
+  if (labels.length === 1) return labels[0];
+  const reads = labels.filter((l) => l.startsWith("Read ")).length;
+  const edits = labels.filter((l) => l.startsWith("Edited ")).length;
+  const explores = labels.filter((l) => l.startsWith("Explored ") || l.startsWith("Listed ")).length;
+  const parts: string[] = [];
+  if (explores) parts.push(`Explored ${explores} path${explores === 1 ? "" : "s"}`);
+  if (reads) parts.push(`Read ${reads} file${reads === 1 ? "" : "s"}`);
+  if (edits) parts.push(`Edited ${edits} file${edits === 1 ? "" : "s"}`);
+  const other = labels.length - explores - reads - edits;
+  if (other > 0) parts.push(`${other} other`);
+  return parts.join(", ");
+}
+
 const FAMILIES = [
   { id: "all", label: "All" },
   { id: "mac", label: "Mac 16GB" },
@@ -189,6 +232,7 @@ export function App() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [agentSummary, setAgentSummary] = useState("");
+  const [agentPrompt, setAgentPrompt] = useState("");
   const [agentStatus, setAgentStatus] = useState("");
   const [pickingFolder, setPickingFolder] = useState(false);
   const [tree, setTree] = useState<Array<{ name: string; path: string; type: string; size?: number | null }>>([]);
@@ -562,6 +606,9 @@ export function App() {
     setAgentBusy(true);
     setAgentSteps([]);
     setAgentSummary("");
+    setAgentPrompt(text);
+    setAgentInput("");
+    setAgentStatus("");
     setStatus("Agent running…");
     try {
       await applyWorkspace(workspace);
@@ -584,8 +631,8 @@ export function App() {
         return;
       }
       setAgentSteps((j.steps || []) as AgentStep[]);
-      setAgentSummary(String(j.summary || "done"));
-      setStatus(`Agent finished · ${j.step_count || 0} step(s)`);
+      setAgentSummary(String(j.summary || ""));
+      setStatus("Agent finished");
       const treeR = await fetch(apiUrl("/api/workspace/tree?path=.")).then((x) => x.json());
       if (treeR.ok) setTree(treeR.entries || []);
     } catch (e) {
@@ -1030,58 +1077,65 @@ export function App() {
                 )}
               </aside>
               <div className="agent-thread">
-                {agentSteps.length === 0 && !agentBusy ? (
+                {agentSteps.length === 0 && !agentBusy && !agentPrompt ? (
                   <div className="empty">
-                    <strong>Prompt the local agent.</strong>
-                    <span>
-                      Pick a project folder, choose a model (Coder 1.5B works well on 16GB), then ask it to
-                      change files — like a lightweight Cursor, fully on-device.
-                    </span>
+                    <strong>Ask the agent to change code.</strong>
+                    <span>Pick a folder and a model, then describe the edit — replies stay on-device.</span>
                   </div>
                 ) : (
-                  <>
-                    {agentSteps.map((s) => (
-                      <div className="agent-step" key={s.step}>
-                        <div className="agent-step-head">Step {s.step}</div>
-                        {s.tool_results?.length ? (
-                          <ul className="tool-log">
-                            {s.tool_results.map((tr, i) => (
-                              <li key={i}>
-                                <code>{String((tr as { tool?: string }).tool || "tool")}</code>
-                                {(tr as { ok?: boolean }).ok === false
-                                  ? ` · ${(tr as { error?: string }).error || "failed"}`
-                                  : (tr as { path?: string }).path
-                                    ? ` · ${(tr as { path?: string }).path}`
-                                    : (tr as { summary?: string }).summary
-                                      ? ` · ${(tr as { summary?: string }).summary}`
-                                      : " · ok"}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                        {s.assistant ? (
-                          <div className="bubble assistant md">
-                            <MarkdownBody text={s.assistant.slice(0, 1200)} />
-                          </div>
-                        ) : null}
+                  <div className="agent-transcript">
+                    {agentPrompt ? (
+                      <div className="agent-user">
+                        <span className="agent-role">You</span>
+                        <p>{agentPrompt}</p>
                       </div>
-                    ))}
+                    ) : null}
+
+                    {agentSteps.map((s) => {
+                      const results = (s.tool_results || []) as AgentToolResult[];
+                      const group = toolActivityGroup(results);
+                      const reply = (s.assistant || "").trim();
+                      return (
+                        <div className="agent-turn" key={s.step}>
+                          {results.length ? (
+                            <details className="agent-activity">
+                              <summary>{group || `${results.length} tool call${results.length === 1 ? "" : "s"}`}</summary>
+                              <ul>
+                                {results.map((tr, i) => (
+                                  <li key={i} className={tr.ok === false ? "bad" : undefined}>
+                                    {toolActivityLabel(tr)}
+                                    {tr.ok === false && tr.error ? (
+                                      <span className="agent-activity-err"> — {String(tr.error)}</span>
+                                    ) : null}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : null}
+                          {reply ? (
+                            <div className="agent-reply md">
+                              <MarkdownBody text={reply} />
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+
                     {agentBusy ? (
-                      <div className="bubble assistant thinking" aria-live="polite">
+                      <div className="agent-thinking" aria-live="polite">
                         <span className="think-dots">
                           <i />
                           <i />
                           <i />
                         </span>
-                        Agent working in your folder…
+                        Working…
                       </div>
                     ) : null}
+
                     {agentSummary && !agentBusy ? (
-                      <div className="bubble assistant">
-                        <strong>Done.</strong> {agentSummary}
-                      </div>
+                      <p className="agent-footer muted">{agentSummary}</p>
                     ) : null}
-                  </>
+                  </div>
                 )}
               </div>
             </div>

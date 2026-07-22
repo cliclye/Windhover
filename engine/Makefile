@@ -64,11 +64,20 @@ else
 CC = gcc
 endif
 endif
-# ARCH: x86-64-v3 (AVX2 MoE) on amd64; native/armv8-a on ARM64 Windows.
+# ARCH: x86-64-v3 (AVX2 MoE) on amd64; armv8-a on ARM64 Windows.
+# MSYS2 often omits PROCESSOR_ARCHITECTURE — also probe uname / compiler triple.
 ifndef ARCH
+UNAME_M := $(shell uname -m 2>/dev/null)
+CC_MACHINE := $(shell $(CC) -dumpmachine 2>/dev/null)
 ifeq ($(PROCESSOR_ARCHITECTURE),ARM64)
 ARCH := armv8-a
 else ifeq ($(PROCESSOR_ARCHITEW6432),ARM64)
+ARCH := armv8-a
+else ifneq (,$(filter aarch64 arm64,$(UNAME_M)))
+ARCH := armv8-a
+else ifneq (,$(findstring aarch64,$(CC_MACHINE)))
+ARCH := armv8-a
+else ifneq (,$(findstring arm64,$(CC_MACHINE)))
 ARCH := armv8-a
 else
 ARCH := x86-64-v3

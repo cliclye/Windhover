@@ -136,12 +136,9 @@ else
 endif
 
 # SNAP path relative to engine/ — fixtures live in fixtures/
+# Use POSIX env assignment so MSYS2 / Git Bash `sh` works (cmd `set` breaks .\exe).
 test-oracle: windhover-engine$(EXE)
-ifeq ($(IS_WIN),)
-	SNAP=./fixtures/glm_tiny TF=1 ./windhover-engine 64 16 16
-else
-	set SNAP=./fixtures/glm_tiny&& set TF=1&& .\windhover-engine.exe 64 16 16
-endif
+	SNAP=./fixtures/glm_tiny TF=1 ./windhover-engine$(EXE) 64 16 16
 
 clean:
 	rm -f windhover-engine windhover-engine.exe kestrel-engine kestrel-engine.exe \

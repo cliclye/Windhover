@@ -84,10 +84,15 @@ ARCH := x86-64-v3
 endif
 endif
 CFLAGS  = -D_FILE_OFFSET_BITS=64 -O3 -fopenmp $(INCLUDES) -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
-# -march for x86; -mcpu for aarch64 when ARCH looks like arm*
-ifneq (,$(findstring arm,$(ARCH)))
-CFLAGS += -mcpu=$(ARCH)
+# -march for x86 and armv8-* ISAs; -mcpu only for named CPU cores (e.g. native).
+# Important: "armv8-a" contains "arm" — do not send it to -mcpu= (Clang on WinARM rejects it).
+ifneq (,$(findstring armv8,$(ARCH)))
+CFLAGS += -march=$(ARCH)
 else ifneq (,$(findstring aarch64,$(ARCH)))
+CFLAGS += -march=$(ARCH)
+else ifneq (,$(filter native,$(ARCH)))
+CFLAGS += -mcpu=$(ARCH)
+else ifneq (,$(findstring cortex,$(ARCH)))
 CFLAGS += -mcpu=$(ARCH)
 else
 CFLAGS += -march=$(ARCH)

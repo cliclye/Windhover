@@ -1,0 +1,95 @@
+{
+  "generated_at": "2026-07-22T00:47:46.922909+00:00",
+  "model_id": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+  "snap": "/home/ubuntu/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct",
+  "host": {
+    "platform": "linux",
+    "system": "Linux",
+    "machine": "x86_64",
+    "python": "3.12.3",
+    "logical_cpu": "4",
+    "cpu_brand": "Intel(R) Xeon(R) Processor",
+    "mem_bytes": "16792023040",
+    "physical_cpu": "1",
+    "mem_gb": 15.6
+  },
+  "protocol": {
+    "prompt": "Write four short bullet points about local MoE inference on a laptop.",
+    "max_new_tokens": 32,
+    "trials": 2,
+    "warmup": 1,
+    "metric": "decode_only (prefill excluded on both sides)",
+    "without": "transformers \u00b7 cpu \u00b7 float16 \u00b7 greedy decode loop",
+    "with": "windhover-engine dense \u00b7 int8 weights \u00b7 NEON IDOT when available",
+    "note": "Earlier short-prompt runs that timed transformers generate() end-to-end vs engine decode-only inflated the Windhover delta; this protocol matches metrics."
+  },
+  "without": {
+    "runs": [
+      {
+        "ok": true,
+        "device": "cpu",
+        "load_s": 1.13,
+        "prefill_s": 0.292,
+        "decode_s": 4.715,
+        "tokens": 32,
+        "tok_s": 6.787,
+        "rss_gb": 6.185,
+        "text": "- Install the latest version of the MoE inference software.\n- Ensure your laptop meets the minimum system requirements.\n- Configure the inference settings to optimize performance.\n-",
+        "metric": "decode_only"
+      },
+      {
+        "ok": true,
+        "device": "cpu",
+        "load_s": 1.671,
+        "prefill_s": 0.326,
+        "decode_s": 4.675,
+        "tokens": 32,
+        "tok_s": 6.845,
+        "rss_gb": 6.193,
+        "text": "- Install the latest version of the MoE inference software.\n- Ensure your laptop meets the minimum system requirements.\n- Configure the inference settings to optimize performance.\n-",
+        "metric": "decode_only"
+      }
+    ],
+    "mean_tok_s": 6.816,
+    "mean_rss_gb": 6.189
+  },
+  "with": {
+    "runs": [
+      {
+        "ok": true,
+        "rc": 0,
+        "tok_s": 11.6,
+        "tokens": 32,
+        "wall_s": 14.549,
+        "prefill_s": 3.88,
+        "prefill_tok_s": 11.08,
+        "load_s": 7.7,
+        "rss_gb": 1.31,
+        "text": "- Install the necessary libraries and frameworks\n- Set up the environment and dependencies\n- Run the inference model on the laptop\n- Monitor the performance and adjust the",
+        "stderr_tail": "[OMP] hot-thread tuning: re-exec once (COLI_NO_OMP_TUNE=1 to skip)\nOMP: Info #268: OMP_NESTED variable deprecated, please use OMP_MAX_ACTIVE_LEVELS instead.\n[dense] loaded /home/ubuntu/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct in 7.7s | RSS 1.31 GB | layers=28 hidden=1536 | int8 qkv + int4 o/mlp\n[dense] prefill 43 tokens, generate up to 32 (eos=151645)\n[dense] prefill 3.88s (11.08 tok/s)\n[dense] decode 11.60 tok/s (2.76s for 32 toks) | RSS 1.31 GB | load 7.7s\n",
+        "path": "windhover-engine dense (int8 + IDOT)",
+        "metric": "decode_only"
+      },
+      {
+        "ok": true,
+        "rc": 0,
+        "tok_s": 11.86,
+        "tokens": 32,
+        "wall_s": 12.064,
+        "prefill_s": 4.12,
+        "prefill_tok_s": 10.42,
+        "load_s": 5.1,
+        "rss_gb": 1.31,
+        "text": "- Install the necessary libraries and frameworks\n- Set up the environment and dependencies\n- Run the inference model on the laptop\n- Monitor the performance and adjust the",
+        "stderr_tail": "[OMP] hot-thread tuning: re-exec once (COLI_NO_OMP_TUNE=1 to skip)\nOMP: Info #268: OMP_NESTED variable deprecated, please use OMP_MAX_ACTIVE_LEVELS instead.\n[dense] loaded /home/ubuntu/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct in 5.1s | RSS 1.31 GB | layers=28 hidden=1536 | int8 qkv + int4 o/mlp\n[dense] prefill 43 tokens, generate up to 32 (eos=151645)\n[dense] prefill 4.12s (10.42 tok/s)\n[dense] decode 11.86 tok/s (2.70s for 32 toks) | RSS 1.31 GB | load 5.1s\n",
+        "path": "windhover-engine dense (int8 + IDOT)",
+        "metric": "decode_only"
+      }
+    ],
+    "mean_tok_s": 11.73,
+    "mean_rss_gb": 1.31
+  },
+  "delta_decode_pct": 72.1,
+  "delta_pct": 72.1,
+  "delta_rss_pct": -78.8
+}

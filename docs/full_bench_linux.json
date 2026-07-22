@@ -1,0 +1,253 @@
+{
+  "meta": {
+    "timestamp_utc": "2026-07-22T00:48:45.062909+00:00",
+    "methodology": {
+      "mode": "TF teacher-forcing (windhover-engine fixtures/glm_tiny vs stock glm_tiny)",
+      "trial_definition": "one trial = 20 consecutive processes; 4 trials after 1 warmup batches",
+      "fairness": [
+        "no BENCH_LOOPS (stock does not have it)",
+        "identical stripped env",
+        "both ARCH=native OpenMP",
+        "same glm_tiny + ref_glm.json",
+        "page-cache warm (warmup discarded) \u2014 steady-state, not cold-start",
+        "primary binary: engine/windhover-engine",
+        "interleaved stock/kestrel batches (not stock-then-kestrel)"
+      ],
+      "primary_metrics": [
+        "pos/s: engine-reported forward_all throughput (excludes load)",
+        "batch_wall_s: external wall for batch_size processes",
+        "wall_per_proc_s: batch_wall / batch_size"
+      ],
+      "limitations": [
+        "glm_tiny only \u2014 do not extrapolate to GLM-5.2",
+        "pos/s on tiny model is short; use batch means + CI"
+      ]
+    },
+    "stock_upstream_sha": "72d3d37231e922a6fa9afca16e08fa45842d5eb4",
+    "expected_upstream_sha": "72d3d37231e922a6fa9afca16e08fa45842d5eb4",
+    "sha_match": true,
+    "batches": 4,
+    "batch_size": 20,
+    "warmup_batches": 1
+  },
+  "stock": {
+    "name": "stock",
+    "binary": "/tmp/colibri-clone/c/glm",
+    "sha256": "5258f1cf8aadd989eebfa2bdd8973d38f4a50b2af2d34a12327219950d4bd0fd",
+    "all_correct": true,
+    "oracle": "32/32",
+    "n_batches": 4,
+    "batch_size": 20,
+    "n_processes_total": 80,
+    "pos_per_s_batch_means": {
+      "n": 4,
+      "mean": 10763.965,
+      "median": 10796.877499999999,
+      "stdev": 146.70637721880632,
+      "min": 10571.92,
+      "max": 10890.185000000001,
+      "ci95_low": 10620.19275032557,
+      "ci95_high": 10907.73724967443
+    },
+    "pos_per_s_all_procs": {
+      "n": 80,
+      "mean": 10763.965,
+      "median": 11026.900000000001,
+      "stdev": 1201.857401143557,
+      "min": 6665.9,
+      "max": 12153.0,
+      "ci95_low": 10500.596384874614,
+      "ci95_high": 11027.333615125386
+    },
+    "batch_wall_s": {
+      "n": 4,
+      "mean": 0.12277930900381762,
+      "median": 0.12356769800680922,
+      "stdev": 0.0024716930755969853,
+      "min": 0.11930486999335699,
+      "max": 0.12467697000829503,
+      "ci95_low": 0.12035704978973256,
+      "ci95_high": 0.12520156821790265
+    },
+    "wall_per_proc_s": {
+      "n": 4,
+      "mean": 0.006138965450190881,
+      "median": 0.0061783849003404605,
+      "stdev": 0.0001235846537798494,
+      "min": 0.005965243499667849,
+      "max": 0.0062338485004147515,
+      "ci95_low": 0.006017852489486628,
+      "ci95_high": 0.0062600784108951335
+    },
+    "max_rss_mb": {
+      "n": 8,
+      "mean": 5.4130859375,
+      "median": 5.416015625,
+      "stdev": 0.07351789624736546,
+      "min": 5.29296875,
+      "max": 5.49609375,
+      "ci95_low": 5.362140634584421,
+      "ci95_high": 5.464031240415579
+    },
+    "user_s": {
+      "n": 8,
+      "mean": 0.0075,
+      "median": 0.01,
+      "stdev": 0.004629100498862757,
+      "min": 0.0,
+      "max": 0.01,
+      "ci95_low": 0.004292197013530912,
+      "ci95_high": 0.010707802986469088
+    },
+    "sys_s": {
+      "n": 8,
+      "mean": 0.0025,
+      "median": 0.0,
+      "stdev": 0.004629100498862757,
+      "min": 0.0,
+      "max": 0.01,
+      "ci95_low": -0.0007078029864690878,
+      "ci95_high": 0.005707802986469088
+    },
+    "cpu_s": {
+      "n": 8,
+      "mean": 0.01,
+      "median": 0.01,
+      "stdev": 0.0,
+      "min": 0.01,
+      "max": 0.01,
+      "ci95_low": 0.01,
+      "ci95_high": 0.01
+    }
+  },
+  "kestrel": {
+    "name": "kestrel",
+    "binary": "/workspace/engine/windhover-engine",
+    "sha256": "ce86e1b2e7f2d0a31a024bd6e71c5d48cb52d61bbc41d6274c8a2edbeca9ac76",
+    "all_correct": true,
+    "oracle": "32/32",
+    "n_batches": 4,
+    "batch_size": 20,
+    "n_processes_total": 80,
+    "pos_per_s_batch_means": {
+      "n": 4,
+      "mean": 9884.15125,
+      "median": 10240.5425,
+      "stdev": 842.7843508709194,
+      "min": 8641.09,
+      "max": 10414.43,
+      "ci95_low": 9058.2225861465,
+      "ci95_high": 10710.079913853502
+    },
+    "pos_per_s_all_procs": {
+      "n": 80,
+      "mean": 9884.151249999999,
+      "median": 10384.45,
+      "stdev": 1554.7163742310734,
+      "min": 2706.5,
+      "max": 11172.7,
+      "ci95_low": 9543.459003145756,
+      "ci95_high": 10224.843496854242
+    },
+    "batch_wall_s": {
+      "n": 4,
+      "mean": 0.1466098585005966,
+      "median": 0.1452458045023377,
+      "stdev": 0.009287545762114201,
+      "min": 0.13772466000227723,
+      "max": 0.15822316499543376,
+      "ci95_low": 0.1375080636537247,
+      "ci95_high": 0.1557116533474685
+    },
+    "wall_per_proc_s": {
+      "n": 4,
+      "mean": 0.00733049292502983,
+      "median": 0.007262290225116885,
+      "stdev": 0.0004643772881057098,
+      "min": 0.0068862330001138615,
+      "max": 0.007911158249771687,
+      "ci95_low": 0.006875403182686234,
+      "ci95_high": 0.007785582667373426
+    },
+    "max_rss_mb": {
+      "n": 8,
+      "mean": 6.056640625,
+      "median": 6.0625,
+      "stdev": 0.13141000557313792,
+      "min": 5.8359375,
+      "max": 6.19921875,
+      "ci95_low": 5.965578137064603,
+      "ci95_high": 6.147703112935397
+    },
+    "user_s": {
+      "n": 8,
+      "mean": 0.01,
+      "median": 0.01,
+      "stdev": 0.0,
+      "min": 0.01,
+      "max": 0.01,
+      "ci95_low": 0.01,
+      "ci95_high": 0.01
+    },
+    "sys_s": {
+      "n": 8,
+      "mean": 0.0,
+      "median": 0.0,
+      "stdev": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "ci95_low": 0.0,
+      "ci95_high": 0.0
+    },
+    "cpu_s": {
+      "n": 8,
+      "mean": 0.01,
+      "median": 0.01,
+      "stdev": 0.0,
+      "min": 0.01,
+      "max": 0.01,
+      "ci95_low": 0.01,
+      "ci95_high": 0.01
+    }
+  },
+  "comparison": {
+    "throughput_pos_per_s": {
+      "stock_mean": 10763.965,
+      "kestrel_mean": 9884.15125,
+      "delta_pct": -8.173695752448094,
+      "welch_on_batch_means": {
+        "t": 2.0569422464498173,
+        "df": 3.1816426086712815,
+        "p_approx": 0.03969178159027352
+      },
+      "ci95_stock": [
+        10620.19275032557,
+        10907.73724967443
+      ],
+      "ci95_kestrel": [
+        9058.2225861465,
+        10710.079913853502
+      ]
+    },
+    "batch_wall_s": {
+      "stock_mean": 0.12277930900381762,
+      "kestrel_mean": 0.1466098585005966,
+      "delta_pct": 19.40925526469449,
+      "welch": {
+        "t": -4.959110849077893,
+        "df": 3.422829558198984,
+        "p_approx": 7.081655277001725e-07
+      }
+    },
+    "wall_per_proc_s": {
+      "stock_mean": 0.006138965450190881,
+      "kestrel_mean": 0.00733049292502983,
+      "delta_pct": 19.409255264694483
+    },
+    "correctness": {
+      "stock_all_ok": true,
+      "kestrel_all_ok": true
+    },
+    "goal_10pct_throughput": false
+  }
+}

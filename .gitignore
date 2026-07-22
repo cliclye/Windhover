@@ -61,6 +61,7 @@ stats*.txt
 
 # local model installs / HF cache
 .kestrel/
+.windhover/
 **/.hf-cache/
 
 # script di ricerca stadio-0 (esperimenti locali, non parte del motore)

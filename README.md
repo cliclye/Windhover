@@ -51,6 +51,10 @@ Live telemetry: RSS, latency, tok/s, backend path, and Windhover decode stats (p
 
 Measured on a **MacBook Air M4 · 16 GB · 4P+6E**. Numbers are from benches on this machine — never projected.
 
+After the code-quality pass we also **remeasured on Linux x86_64** (4 vCPU Xeon, **15.6 GB**) for the same 1.5B local-LLM protocol — see [Linux remeasure](#linux-x86_64-remeasure-after-code-quality). Absolute tok/s differ by host; **percent deltas** (with vs without Windhover) are the fair cross-host signal.
+
+Percent rule: **positive decode Δ = faster (better)** · **negative RSS Δ = lower memory (better)**.
+
 ### Diagnosis (why Windhover exists)
 
 - Decode is **memory-bandwidth-bound**. Stream ceiling here is ~**74–90 GB/s** (4 P-threads). A naïve dense path that still moves ~0.9 GB/token only reaches ~**40%** of that budget.
@@ -114,8 +118,8 @@ Same prompts, greedy decode-only tok/s where applicable. Full dumps: [`docs/wind
 | Peak RSS | **6.18 GB** | **1.02 GB** |
 | Prefill | — | **~52 tok/s** |
 | FFN sparsity | 0% | **~23%** |
-| **Δ decode** | — | **+137%** |
-| **Δ RSS** | — | **−83%** |
+| **Δ decode** | — | **+137% better** |
+| **Δ RSS** | — | **−83% better** |
 
 #### Qwen2.5-7B Instruct
 
@@ -128,13 +132,36 @@ Same prompts, greedy decode-only tok/s where applicable. Full dumps: [`docs/wind
 | On-disk pack | ~15 GB fp16 | **~4.4 GB KPK** |
 | FFN sparsity | 0% | **~26%** |
 | **Δ decode** | — | swap → **usable (~11 tok/s)** |
-| **Δ RSS** | — | **−53%** |
+| **Δ RSS** | — | **−53% better** |
+
+### Linux x86_64 remeasure (after code quality)
+
+Same decode-only protocol on **Intel Xeon 4 vCPU · 15.6 GB** (not Apple Silicon). Sources: [`docs/dense_qwen_bench_linux.json`](docs/dense_qwen_bench_linux.json), [`docs/windhover_bench_linux.json`](docs/windhover_bench_linux.json).
+
+#### Qwen2.5-Coder-1.5B Instruct (Linux)
+
+| | Without Windhover | With Windhover (dense `WH=0`) | With Windhover (**KPK**) |
+|---|---:|---:|---:|
+| Path | `transformers` CPU · fp16 | `windhover-engine` dense | **KPK · CATS · int8 KV** |
+| Decode tok/s | **6.82** | **11.73** | **14.41** |
+| Peak RSS | **6.19 GB** | **1.31 GB** | **1.03 GB** |
+| Prefill (KPK) | — | — | **~27 tok/s** |
+| FFN sparsity | 0% | 0% | **~23%** |
+
+| Boost (vs without) | Decode tok/s | Peak RSS |
+|---|---:|---:|
+| Dense vs **without** | **+72.1% better** | **−78.8% better** |
+| **Windhover vs without** | **+120.7% better** | **−83.4% better** |
+| Windhover vs dense | **+22.8% better** | **−21.4% better** |
+
+7B was not re-packed on this host (fp16 convert needs more than ~16 GB RAM). M4 7B numbers above still stand.
 
 ```bash
 ./windhover pull Qwen/Qwen2.5-Coder-1.5B-Instruct --weights
 ./windhover convert ~/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct
 ./windhover build
-./windhover bench --windhover
+./windhover bench --windhover   # → docs/windhover_bench.json (+ without A/B)
+./windhover bench --dense       # transformers vs dense WH=0 A/B
 ```
 
 ### Micro-fixture oracle (`glm_tiny`)
@@ -143,8 +170,8 @@ Same prompts, greedy decode-only tok/s where applicable. Full dumps: [`docs/wind
 
 | Metric | Without | With Windhover | Δ |
 |---|---:|---:|---:|
-| Prefill throughput (pos/s) | 11 978 | 77 563 | **+548%** |
-| Batch wall (s) | 0.297 | 0.178 | **−40%** |
+| Prefill throughput (pos/s) | 11 978 | 77 563 | **+548% better** |
+| Batch wall (s) | 0.297 | 0.178 | **−40% better** (faster) |
 | Oracle | 32/32 | 32/32 | match |
 
 Dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/bench-without-vs-with-windhover.svg`](docs/screenshots/bench-without-vs-with-windhover.svg).
@@ -154,6 +181,8 @@ Dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/
 ### Real-model decode (M4 16GB)
 
 ![Windhover real-model bench](docs/screenshots/bench-windhover-real.svg)
+
+Linux micro remeasure (not a local-LLM claim): [`docs/full_bench_linux.json`](docs/full_bench_linux.json) — on this Xeon host the tiny fixture is within noise / slightly slower for Windhover (−8% pos/s); the 1.5B tables above are the product signal.
 
 ### Frontier MoEs
 
@@ -204,7 +233,7 @@ See [`desktop/README.md`](desktop/README.md).
 ## Quick start
 
 ```bash
-git clone <repo> && cd Kestrel   # repo folder name may still be Kestrel
+git clone <repo> && cd Windhover   # GitHub may still show legacy Kestrel redirect
 ./windhover build
 ./windhover oracle
 ./windhover pull windhover/glm-tiny-demo
@@ -274,7 +303,7 @@ Apache-2.0 — see [LICENSE](LICENSE). Upstream attribution in [UPSTREAM.md](UPS
 ## Star history
 
 <p align="center">
-  <a href="https://star-history.com/#cliclye/Kestrel&Date">
-    <img src="https://api.star-history.com/svg?repos=cliclye/Kestrel&type=Date" alt="Star History Chart" width="100%" />
+  <a href="https://star-history.com/#cliclye/Windhover&Date">
+    <img src="https://api.star-history.com/svg?repos=cliclye/Windhover&type=Date" alt="Star History Chart" width="100%" />
   </a>
 </p>

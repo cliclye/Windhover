@@ -14,7 +14,7 @@ implementation phases are blocked on their gates.
 
 Usage:
   c/.venv/bin/python3 tools/windhover_gates.py             # all gates
-  ... --skip g2,g6 --model ~/.kestrel/models/Qwen__...     # subset
+  ... --skip g2,g6 --model ~/.windhover/models/Qwen__...     # subset
 """
 import argparse
 import datetime
@@ -31,7 +31,10 @@ BENCH_C = os.path.join(ROOT, "tools", "wh_kernel_bench.c")
 BENCH_BIN = os.path.join(tempfile.gettempdir(), "wh_kernel_bench")
 DOCS_OUT = os.path.join(ROOT, "docs", "windhover_gates.json")
 DEFAULT_MODEL = os.path.expanduser(
-    "~/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct")
+    "~/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct")
+if not os.path.isdir(DEFAULT_MODEL):
+    DEFAULT_MODEL = os.path.expanduser(
+        "~/.kestrel/models/Qwen__Qwen2.5-Coder-1.5B-Instruct")
 
 GS = 64  # quant group size, must match wh_kernel_bench.c / kestrel_pack.py
 

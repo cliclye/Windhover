@@ -88,3 +88,8 @@ c/tests/test_uring
 
 *.tmp
 *.o.tmp
+
+# PyInstaller sidecar build trees
+packaging/build/
+packaging/dist/
+packaging/bundled_windhover.py

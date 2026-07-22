@@ -33,12 +33,9 @@ def main() -> int:
             os.environ["WINDHOVER_ENGINE"] = str(alt)
             break
 
-    # Ensure windhover script + tools are importable from the bundle
+    # Ensure tools/ is importable from the bundle
     sys.path.insert(0, str(bundle))
-    wh = bundle / "windhover"
-    if not wh.is_file():
-        print(f"windhover-server: missing {wh}", file=sys.stderr)
-        return 1
+    sys.path.insert(0, str(bundle / "tools"))
 
     # Avoid interactive first-run pulls in the frozen GUI path unless needed.
     os.environ.setdefault("WINDHOVER_APP_NO_AUTOPULL", "1")
@@ -52,16 +49,25 @@ def main() -> int:
         os.environ.get("WINDHOVER_PORT", "8000"),
     ]
 
-    import importlib.util
+    # Prefer the .py copy that PyInstaller traces (see windhover-server.spec).
+    try:
+        import bundled_windhover as mod  # type: ignore
+    except ImportError:
+        wh = bundle / "windhover"
+        if not wh.is_file():
+            print(f"windhover-server: missing {wh}", file=sys.stderr)
+            return 1
+        import importlib.machinery
+        import importlib.util
 
-    spec = importlib.util.spec_from_file_location("windhover_cli", wh)
-    if spec is None or spec.loader is None:
-        print("windhover-server: failed to load windhover", file=sys.stderr)
-        return 1
-    mod = importlib.util.module_from_spec(spec)
-    # Force ROOT to bundle before exec (script assigns ROOT from __file__)
-    spec.loader.exec_module(mod)
-    # Re-bind ROOT if the script used __file__ under a different layout
+        loader = importlib.machinery.SourceFileLoader("windhover_cli", str(wh))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        if spec is None or spec.loader is None:
+            print("windhover-server: failed to load windhover", file=sys.stderr)
+            return 1
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
     if hasattr(mod, "ROOT"):
         mod.ROOT = bundle
         mod.ENGINE_DIR = bundle / "engine"
@@ -70,6 +76,14 @@ def main() -> int:
         mod.CATALOG_PATH = bundle / "app" / "public" / "catalog.json"
         if not mod.CATALOG_PATH.is_file():
             mod.CATALOG_PATH = bundle / "app" / "dist" / "catalog.json"
+        # Re-bind agent_workspace against the bundle tools/ dir
+        sys.path.insert(0, str(bundle / "tools"))
+        try:
+            import agent_workspace as _agent_ws  # type: ignore
+
+            mod._agent_ws = _agent_ws
+        except ImportError:
+            pass
     return int(mod.main())
 
 

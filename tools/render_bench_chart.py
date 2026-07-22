@@ -11,9 +11,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCH = ROOT / "docs" / "full_bench.json"
-OUT = ROOT / "docs" / "screenshots" / "bench-without-vs-with-kestrel.svg"
-# Keep old path as a copy/symlink-friendly duplicate name for existing links
-OUT_LEGACY = ROOT / "docs" / "screenshots" / "bench-stock-vs-kestrel.svg"
+OUT = ROOT / "docs" / "screenshots" / "bench-without-vs-with-windhover.svg"
+# Compat aliases for older README links
+OUT_LEGACY = ROOT / "docs" / "screenshots" / "bench-without-vs-with-kestrel.svg"
+OUT_STOCK = ROOT / "docs" / "screenshots" / "bench-stock-vs-kestrel.svg"
 
 
 def _esc(s: str) -> str:
@@ -53,7 +54,7 @@ def render(data: dict) -> str:
         b: float,
         fmt: str = "{:,.0f}",
         label_a: str = "Without",
-        label_b: str = "With Kestrel",
+        label_b: str = "With Windhover",
     ):
         m = max(a, b) or 1.0
         ha = max_h * (a / m)
@@ -88,7 +89,7 @@ def render(data: dict) -> str:
 
     svg = f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" role="img"
-     aria-label="Same laptop: without Kestrel engine vs with Kestrel engine on glm_tiny">
+     aria-label="Same laptop: without Windhover vs with Windhover on glm_tiny">
   <defs>
     <style>
       .title {{ font: 700 20px ui-sans-serif, system-ui, sans-serif; fill: #1c2420; }}
@@ -106,7 +107,7 @@ def render(data: dict) -> str:
     </linearGradient>
   </defs>
   <rect width="{w}" height="{h}" fill="url(#bg)" rx="12"/>
-  <text x="{pad_l}" y="28" class="title">Same laptop · without Kestrel vs with Kestrel</text>
+  <text x="{pad_l}" y="28" class="title">Same laptop · without Windhover vs with Windhover</text>
   <text x="{pad_l}" y="48" class="sub">SYNTHETIC glm_tiny oracle only (not GLM-5.2 / Kimi) · {batches}×{batch_size} · 32/32 · { _esc(ts) }</text>
 
   <rect x="24" y="64" width="{pos_panel_w}" height="280" rx="10" fill="#ffffff" stroke="#d5ddd7"/>
@@ -118,7 +119,7 @@ def render(data: dict) -> str:
   <text x="{wall_x + 20}" y="88" class="panel">Batch wall speed index</text>
   <text x="{wall_x + 264}" y="88" text-anchor="end" class="delta">{abs(d_wall):.0f}% faster</text>
   {pair(wall_x + 55, 120, 55, 160, wall_base_idx, wall_kest_idx, label_a="Without", label_b="With")}
-  <text x="{wall_x + 140}" y="320" text-anchor="middle" class="foot">baseline wall / Kestrel wall × 100</text>
+  <text x="{wall_x + 140}" y="320" text-anchor="middle" class="foot">baseline wall / Windhover wall × 100</text>
 {rss_panel}
 
   <rect x="24" y="360" width="872" height="100" rx="10" fill="#ffffff" stroke="#d5ddd7"/>
@@ -129,10 +130,10 @@ def render(data: dict) -> str:
 
   <g transform="translate(44, 488)">
     <rect width="12" height="12" rx="2" fill="#8a9096"/>
-    <text x="18" y="11" class="legend">Without Kestrel (baseline engine)</text>
-    <rect x="250" width="12" height="12" rx="2" fill="#6fbf94"/>
-    <text x="268" y="11" class="legend">With Windhover (windhover-engine)</text>
-    <text x="520" y="11" class="foot">Source: docs/full_bench.json · verify: python3 tools/verify_bench.py</text>
+    <text x="18" y="11" class="legend">Without Windhover (baseline engine)</text>
+    <rect x="280" width="12" height="12" rx="2" fill="#6fbf94"/>
+    <text x="298" y="11" class="legend">With Windhover (windhover-engine)</text>
+    <text x="560" y="11" class="foot">Source: docs/full_bench.json · verify: python3 tools/verify_bench.py</text>
   </g>
 </svg>
 '''
@@ -145,8 +146,10 @@ def main() -> int:
     svg = render(data)
     OUT.write_text(svg)
     OUT_LEGACY.write_text(svg)
+    OUT_STOCK.write_text(svg)
     print(f"wrote {OUT}")
     print(f"wrote {OUT_LEGACY}")
+    print(f"wrote {OUT_STOCK}")
     return 0
 
 

@@ -147,9 +147,13 @@ Same prompts, greedy decode-only tok/s where applicable. Full dumps: [`docs/wind
 | Batch wall (s) | 0.297 | 0.178 | **−40%** |
 | Oracle | 32/32 | 32/32 | match |
 
-Dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/bench-without-vs-with-kestrel.svg`](docs/screenshots/bench-without-vs-with-kestrel.svg).
+Dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/bench-without-vs-with-windhover.svg`](docs/screenshots/bench-without-vs-with-windhover.svg).
 
-![Without vs with Windhover](docs/screenshots/bench-without-vs-with-kestrel.svg)
+![Without vs with Windhover](docs/screenshots/bench-without-vs-with-windhover.svg)
+
+### Real-model decode (M4 16GB)
+
+![Windhover real-model bench](docs/screenshots/bench-windhover-real.svg)
 
 ### Frontier MoEs
 

@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Windhover — Download for macOS</title>
+    <title>Windhover — Download</title>
     <meta
       name="description"
-      content="Download Windhover for macOS — local LLM runtime with sparse working-set inference on Apple Silicon."
+      content="Download Windhover for macOS and Windows 11 — local LLM runtime with sparse working-set inference."
     />
     <link rel="icon" type="image/png" href="./icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -79,19 +79,30 @@
         margin: 0 auto 2rem;
         max-width: 28rem;
       }
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        justify-content: center;
+      }
       .cta {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 0.55rem;
-        padding: 0.9rem 1.6rem;
+        padding: 0.9rem 1.35rem;
         border-radius: 999px;
         background: var(--copper);
         color: #1a120a;
         font-weight: 600;
-        font-size: 1.05rem;
+        font-size: 0.98rem;
         text-decoration: none;
         transition: transform 0.15s ease, filter 0.15s ease;
+      }
+      .cta.secondary-cta {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid rgba(212, 165, 116, 0.45);
       }
       .cta:hover {
         filter: brightness(1.06);
@@ -147,35 +158,50 @@
   <body>
     <main class="wrap">
       <img class="icon" src="./icon.png" alt="Windhover" width="88" height="88" />
-      <p class="tag">Local LLM · Apple Silicon</p>
+      <p class="tag">Local LLM · macOS &amp; Windows 11</p>
       <h1>Windhover</h1>
       <p class="lead">
-        Sparse working-set inference on your Mac. Library, Chat, Agent, and Advanced telemetry —
+        Sparse working-set inference on your machine. Library, Chat, Agent, and Advanced telemetry —
         with a hard RAM ceiling.
       </p>
-      <a
-        class="cta"
-        href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg"
-      >
-        Download for macOS
-      </a>
+      <div class="cta-row">
+        <a
+          class="cta"
+          href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg"
+        >
+          Download for macOS
+        </a>
+        <a
+          class="cta secondary-cta"
+          href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-x64.exe"
+        >
+          Windows x64
+        </a>
+        <a
+          class="cta secondary-cta"
+          href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-arm64.exe"
+        >
+          Windows ARM64
+        </a>
+      </div>
       <div>
         <a class="secondary" href="https://github.com/cliclye/Kestrel/releases/latest">
           All GitHub releases →
         </a>
       </div>
       <div class="note">
-        <strong>First launch:</strong> the DMG is currently <strong>unsigned</strong> (no Apple
-        notarization yet). If Gatekeeper blocks it, right-click → Open, or run
-        <code>xattr -cr /Applications/Windhover.app</code>. Details in
+        <strong>First launch:</strong> builds are currently <strong>unsigned</strong>.
+        macOS Gatekeeper may require right-click → Open (or
+        <code>xattr -cr /Applications/Windhover.app</code>). Windows SmartScreen may require
+        More info → Run anyway. Details in
         <a href="https://github.com/cliclye/Kestrel/blob/main/docs/DOWNLOAD.md" style="color: var(--copper)"
           >docs/DOWNLOAD.md</a
         >.
       </div>
       <nav class="links">
         <a href="https://github.com/cliclye/Kestrel">GitHub</a>
-        <a href="https://github.com/cliclye/Kestrel#mac-app">Build from source</a>
-        <a href="https://github.com/cliclye/Kestrel#performance">Performance</a>
+        <a href="https://github.com/cliclye/Kestrel#install">Install</a>
+        <a href="https://github.com/cliclye/Kestrel#benchmarks">Performance</a>
       </nav>
     </main>
   </body>

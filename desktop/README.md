@@ -1,8 +1,8 @@
-# Windhover (macOS)
+# Windhover desktop (Tauri)
 
-Native **Mac app** (Tauri v2) for the Windhover Library + Chat UI in [`../app`](../app).
+Native desktop app for the Windhover Library + Chat UI in [`../app`](../app).
 
-On launch the desktop app starts `../windhover app` (local engine API + UI on `http://127.0.0.1:8000`) and opens it in a branded native window (**Windhover**, bundle ID `ai.vexilo.windhover`).
+On launch the app prefers packaged sidecars (`windhover-server` + `windhover-engine`) when present, otherwise falls back to repo-relative `python windhover app` for local development. The UI opens in a branded native window (**Windhover**, bundle ID `ai.vexilo.windhover`).
 
 ## Prerequisites
 
@@ -19,7 +19,9 @@ cd desktop
 cargo tauri dev
 ```
 
-## Release bundle
+## Release bundles
+
+### macOS
 
 ```sh
 cd desktop
@@ -27,10 +29,18 @@ cargo tauri build --bundles app,dmg
 open src-tauri/target/release/bundle/macos/Windhover.app
 ```
 
-**Published DMG (users):** GitHub Actions builds an Apple Silicon DMG on `v*` tags and uploads it as `Windhover-macOS-arm64.dmg`:
+Published DMG: `Windhover-macOS-arm64.dmg` (unsigned until Apple secrets exist).
 
-https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg
+### Windows
 
-CI builds are **unsigned** until Apple signing secrets are configured — see [`docs/DOWNLOAD.md`](../docs/DOWNLOAD.md).
+Stage sidecars first (see [`packaging/build_sidecar.ps1`](../packaging/build_sidecar.ps1)):
 
-Prefer the project venv (`../c/.venv`) so Chat previews have `torch` / `transformers`.
+```powershell
+powershell -File packaging/build_sidecar.ps1 -Triple x86_64-pc-windows-msvc
+cd desktop
+cargo tauri build --bundles nsis --target x86_64-pc-windows-msvc
+```
+
+Published installers: `Windhover-Windows-x64.exe` / `Windhover-Windows-arm64.exe` (unsigned until Authenticode secrets exist).
+
+CI builds are **unsigned** — see [`docs/DOWNLOAD.md`](../docs/DOWNLOAD.md).

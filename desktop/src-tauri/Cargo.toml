@@ -1,7 +1,7 @@
 [package]
 name = "kestrel-desktop"
 version = "0.1.0"
-description = "Windhover — native macOS app for local LLM inference"
+description = "Windhover — native desktop app for local LLM inference"
 authors = ["Vexilo"]
 edition = "2021"
 rust-version = "1.77"
@@ -14,5 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+# macos-private-api is required when tauri.macos.conf.json sets macOSPrivateApi.
+# The feature is inert on Windows/Linux (cfg-gated inside tauri).
 tauri = { version = "2.11.5", features = ["macos-private-api"] }
 url = "2"

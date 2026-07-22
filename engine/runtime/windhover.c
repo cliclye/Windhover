@@ -24,7 +24,9 @@
 #include <time.h>
 #include <stdint.h>
 #include <unistd.h>
-#if defined(__APPLE__) || defined(__linux__)
+#if defined(_WIN32)
+/* getrusage / setenv come from compat.h via st.h */
+#elif defined(__APPLE__) || defined(__linux__)
 #include <sys/resource.h>
 #endif
 #if defined(__APPLE__)

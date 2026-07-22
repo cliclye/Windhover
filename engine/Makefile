@@ -1,17 +1,36 @@
 # Windhover engine — modular build (CPU MoE + dense KPK).
-# Primary binary: ./windhover-engine
+# Primary binary: ./windhover-engine[.exe]
 #
 # Layout:
 #   io/        safetensors + tokenizer + json headers
 #   memory/    hard RAM budget
 #   runtime/   forward / generate / CLI (ported GLM math)
 #   attn/ moe/ model/ tensor/  — module boundaries (headers + future splits)
+#
+# Platforms: Darwin (clang+libomp), Linux (clang preferred), Windows (MinGW/Clang).
+# Windows changes are additive — Darwin/Linux hot paths stay byte-identical.
 
 DETECT_CC := $(if $(filter default,$(origin CC)),clang,$(CC))
 UNAME_S   := $(shell uname -s 2>/dev/null)
 
+# Host is Windows when building under cmd/MSYS or MinGW (uname may be MINGW*/MSYS*).
+IS_WIN :=
+ifeq ($(OS),Windows_NT)
+IS_WIN := 1
+endif
+ifneq (,$(findstring MINGW,$(UNAME_S)))
+IS_WIN := 1
+endif
+ifneq (,$(findstring MSYS,$(UNAME_S)))
+IS_WIN := 1
+endif
+ifneq (,$(findstring CYGWIN,$(UNAME_S)))
+IS_WIN := 1
+endif
+
 ROOT := $(abspath .)
 INCLUDES := -I$(ROOT) -I$(ROOT)/io -I$(ROOT)/memory -I$(ROOT)/include -I$(ROOT)/runtime
+EXE :=
 
 ifeq ($(UNAME_S),Darwin)
 CC      = clang
@@ -33,6 +52,40 @@ ifeq ($(SME),1)
 CFLAGS += -DWH_SME -march=armv8.7-a+sme2
 endif
 LDFLAGS = -lm $(OMPL)
+
+else ifneq ($(IS_WIN),)
+# --- Windows 11 (MinGW-w64 / Clang) x64 or aarch64 ---
+# Prefer clang when present for IEEE _Float16 (same rationale as Linux).
+ifeq ($(origin CC),default)
+WHICH_CLANG := $(shell where clang 2>NUL || which clang 2>/dev/null)
+ifneq ($(WHICH_CLANG),)
+CC = clang
+else
+CC = gcc
+endif
+endif
+# ARCH: x86-64-v3 (AVX2 MoE) on amd64; native/armv8-a on ARM64 Windows.
+ifndef ARCH
+ifeq ($(PROCESSOR_ARCHITECTURE),ARM64)
+ARCH := armv8-a
+else ifeq ($(PROCESSOR_ARCHITEW6432),ARM64)
+ARCH := armv8-a
+else
+ARCH := x86-64-v3
+endif
+endif
+CFLAGS  = -D_FILE_OFFSET_BITS=64 -O3 -fopenmp $(INCLUDES) -Wall -Wextra -Wno-unused-parameter -Wno-misleading-indentation -Wno-unused-function
+# -march for x86; -mcpu for aarch64 when ARCH looks like arm*
+ifneq (,$(findstring arm,$(ARCH)))
+CFLAGS += -mcpu=$(ARCH)
+else ifneq (,$(findstring aarch64,$(ARCH)))
+CFLAGS += -mcpu=$(ARCH)
+else
+CFLAGS += -march=$(ARCH)
+endif
+LDFLAGS = -lm -fopenmp -static -lpsapi
+EXE     = .exe
+
 else
 # Prefer clang on Linux: GCC may lack convenient _Float16/__fp16 by-value support
 # depending on target; clang 15+ handles Windhover's IEEE fp16 path cleanly.
@@ -55,7 +108,7 @@ endif
 
 .PHONY: all clean test-oracle
 
-all: windhover-engine
+all: windhover-engine$(EXE)
 
 memory/budget.o: memory/budget.c memory/budget.h
 	$(CC) $(CFLAGS) -c memory/budget.c -o memory/budget.o
@@ -72,14 +125,24 @@ runtime/windhover.o: runtime/windhover.c runtime/windhover.h runtime/model_desc.
 runtime/au.o: runtime/au.c runtime/au.h
 	$(CC) $(CFLAGS) -c runtime/au.c -o runtime/au.o
 
-windhover-engine: runtime/engine.o runtime/dense.o runtime/windhover.o runtime/au.o memory/budget.o
+windhover-engine$(EXE): runtime/engine.o runtime/dense.o runtime/windhover.o runtime/au.o memory/budget.o
 	$(CC) $(CFLAGS) -o $@ runtime/engine.o runtime/dense.o runtime/windhover.o runtime/au.o memory/budget.o $(LDFLAGS)
-	@# Compat symlink for older docs/scripts
+ifeq ($(IS_WIN),)
+	@# Compat symlink for older docs/scripts (Unix only)
 	ln -sfn windhover-engine kestrel-engine
+else
+	@# Windows: copy for legacy name
+	-copy /Y windhover-engine.exe kestrel-engine.exe >NUL 2>&1 || cp -f windhover-engine.exe kestrel-engine.exe 2>/dev/null || true
+endif
 
 # SNAP path relative to engine/ — fixtures live in fixtures/
-test-oracle: windhover-engine
+test-oracle: windhover-engine$(EXE)
+ifeq ($(IS_WIN),)
 	SNAP=./fixtures/glm_tiny TF=1 ./windhover-engine 64 16 16
+else
+	set SNAP=./fixtures/glm_tiny&& set TF=1&& .\windhover-engine.exe 64 16 16
+endif
 
 clean:
-	rm -f windhover-engine kestrel-engine runtime/engine.o runtime/dense.o runtime/windhover.o runtime/au.o memory/budget.o
+	rm -f windhover-engine windhover-engine.exe kestrel-engine kestrel-engine.exe \
+	  runtime/engine.o runtime/dense.o runtime/windhover.o runtime/au.o memory/budget.o

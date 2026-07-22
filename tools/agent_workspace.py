@@ -31,8 +31,14 @@ def resolve_under(root: Path, rel: str) -> Path:
     """Resolve rel under root; raise ValueError on escape."""
     root = root.resolve()
     raw = (rel or ".").strip() or "."
-    if raw.startswith("~") or raw.startswith("/"):
-        # Absolute / home paths only allowed if still under root
+    # Absolute: POSIX /, home ~, or Windows drive letter / UNC
+    is_abs = (
+        raw.startswith("~")
+        or raw.startswith("/")
+        or (len(raw) >= 2 and raw[1] == ":" and raw[0].isalpha())
+        or raw.startswith("\\\\")
+    )
+    if is_abs:
         cand = Path(raw).expanduser().resolve()
     else:
         cand = (root / raw).resolve()
@@ -51,9 +57,44 @@ def set_workspace(path: str) -> dict[str, Any]:
 
 
 def pick_folder(prompt: str = "Choose a folder for Windhover Agent") -> dict[str, Any]:
-    """Open a native macOS folder picker (osascript). Returns set_workspace result."""
+    """Open a native folder picker (osascript on macOS, PowerShell on Windows)."""
     import subprocess
+    import sys
 
+    if sys.platform == "win32":
+        # FolderBrowserDialog via PowerShell STA
+        safe = prompt.replace("'", "''")
+        ps = (
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+            f"$f.Description = '{safe}'; "
+            "$f.ShowNewFolderButton = $true; "
+            "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) "
+            "{ [Console]::Out.Write($f.SelectedPath) } else { exit 2 }"
+        )
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-STA", "-Command", ps],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        except FileNotFoundError as e:
+            raise RuntimeError("folder picker unavailable (powershell missing)") from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError("folder picker timed out") from e
+        if r.returncode == 2 or (r.returncode != 0 and not (r.stdout or "").strip()):
+            return {"ok": False, "cancelled": True, "error": "cancelled"}
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "").strip()
+            raise RuntimeError(err or f"powershell exited {r.returncode}")
+        path = (r.stdout or "").strip().rstrip("\\/")
+        if not path:
+            return {"ok": False, "cancelled": True, "error": "cancelled"}
+        return set_workspace(path)
+
+    # macOS (default)
     safe = prompt.replace("\\", "\\\\").replace('"', '\\"')
     script = f'POSIX path of (choose folder with prompt "{safe}")'
     try:
@@ -70,7 +111,6 @@ def pick_folder(prompt: str = "Choose a folder for Windhover Agent") -> dict[str
         raise RuntimeError("folder picker timed out") from e
     if r.returncode != 0:
         err = (r.stderr or r.stdout or "").strip()
-        # User cancelled the dialog
         if "User canceled" in err or "(-128)" in err or not err:
             return {"ok": False, "cancelled": True, "error": "cancelled"}
         raise RuntimeError(err or f"osascript exited {r.returncode}")

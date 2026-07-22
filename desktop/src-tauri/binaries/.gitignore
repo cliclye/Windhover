@@ -1,0 +1,7 @@
+# Place arch-specific sidecars here before `cargo tauri build` on Windows:
+#   windhover-server-<triple>.exe
+#   windhover-engine-<triple>.exe
+# Built by packaging/build_sidecar.ps1 (see docs/DOWNLOAD.md).
+*
+!.gitignore
+!README.md

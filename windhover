@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Windhover — local LLM runtime for macOS.
+"""Windhover — local LLM runtime for macOS and Windows.
 
-  windhover build              build engine/windhover-engine
+  windhover build              build engine/windhover-engine[.exe]
   windhover doctor             RAM / install checks
   windhover plan [--ram N]     resource plan for a model dir
   windhover chat --model DIR   interactive generate
@@ -27,9 +27,34 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.environ.get("WINDHOVER_ROOT", Path(__file__).resolve().parent))
 ENGINE_DIR = ROOT / "engine"
-ENGINE_BIN = ENGINE_DIR / "windhover-engine"
+
+
+def _engine_bin() -> Path:
+    """Resolve windhover-engine, preferring .exe on Windows.
+
+    Override with WINDHOVER_ENGINE / COLI_ENGINE for packaged sidecars.
+    """
+    env = os.environ.get("WINDHOVER_ENGINE") or os.environ.get("COLI_ENGINE")
+    if env:
+        return Path(env)
+    base = ENGINE_DIR / "windhover-engine"
+    exe = ENGINE_DIR / "windhover-engine.exe"
+    if sys.platform == "win32":
+        if exe.is_file():
+            return exe
+        if base.is_file():
+            return base
+        return exe
+    if base.is_file():
+        return base
+    if exe.is_file():
+        return exe
+    return base
+
+
+ENGINE_BIN = _engine_bin()
 
 
 def _models_dir() -> Path:
@@ -759,14 +784,32 @@ def _ensure_nofile() -> None:
 
 
 def cmd_build(_: argparse.Namespace) -> int:
-    return subprocess.call(["make", "ARCH=native"], cwd=str(ENGINE_DIR))
+    """Build windhover-engine (make on Unix; mingw32-make/make on Windows)."""
+    env = os.environ.copy()
+    # Refresh ENGINE_BIN after build (module-level Path may have been missing).
+    make_cmds: list[list[str]] = []
+    if sys.platform == "win32":
+        for cand in ("mingw32-make", "make", "gmake"):
+            if shutil.which(cand):
+                make_cmds.append([cand, "ARCH=native"])
+                break
+        if not make_cmds:
+            print("windhover build: need mingw32-make or make on PATH", file=sys.stderr)
+            return 1
+    else:
+        make_cmds.append(["make", "ARCH=native"])
+    rc = subprocess.call(make_cmds[0], cwd=str(ENGINE_DIR), env=env)
+    # Rebind global for subsequent commands in the same process
+    global ENGINE_BIN
+    ENGINE_BIN = _engine_bin()
+    return rc
 
 
 def cmd_oracle(_: argparse.Namespace) -> int:
     if not ENGINE_BIN.is_file() and cmd_build(argparse.Namespace()) != 0:
         return 1
     env = os.environ.copy()
-    env["SNAP"] = "./fixtures/glm_tiny"
+    env["SNAP"] = str(ENGINE_DIR / "fixtures" / "glm_tiny") if sys.platform == "win32" else "./fixtures/glm_tiny"
     env["TF"] = "1"
     return subprocess.call(
         [str(ENGINE_BIN), "64", "16", "16"], cwd=str(ENGINE_DIR), env=env
@@ -1743,7 +1786,7 @@ def cmd_app(ns: argparse.Namespace) -> int:
     dist = ROOT / "app" / "dist"
     if not dist.is_dir():
         pkg = ROOT / "app" / "package.json"
-        if pkg.is_file():
+        if pkg.is_file() and not os.environ.get("WINDHOVER_APP_NO_AUTOPULL"):
             print("building app…")
             subprocess.call(["npm", "run", "build"], cwd=str(ROOT / "app"))
     # Remove fake MoE stubs left from older builds
@@ -1756,7 +1799,7 @@ def cmd_app(ns: argparse.Namespace) -> int:
             preview = next((m for m in installed if str(m.get("id", "")).endswith("chat-preview")), None)
             pick = preview or installed[0]
             model = Path(pick["path"])
-        else:
+        elif not os.environ.get("WINDHOVER_APP_NO_AUTOPULL"):
             cmd_pull(argparse.Namespace(model_id="windhover/chat-preview", weights=False))
             installed = _list_installed()
             if installed:

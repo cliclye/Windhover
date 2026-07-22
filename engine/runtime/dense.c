@@ -12,7 +12,9 @@
 #include <math.h>
 #include <time.h>
 #include <stdint.h>
-#if defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__)
+#if defined(_WIN32)
+#include "compat.h"
+#elif defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__)
 #include <sys/resource.h>
 #endif
 #if defined(__ARM_NEON)

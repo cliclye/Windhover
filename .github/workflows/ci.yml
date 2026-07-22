@@ -70,3 +70,62 @@ jobs:
           python-version: '3.12'
       - name: Python test suite
         run: cd c && python3 -m unittest discover -s tests -p 'test_*.py'
+
+  windows-engine:
+    name: Windows engine smoke (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-openmp make
+      - name: Build + oracle
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          export PATH="/ucrt64/bin:$PATH"
+          cd engine
+          make -j"$(nproc)"
+          make test-oracle
+      - name: Build UI + server sidecar smoke
+        shell: pwsh
+        env:
+          WINDHOVER_SERVER_CONSOLE: "1"
+        run: |
+          Push-Location app
+          npm ci
+          npm run build
+          Pop-Location
+          python -m pip install -q pyinstaller
+          powershell -File packaging/build_sidecar.ps1 -Triple x86_64-pc-windows-msvc
+          $server = "packaging\dist\windhover-server.exe"
+          $eng = "engine\windhover-engine.exe"
+          $env:WINDHOVER_HOST = "127.0.0.1"
+          $env:WINDHOVER_PORT = "8000"
+          $env:WINDHOVER_APP_NO_AUTOPULL = "1"
+          $env:WINDHOVER_ENGINE = (Resolve-Path $eng).Path
+          $proc = Start-Process -FilePath (Resolve-Path $server) -PassThru -WindowStyle Hidden
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              try {
+                $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -UseBasicParsing -TimeoutSec 2
+                if ($r.StatusCode -eq 200 -and $r.Content -match '"ok"') { $ok = $true; break }
+              } catch { Start-Sleep -Milliseconds 250 }
+            }
+            if (-not $ok) { throw "Windows server /health failed" }
+            Write-Host "Windows server smoke ok"
+          } finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }

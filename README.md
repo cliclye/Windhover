@@ -5,12 +5,16 @@
 <h1 align="center">Windhover</h1>
 
 <p align="center">
-  <strong>Local LLM runtime for macOS</strong><br />
-  Run open models on Apple Silicon with a hard RAM ceiling — without thrashing your Mac.
+  <strong>Local LLM runtime for macOS &amp; Windows 11</strong><br />
+  Run open models with a hard RAM ceiling — sparse working-set inference on Apple Silicon and Windows.
 </p>
 
 <p align="center">
   <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg"><strong>Download for macOS</strong></a>
+  ·
+  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-x64.exe"><strong>Windows x64</strong></a>
+  ·
+  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-arm64.exe"><strong>Windows ARM64</strong></a>
   ·
   <a href="https://github.com/cliclye/Kestrel/releases/latest">Releases</a>
   ·
@@ -26,6 +30,12 @@
 <p align="center">
   <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg">
     <img src="https://img.shields.io/badge/Download-macOS%20DMG%20(Apple%20Silicon)-d4a574?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" />
+  </a>
+  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-x64.exe">
+    <img src="https://img.shields.io/badge/Download-Windows%20x64-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows x64" />
+  </a>
+  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-arm64.exe">
+    <img src="https://img.shields.io/badge/Download-Windows%20ARM64-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows ARM64" />
   </a>
 </p>
 
@@ -233,11 +243,13 @@ Live engine telemetry — RSS, tok/s, Windhover decode stats.
 
 ## Install
 
-### Easiest — DMG
+### Easiest — download the app
 
-[Download Windhover for macOS (Apple Silicon)](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg)
+- **macOS (Apple Silicon):** [Windhover-macOS-arm64.dmg](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg)
+- **Windows 11 x64:** [Windhover-Windows-x64.exe](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-x64.exe)
+- **Windows 11 ARM64:** [Windhover-Windows-arm64.exe](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-arm64.exe)
 
-See [docs/DOWNLOAD.md](docs/DOWNLOAD.md) for Gatekeeper notes on unsigned builds.
+See [docs/DOWNLOAD.md](docs/DOWNLOAD.md) for Gatekeeper / SmartScreen notes on unsigned builds.
 
 > GitHub repo may still be named `Kestrel`; the product is **Windhover**.
 
@@ -247,8 +259,8 @@ See [docs/DOWNLOAD.md](docs/DOWNLOAD.md) for Gatekeeper notes on unsigned builds
 git clone <repo> && cd Windhover   # folder may still be named Kestrel
 ./windhover build
 cd app && npm ci && npm run build && cd ..
-cd desktop && cargo tauri build --bundles app,dmg
-open desktop/src-tauri/target/release/bundle/macos/Windhover.app
+cd desktop && cargo tauri build --bundles app,dmg   # macOS
+# Windows: stage packaging/build_sidecar.ps1 then cargo tauri build --bundles nsis
 ```
 
 Dev: `cd desktop && cargo tauri dev` (starts or reuses `./windhover app` on `:8000`).

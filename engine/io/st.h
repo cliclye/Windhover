@@ -287,8 +287,11 @@ static void st_read_raw_slice(shards *S, const char *name, int64_t byte_off, int
  * Mappa l'intero shard una sola volta (lazy) e restituisce puntatori interni
  * ai tensori. Pagine file-backed CLEAN: il footprint fisico cresce solo con
  * le pagine toccate e macOS puo' riprenderle senza swap/compressor (gate G4).
+ * Windows: mmap/madvise/mlock come da compat.h (_WIN32); Darwin/Linux invariati.
  */
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 
 typedef struct {
     const void *p;      /* dati del tensore dentro la mappa */

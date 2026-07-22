@@ -304,6 +304,81 @@ static inline int compat_setenv(const char *name, const char *value, int overwri
 }
 #define setenv(name,value,overwrite) compat_setenv(name,value,overwrite)
 
+/* --- mmap / munmap / madvise for KPK zero-copy (st.h) ---
+ * POSIX mmap path on Darwin/Linux is untouched. Windows maps via
+ * CreateFileMapping + MapViewOfFile on the OS handle from _get_osfhandle. */
+#ifndef PROT_READ
+#define PROT_READ  1
+#define PROT_WRITE 2
+#define PROT_EXEC  4
+#endif
+#ifndef MAP_SHARED
+#define MAP_SHARED  1
+#define MAP_PRIVATE 2
+#endif
+#ifndef MAP_FAILED
+#define MAP_FAILED ((void *)(intptr_t)-1)
+#endif
+#ifndef MADV_NORMAL
+#define MADV_NORMAL   0
+#define MADV_RANDOM   1
+#define MADV_SEQUENTIAL 2
+#define MADV_WILLNEED 3
+#define MADV_DONTNEED 4
+#endif
+
+static inline void *compat_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off){
+    (void)addr; (void)flags;
+    if(len==0){ errno = EINVAL; return MAP_FAILED; }
+    intptr_t osfh = _get_osfhandle(fd);
+    if(osfh == -1 || osfh == -2){ errno = EBADF; return MAP_FAILED; }
+    DWORD protect = PAGE_READONLY;
+    DWORD access = FILE_MAP_READ;
+    if(prot & PROT_WRITE){ protect = PAGE_READWRITE; access = FILE_MAP_WRITE; }
+    /* Size 0 = entire file; do not grow the file. */
+    HANDLE hMap = CreateFileMappingA((HANDLE)osfh, NULL, protect, 0, 0, NULL);
+    if(!hMap){ errno = EIO; return MAP_FAILED; }
+    LARGE_INTEGER o; o.QuadPart = (LONGLONG)off;
+    void *p = MapViewOfFile(hMap, access, (DWORD)o.HighPart, (DWORD)o.LowPart, len);
+    CloseHandle(hMap);
+    if(!p){ errno = EIO; return MAP_FAILED; }
+    return p;
+}
+static inline int compat_munmap(void *addr, size_t len){
+    (void)len;
+    return UnmapViewOfFile(addr) ? 0 : -1;
+}
+static inline int compat_madvise(void *addr, size_t len, int advice){
+    if(advice == MADV_WILLNEED && len > 0){
+        /* PrefetchVirtualMemory is Win8+; best-effort warm of standby list. */
+        typedef BOOL (WINAPI *PFN)(HANDLE, ULONG_PTR, void *, ULONG);
+        static PFN pfn = NULL;
+        static int resolved = 0;
+        if(!resolved){
+            HMODULE k = GetModuleHandleA("kernel32.dll");
+            pfn = k ? (PFN)GetProcAddress(k, "PrefetchVirtualMemory") : NULL;
+            resolved = 1;
+        }
+        if(pfn){
+            struct { void *Address; SIZE_T Size; } e;
+            e.Address = addr; e.Size = len;
+            pfn(GetCurrentProcess(), 1, &e, 0);
+        }
+    }
+    /* DONTNEED / others: no-op (matches advisory-only semantics elsewhere). */
+    return 0;
+}
+#define mmap(addr,len,prot,flags,fd,off) compat_mmap(addr,len,prot,flags,fd,off)
+#define munmap(addr,len) compat_munmap(addr,len)
+#define madvise(addr,len,advice) compat_madvise(addr,len,advice)
+/* Prefer VirtualLock wrappers already defined above for mlock/munlock. */
+#ifndef mlock
+#define mlock(addr,len) compat_mlock(addr,len)
+#endif
+#ifndef munlock
+#define munlock(addr,len) compat_munlock(addr,len)
+#endif
+
 #endif /* _WIN32 */
 
 /* --- compat_aligned_free su piattaforme diverse da Windows ---

@@ -839,14 +839,15 @@ int dense_run(int argc, char **argv) {
     for (int s = 0; s < ngen; s++) {
         int tok = argmax(logit, c->vocab);
         generated++;
+        /* Stop before emit so control tokens like <|im_end|> never hit stdout. */
+        if (eos >= 0 && tok == eos) break;
+        if (c->eos_id >= 0 && tok == c->eos_id) break;
         int nch = tok_decode(&T, &tok, 1, outbuf, (int)sizeof(outbuf) - 1);
         if (nch > 0) {
             outbuf[nch] = 0;
             fputs(outbuf, stdout);
             fflush(stdout);
         }
-        if (eos >= 0 && tok == eos) break;
-        if (c->eos_id >= 0 && tok == c->eos_id) break;
         if (s + 1 == ngen) break;
         logit = dens_step(&m, tok, np + s);
     }

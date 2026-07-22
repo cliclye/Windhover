@@ -27,4 +27,10 @@ cargo tauri build --bundles app,dmg
 open src-tauri/target/release/bundle/macos/Windhover.app
 ```
 
+**Published DMG (users):** GitHub Actions builds an Apple Silicon DMG on `v*` tags and uploads it as `Windhover-macOS-arm64.dmg`:
+
+https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg
+
+CI builds are **unsigned** until Apple signing secrets are configured — see [`docs/DOWNLOAD.md`](../docs/DOWNLOAD.md).
+
 Prefer the project venv (`../c/.venv`) so Chat previews have `torch` / `transformers`.

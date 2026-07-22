@@ -81,6 +81,31 @@ def _rss_mb() -> float:
         return 0.0
 
 
+def _clean_chat_text(text: str, *, soft: bool = False) -> str:
+    """Strip chat-template / control tokens and tidy layout for UI display.
+
+    soft=True: only remove complete control tokens (safe for streaming deltas).
+    """
+    import re
+
+    if not text:
+        return text
+    s = text
+    # ChatML / Qwen / Llama / Gemma / Phi style control tokens
+    s = re.sub(r"<\|[^|>]+?\|>", "", s)
+    s = re.sub(r"</?s>", "", s)
+    s = re.sub(r"<end_of_turn>", "", s)
+    s = re.sub(r"<start_of_turn>\w*", "", s)
+    s = re.sub(r"\[/?INST\]", "", s)
+    s = re.sub(r"<<SYS>>|<</SYS>>", "", s)
+    if soft:
+        return s
+    # Collapse messy whitespace left behind by stripped tokens
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
 def _ensure_hf_hub() -> None:
     """Make huggingface_hub importable (prefer project venv)."""
     try:
@@ -431,7 +456,7 @@ def _preview_chat(
         with torch.inference_mode():
             out = model.generate(**inputs, **gen_kwargs)
         new_tokens = out[0][inputs["input_ids"].shape[-1] :]
-        text = tok.decode(new_tokens, skip_special_tokens=True).strip()
+        text = _clean_chat_text(tok.decode(new_tokens, skip_special_tokens=True))
         elapsed = max(time.perf_counter() - t0, 1e-6)
         ntok = int(new_tokens.numel()) if hasattr(new_tokens, "numel") else len(new_tokens)
         stats = {
@@ -522,7 +547,7 @@ def _engine_chat(
                         break
             if emit:
                 try:
-                    on_delta(emit.decode("utf-8", errors="replace"))
+                    on_delta(_clean_chat_text(emit.decode("utf-8", errors="replace"), soft=True))
                 except Exception:
                     proc.kill()
                     raise
@@ -533,11 +558,11 @@ def _engine_chat(
     text = _dec(raw_out)
     if "@@WH_STATS@@" in text:
         text, _, tail = text.partition("@@WH_STATS@@")
-        text = text.strip()
         try:
             wh_stats = json.loads(tail.strip().splitlines()[0])
         except Exception:
             wh_stats = {}
+    text = _clean_chat_text(text)
 
     class _P:  # keep the legacy field names below working
         returncode = rc
@@ -1531,6 +1556,16 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                     info = _agent_ws.set_workspace(root)
                     _WORKSPACE["root"] = info["root"]
                     return self._json(200, info)
+                except Exception as e:
+                    return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            if path in ("/api/workspace/pick", "/api/workspace/browse"):
+                if _agent_ws is None:
+                    return self._json(500, {"ok": False, "error": "agent_workspace missing"})
+                try:
+                    info = _agent_ws.pick_folder()
+                    if info.get("ok") and info.get("root"):
+                        _WORKSPACE["root"] = info["root"]
+                    return self._json(200 if info.get("ok") or info.get("cancelled") else 400, info)
                 except Exception as e:
                     return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
             if path == "/api/agent":

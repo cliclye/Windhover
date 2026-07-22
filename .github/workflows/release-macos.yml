@@ -1,0 +1,101 @@
+# Build an Apple Silicon Windhover .dmg and attach it to a GitHub Release.
+#
+# Trigger: push a version tag (v0.1.0) or run manually from Actions.
+# Asset name is stable so website / README can use:
+#   https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg
+#
+# Signing / notarization: intentionally omitted. Without Apple Developer
+# secrets this ships an *unsigned* DMG — users must bypass Gatekeeper once
+# (see docs/DOWNLOAD.md). Add APPLE_* secrets later to enable signing.
+
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    name: Build DMG (Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install app frontend deps
+        working-directory: app
+        run: npm ci
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0.0" --locked
+
+      - name: Build Windhover .dmg
+        working-directory: desktop
+        # No Apple signing secrets → unsigned bundle (honest Gatekeeper path).
+        run: cargo tauri build --bundles dmg --target aarch64-apple-darwin
+
+      - name: Stage stable asset name
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Tauri puts target-triple builds under target/<triple>/release/bundle/dmg/
+          DMG="$(find desktop/src-tauri/target -path '*/bundle/dmg/*.dmg' -type f | head -n 1)"
+          if [ -z "$DMG" ]; then
+            echo "No .dmg found under desktop/src-tauri/target" >&2
+            find desktop/src-tauri/target -type d -name bundle 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found: $DMG"
+          cp "$DMG" dist/Windhover-macOS-arm64.dmg
+          ls -lh dist/Windhover-macOS-arm64.dmg
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windhover-macOS-arm64
+          path: dist/Windhover-macOS-arm64.dmg
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Windhover-macOS-arm64.dmg
+          generate_release_notes: true
+          body: |
+            ## Download
+
+            **[Windhover-macOS-arm64.dmg](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg)** — Apple Silicon (M1+) · macOS 12+
+
+            Open the DMG and drag **Windhover** into Applications.
+
+            ### First launch (unsigned build)
+
+            This release is **not Apple-notarized**. macOS Gatekeeper may block it until you allow it once:
+
+            - Right-click **Windhover** → **Open**, or
+            - **System Settings → Privacy & Security → Open Anyway**, or
+            - `xattr -cr /Applications/Windhover.app`
+
+            Full notes: [docs/DOWNLOAD.md](https://github.com/cliclye/Kestrel/blob/main/docs/DOWNLOAD.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

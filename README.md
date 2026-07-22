@@ -5,188 +5,155 @@
 <h1 align="center">Windhover</h1>
 
 <p align="center">
-  <strong>Local LLM runtime for macOS</strong> — sparse working-set inference on Apple Silicon.
-  Library · Chat · Agent · Advanced.
+  <strong>Local LLM runtime for macOS</strong><br />
+  Run open models on Apple Silicon with a hard RAM ceiling — without thrashing your Mac.
 </p>
 
 <p align="center">
-  <a href="#performance">Performance</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#mac-app">Mac app</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg"><strong>Download for macOS</strong></a>
+  ·
+  <a href="https://github.com/cliclye/Kestrel/releases/latest">Releases</a>
+  ·
+  <a href="docs/DOWNLOAD.md">Install notes</a>
+  ·
+  <a href="#benchmarks">Benchmarks</a>
+  ·
+  <a href="#how-it-works">How it works</a>
+  ·
   <a href="#license">License</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg">
+    <img src="https://img.shields.io/badge/Download-macOS%20DMG%20(Apple%20Silicon)-d4a574?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" />
+  </a>
 </p>
 
 ---
 
-**Windhover** runs open models on your Mac with a hard RAM ceiling. The ship binary is **`windhover-engine`**: Mixture-of-Experts (GLM-class) and dense packs (Qwen, Llama, Mistral, Gemma, Phi) share one activation-unit (AU) budget, mmap’d KPK weights, and bandwidth-first CPU kernels.
+## Why Windhover exists
 
-Numerics lineage (Apache-2.0) is documented in [UPSTREAM.md](UPSTREAM.md).
+On a 16 GB Mac, a stock 7B chat model in fp16 is rough:
 
----
+- Weights alone are ~14 GB
+- Decode is **memory-bandwidth bound**
+- When RSS climbs toward the machine’s comfort zone, macOS starts swapping — and tokens/sec collapses
 
-## Screenshots
+**Windhover** keeps a sparse working set in RAM (mmap’d KPK packs + activation-unit budgeting) so real models stay usable under a hard ceiling.
 
-### Library
+The ship binary is **`windhover-engine`**. The Mac app wraps Library · Chat · Agent · Advanced.
 
-Browse Mac-16GB packs, GLM, Qwen, Kimi, DeepSeek, Mistral, and Llama. Install / uninstall locally.
-
-![Windhover Library](docs/screenshots/library.png)
-
-### Chat
-
-Markdown replies, streaming when enabled, and per-message speed / RSS chips.
-
-![Windhover Chat](docs/screenshots/chat.png)
-
-### Advanced
-
-Live telemetry: RSS, latency, tok/s, backend path, and Windhover decode stats (prefill, footprint, sparsity, AU hit).
-
-![Windhover Advanced](docs/screenshots/advanced.png)
+> All headline numbers below were measured **locally on a MacBook Air M4 · 16 GB RAM** (2026-07-22), with a **≤ 9 GB** process budget and swap-abort enabled. Not projected. Not cloud.
 
 ---
 
-## Performance
+## Benchmarks
 
-Measured on a **MacBook Air M4 · 16 GB · 4P+6E**. Numbers are from benches on this machine — never projected.
+### Qwen2.5-7B Instruct — with vs without Windhover
 
-After the code-quality pass we also **remeasured on Linux x86_64** (4 vCPU Xeon, **15.6 GB**) for the same 1.5B local-LLM protocol — see [Linux remeasure](#linux-x86_64-remeasure-after-code-quality). Absolute tok/s differ by host; **percent deltas** (with vs without Windhover) are the fair cross-host signal.
+Same model: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)  
+Same machine: **MacBook Air M4 · 16 GB** · budget **≤ 9 GB RSS**
 
-Percent rule: **positive decode Δ = faster (better)** · **negative RSS Δ = lower memory (better)**.
+| Path | Backend | Decode | Peak / mean RSS | Fits ≤ 9 GB? | Status |
+|---|---|---:|---:|---|---|
+| **Without Windhover** | stock `transformers` · CPU · fp16 | **0.013 tok/s** | **8.82 GB**\* | borderline | swap-bound |
+| **With Windhover** | **`windhover-engine` · KPK** | **9.80 tok/s** | **4.19 GB** | **yes** | **ok** |
 
-### Diagnosis (why Windhover exists)
+\*Historical thrash finish. A live without-engine attempt was **aborted at 6.44 GB RSS** after swap jumped **+1.5 GB**, to avoid cooking the machine. The 0.013 tok/s figure is from an earlier run that was allowed to finish under thrash.
 
-- Decode is **memory-bandwidth-bound**. Stream ceiling here is ~**74–90 GB/s** (4 P-threads). A naïve dense path that still moves ~0.9 GB/token only reaches ~**40%** of that budget.
-- Bytes/token blow up with fp32 KV, dense FFN every step, and load-time re-quant (RAM spikes + slow cold start).
-- Bigger models fall off a cliff first (7B was swap-bound under stock `transformers` on this laptop).
-- MoE already had streaming experts and grouped-int4; dense models needed the same **sparse working-set** idea.
+**Verdict:** under a 9 GB ceiling on this M4 Air, Windhover is the usable path — about **9.8 decode tok/s at ~4.2 GB RSS**. Without it, the same 7B is effectively dead (~0.01 tok/s).
 
-### Idea
+![Decode throughput](docs/screenshots/bench-qwen7b-decode.png)
 
-Treat every model as a set of **activation units** under one byte ledger:
+![Resident set vs 9 GB cap](docs/screenshots/bench-qwen7b-rss.png)
 
-- Dense: FFN neuron bundles (CATS magnitude gate)
-- MoE: routed experts
+![Full comparison table](docs/screenshots/bench-qwen7b-table.png)
 
-Hot AUs stay mlocked; cold AUs stay mmap’d / SSD-backed. Kernels only touch predicted bytes.
+### What the gap means
 
-```mermaid
-flowchart LR
-    subgraph disk [KPK pack]
-        W["group-int4 · mmap"]
-        D["arch descriptor"]
-        H["CATS / hotness"]
-    end
-    subgraph runtime [windhover-engine]
-        P["gate / router"]
-        T["AU tiers"]
-        B["RAM ledger"]
-        K["SDOT · int8 KV · S=64 prefill"]
-    end
-    W --> T
-    D --> K
-    H --> P
-    P --> T
-    T --> K
-    B --> T
+| | Without | With Windhover | Δ |
+|---|---:|---:|---:|
+| Decode | 0.013 tok/s | **9.80 tok/s** | **~780×** |
+| RSS | 8.82 GB (thrash) | **4.19 GB** | **−53%** |
+| Usable chat on 16 GB Mac | no | **yes** | — |
+
+### Host pressure (same day, same Mac)
+
+After the without-engine swap stress, Windhover was re-run on the same machine:
+
+| Condition | Decode | RSS |
+|---|---:|---:|
+| Quiet (earlier same day) | **9.80 tok/s** | 4.19 GB |
+| After without-engine swap stress | 5.62 tok/s | 4.19 GB |
+
+RSS stays flat. Throughput drops under thermal / memory pressure — honest, not hidden.
+
+<details>
+<summary>Bench notes</summary>
+
+- Decode-only where available · greedy
+- Windhover: `NGEN=32`
+- Stock path: CPU fp16 via `transformers`
+- Budget: ≤ 9 GB with swap abort
+- Full dumps live under [`docs/`](docs/) (`qwen7b_bench.json`, related)
+
+</details>
+
+---
+
+## Theory
+
+### Decode is a bandwidth problem
+
+LLM decode mostly streams weight bytes from memory into the CPU every token. On Apple Silicon laptops the ceiling is finite (tens of GB/s for a handful of performance cores). If every step touches a dense 7B fp16 footprint, you:
+
+1. Blow past a healthy RAM budget
+2. Enter swap
+3. Watch tok/s fall off a cliff
+
+That is exactly what “without Windhover” looks like on the M4 Air for Qwen2.5-7B.
+
+### Sparse working set
+
+Windhover treats a model as a set of **activation units (AUs)** under one **byte ledger**:
+
+- **Dense models** (Qwen, Llama, …): FFN neuron bundles gated by magnitude (CATS-style sparsity)
+- **MoE models**: routed experts as AUs
+
+Hot AUs stay resident / mlocked. Cold AUs stay **mmap’d** on SSD. Kernels only touch the predicted bytes for the next token.
+
+```text
+┌──────────────┐     gate / router      ┌─────────────────┐
+│  KPK pack    │ ─────────────────────▶ │  AU tiers       │
+│  group-int4  │                        │  hot · warm ·   │
+│  mmap weights│                        │  cold (SSD)     │
+└──────────────┘                        └────────┬────────┘
+                                                 │
+                                                 ▼
+                                        ┌─────────────────┐
+                                        │ RAM ledger      │
+                                        │ hard ceiling    │
+                                        │ (RAM_GB / cap)  │
+                                        └────────┬────────┘
+                                                 │
+                                                 ▼
+                                        bandwidth-first
+                                        CPU kernels
 ```
 
-### Phase-0 gates
+### KPK packs
 
-[`docs/windhover_gates.json`](docs/windhover_gates.json) · harness [`tools/windhover_gates.py`](tools/windhover_gates.py)
+Models are converted into a **KPK** on-disk format:
 
-| Gate | Result |
-|---|---|
-| G1 int4-g64 kernel ceiling | **PASS** (~77–91 GB/s) |
-| G2 quality (PPL) | **PASS** (WH-C; CATS **25%** default) |
-| G3 n-gram speculation | **opt-in only** (`WH_SPEC=1`; missed 1.25× headline bar) |
-| G4 mmap residency | **PASS** |
-| G5 SME2 @ S=64 | **PASS** (experimental runtime: `SME=1` + `WH_SME_RUNTIME=1`) |
-| G6 SSD @ 64 KB | **PASS** (~2.9 GB/s) |
+- Grouped int4 weights (mmap-friendly)
+- Arch descriptor + tokenizer
+- Hotness / gate metadata for AU placement
 
-### Without Windhover vs with Windhover
+You download once, convert once, then run under the engine’s RAM budget instead of loading a full fp16 heap.
 
-Same prompts, greedy decode-only tok/s where applicable. Full dumps: [`docs/windhover_bench.json`](docs/windhover_bench.json), [`docs/dense_qwen_bench.json`](docs/dense_qwen_bench.json), [`docs/qwen7b_bench.json`](docs/qwen7b_bench.json).
+### Why this beats “just quantize”
 
-#### Qwen2.5-Coder-1.5B Instruct
-
-| | Without Windhover | With Windhover |
-|---|---:|---:|
-| Path | stock `transformers` · CPU · fp16 | **`windhover-engine` · KPK** |
-| Decode | **20.6 tok/s** | **48.9 tok/s** |
-| Peak RSS | **6.18 GB** | **1.02 GB** |
-| Prefill | — | **~52 tok/s** |
-| FFN sparsity | 0% | **~23%** |
-| **Δ decode** | — | **+137% better** |
-| **Δ RSS** | — | **−83% better** |
-
-#### Qwen2.5-7B Instruct
-
-| | Without Windhover | With Windhover |
-|---|---:|---:|
-| Path | stock `transformers` · CPU · fp16 | **`windhover-engine` · KPK** |
-| Decode | **~0.01 tok/s** (swap-bound) | **11.1 tok/s** |
-| Peak RSS | **~9.0 GB** | **4.21 GB** |
-| Prefill | thrash | **~9.7 tok/s** |
-| On-disk pack | ~15 GB fp16 | **~4.4 GB KPK** |
-| FFN sparsity | 0% | **~26%** |
-| **Δ decode** | — | swap → **usable (~11 tok/s)** |
-| **Δ RSS** | — | **−53% better** |
-
-### Linux x86_64 remeasure (after code quality)
-
-Same decode-only protocol on **Intel Xeon 4 vCPU · 15.6 GB** (not Apple Silicon). Sources: [`docs/dense_qwen_bench_linux.json`](docs/dense_qwen_bench_linux.json), [`docs/windhover_bench_linux.json`](docs/windhover_bench_linux.json).
-
-#### Qwen2.5-Coder-1.5B Instruct (Linux)
-
-| | Without Windhover | With Windhover (dense `WH=0`) | With Windhover (**KPK**) |
-|---|---:|---:|---:|
-| Path | `transformers` CPU · fp16 | `windhover-engine` dense | **KPK · CATS · int8 KV** |
-| Decode tok/s | **6.82** | **11.73** | **14.41** |
-| Peak RSS | **6.19 GB** | **1.31 GB** | **1.03 GB** |
-| Prefill (KPK) | — | — | **~27 tok/s** |
-| FFN sparsity | 0% | 0% | **~23%** |
-
-| Boost (vs without) | Decode tok/s | Peak RSS |
-|---|---:|---:|
-| Dense vs **without** | **+72.1% better** | **−78.8% better** |
-| **Windhover vs without** | **+120.7% better** | **−83.4% better** |
-| Windhover vs dense | **+22.8% better** | **−21.4% better** |
-
-7B was not re-packed on this host (fp16 convert needs more than ~16 GB RAM). M4 7B numbers above still stand.
-
-```bash
-./windhover pull Qwen/Qwen2.5-Coder-1.5B-Instruct --weights
-./windhover convert ~/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct
-./windhover build
-./windhover bench --windhover   # → docs/windhover_bench.json (+ without A/B)
-./windhover bench --dense       # transformers vs dense WH=0 A/B
-```
-
-### Micro-fixture oracle (`glm_tiny`)
-
-**Not a real language model** — synthetic teacher-forcing fixture for numerics only.
-
-| Metric | Without | With Windhover | Δ |
-|---|---:|---:|---:|
-| Prefill throughput (pos/s) | 11 978 | 77 563 | **+548% better** |
-| Batch wall (s) | 0.297 | 0.178 | **−40% better** (faster) |
-| Oracle | 32/32 | 32/32 | match |
-
-Dump: [`docs/full_bench.json`](docs/full_bench.json). Chart: [`docs/screenshots/bench-without-vs-with-windhover.svg`](docs/screenshots/bench-without-vs-with-windhover.svg).
-
-![Without vs with Windhover](docs/screenshots/bench-without-vs-with-windhover.svg)
-
-### Real-model decode (M4 16GB)
-
-![Windhover real-model bench](docs/screenshots/bench-windhover-real.svg)
-
-Linux micro remeasure (not a local-LLM claim): [`docs/full_bench_linux.json`](docs/full_bench_linux.json) — on this Xeon host the tiny fixture is within noise / slightly slower for Windhover (−8% pos/s); the 1.5B tables above are the product signal.
-
-### Frontier MoEs
-
-GLM-5.2 / Kimi-class packs need full HF download (~600–756 GB) + convert. **No invented tok/s** until measured. Status: [`docs/real_model_bench.json`](docs/real_model_bench.json).
+Quantization helps, but a naive load still wants a large contiguous working set. Windhover’s point is **residency control**: only the active slice competes for RAM, so a 7B stays near **~4 GB RSS** on this machine instead of thrashing toward **9 GB+**.
 
 ---
 
@@ -195,29 +162,75 @@ GLM-5.2 / Kimi-class packs need full HF download (~600–756 GB) + convert. **
 ```text
 ┌─────────────┐     ┌──────────────┐     ┌───────────────────┐
 │  Mac app /  │────▶│  ./windhover │────▶│  windhover-engine │
-│  Library UI │     │  app :8000   │     │  SNAP=model dir   │
+│  Library UI │     │  app :8000   │     │  SNAP = model dir │
 └─────────────┘     └──────────────┘     └───────────────────┘
                            │
-                           ├─ /v1/catalog
-                           ├─ /api/pull · /api/uninstall
-                           ├─ /v1/chat/...
-                           ├─ /api/workspace · /api/agent
-                           └─ /api/stats
+                           ├─ Library  /v1/catalog · pull · uninstall
+                           ├─ Chat     /v1/chat/...
+                           ├─ Agent    /api/workspace · /api/agent
+                           └─ Advanced /api/stats
 ```
 
-1. **Library** — Mac 16GB packs convert to KPK and run on `windhover-engine`; frontier MoEs after real download + convert.
-2. **Chat** — only chat-capable installs; no silent model swap.
-3. **Agent** — folder-scoped list/read/write on device.
-4. **Advanced** — live RSS, tok/s, Windhover sparsity / footprint / AU hit.
-5. **RAM ceiling** — `RAM_GB` / hard-cap ledger.
+1. **Install a pack** from Library (Mac 16 GB models download real HF weights; frontier MoEs are honest about size).
+2. **Convert** to KPK when needed (`./windhover convert …`).
+3. **Chat / Agent** talk to `windhover-engine` with a hard RAM ceiling.
+4. **Advanced** shows live RSS, tok/s, footprint, sparsity, AU hit — no silent model swap.
+
+Numerics lineage (Apache-2.0): [UPSTREAM.md](UPSTREAM.md).
 
 ---
 
-## Mac app
+## Features
 
-Bundle ID: `ai.vexilo.windhover`
+| Feature | What you get |
+|---|---|
+| **Hard RAM ceiling** | Process stays inside a budget (`RAM_GB` / hard-cap ledger) |
+| **KPK + mmap** | Group-int4 packs; cold weights stay on SSD |
+| **Sparse AUs** | Dense FFN bundles + MoE experts under one working-set policy |
+| **Library** | Browse / install / uninstall local packs |
+| **Chat** | Markdown streaming UI; only chat-capable installs appear |
+| **Agent** | Folder-scoped list / read / write on device |
+| **Advanced** | Live telemetry: RSS, latency, tok/s, sparsity, AU hit |
+| **Honest catalog** | No fake stubs for frontier MoEs |
+
+---
+
+## Screenshots
+
+### Library
+
+Browse Mac-16 GB packs and larger models. Install what you actually have disk for.
+
+![Windhover Library](docs/screenshots/library.png)
+
+### Chat
+
+Local replies with speed / RSS chips per message.
+
+![Windhover Chat](docs/screenshots/chat.png)
+
+### Advanced
+
+Live engine telemetry — RSS, tok/s, Windhover decode stats.
+
+![Windhover Advanced](docs/screenshots/advanced.png)
+
+---
+
+## Install
+
+### Easiest — DMG
+
+[Download Windhover for macOS (Apple Silicon)](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg)
+
+See [docs/DOWNLOAD.md](docs/DOWNLOAD.md) for Gatekeeper notes on unsigned builds.
+
+> GitHub repo may still be named `Kestrel`; the product is **Windhover**.
+
+### From source
 
 ```bash
+git clone <repo> && cd Windhover   # folder may still be named Kestrel
 ./windhover build
 cd app && npm ci && npm run build && cd ..
 cd desktop && cargo tauri build --bundles app,dmg
@@ -226,36 +239,30 @@ open desktop/src-tauri/target/release/bundle/macos/Windhover.app
 
 Dev: `cd desktop && cargo tauri dev` (starts or reuses `./windhover app` on `:8000`).
 
-See [`desktop/README.md`](desktop/README.md).
-
 ---
 
-## Quick start
+## Quick start (CLI)
 
 ```bash
-git clone <repo> && cd Windhover   # GitHub may still show legacy Kestrel redirect
 ./windhover build
-./windhover oracle
-./windhover pull windhover/glm-tiny-demo
+./windhover doctor
+./windhover pull Qwen/Qwen2.5-7B-Instruct --weights
+./windhover convert ~/.windhover/models/Qwen__Qwen2.5-7B-Instruct
 ./windhover app                 # http://127.0.0.1:8000
 ```
 
 ```bash
-./windhover pull Qwen/Qwen2.5-Coder-1.5B-Instruct --weights
-./windhover convert ~/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct
-./windhover chat --model ~/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct/kpk \
+./windhover chat --model ~/.windhover/models/Qwen__Qwen2.5-7B-Instruct/kpk \
   --prompt "Hello" --ngen 64
 ```
 
 ```bash
 ./windhover bench --windhover
-./windhover bench --smoke
-./windhover uninstall Qwen/Qwen2.5-Coder-1.5B-Instruct
+./windhover uninstall Qwen/Qwen2.5-7B-Instruct
 ```
 
+Model home: `~/.windhover/models` (falls back to `~/.kestrel/models` if present).  
 (`./kestrel` remains a thin shim to `./windhover`.)
-
-Model home: `~/.windhover/models` (falls back to `~/.kestrel/models` if present).
 
 ---
 
@@ -266,44 +273,23 @@ Model home: `~/.windhover/models` (falls back to `~/.kestrel/models` if present)
 | [`engine/`](engine/) | **`windhover-engine`** (MoE + dense KPK) |
 | [`engine/runtime/windhover.c`](engine/runtime/windhover.c) | Dense Windhover runtime |
 | [`tools/kestrel_pack.py`](tools/kestrel_pack.py) | HF → KPK converter |
-| [`windhover`](windhover) | CLI + Library/Chat API |
-| [`app/`](app/) | Vite/React UI |
+| [`windhover`](windhover) | CLI + Library / Chat API |
+| [`app/`](app/) | Vite / React UI |
 | [`desktop/`](desktop/) | Tauri macOS app |
 | [`docs/`](docs/) | Benches and notes |
-| [`UPSTREAM.md`](UPSTREAM.md) | License / numerics lineage |
-
----
-
-## Models
-
-Catalog (`app/public/catalog.json`):
-
-- **Mac 16GB** — SmolLM2, Qwen2.5 / Qwen3 small, TinyLlama, Phi-3.5, Gemma 2, R1-distill  
-- **GLM / Qwen / Kimi / DeepSeek / Mistral / Llama** frontier entries (honest download sizes)
-
-Install is honest: small models download real HF weights; frontier MoEs require explicit **Download weights**.
 
 ---
 
 ## Requirements
 
-- macOS 12+ (Apple Silicon recommended)  
-- Xcode CLT, Rust (Tauri), Node 18+  
-- Python 3.10+ with `torch` + `transformers` for preview (`c/.venv`)  
-- Optional: Hugging Face CLI for `--weights` pulls  
+- **macOS 12+** · **Apple Silicon recommended**
+- Headline benches: **MacBook Air M4 · 16 GB**
+- Xcode CLT · Rust (Tauri) · Node 18+ (from source)
+- Python 3.10+ with `torch` + `transformers` for preview / convert (`c/.venv`)
+- Optional: Hugging Face CLI for `--weights` pulls
 
 ---
 
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE). Upstream attribution in [UPSTREAM.md](UPSTREAM.md).
-
----
-
-## Star history
-
-<p align="center">
-  <a href="https://star-history.com/#cliclye/Windhover&Date">
-    <img src="https://api.star-history.com/svg?repos=cliclye/Windhover&type=Date" alt="Star History Chart" width="100%" />
-  </a>
-</p>

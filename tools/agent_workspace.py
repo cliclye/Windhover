@@ -50,6 +50,36 @@ def set_workspace(path: str) -> dict[str, Any]:
     return {"ok": True, "root": str(p)}
 
 
+def pick_folder(prompt: str = "Choose a folder for Windhover Agent") -> dict[str, Any]:
+    """Open a native macOS folder picker (osascript). Returns set_workspace result."""
+    import subprocess
+
+    safe = prompt.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'POSIX path of (choose folder with prompt "{safe}")'
+    try:
+        r = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError("folder picker unavailable (osascript missing)") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("folder picker timed out") from e
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip()
+        # User cancelled the dialog
+        if "User canceled" in err or "(-128)" in err or not err:
+            return {"ok": False, "cancelled": True, "error": "cancelled"}
+        raise RuntimeError(err or f"osascript exited {r.returncode}")
+    path = (r.stdout or "").strip().rstrip("/")
+    if not path:
+        return {"ok": False, "cancelled": True, "error": "cancelled"}
+    return set_workspace(path)
+
+
 def list_dir(root: Path, rel: str = ".") -> dict[str, Any]:
     root = root.resolve()
     d = resolve_under(root, rel)

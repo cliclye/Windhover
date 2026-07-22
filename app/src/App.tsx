@@ -113,7 +113,21 @@ function statusBadge(m: CatalogModel) {
   return { cls: "download", label: m.status || "Download" };
 }
 
+function cleanChatText(text: string): string {
+  return text
+    .replace(/<\|[^|>]+?\|>/g, "")
+    .replace(/<\/?s>/g, "")
+    .replace(/<end_of_turn>/g, "")
+    .replace(/<start_of_turn>\w*/g, "")
+    .replace(/\[\/?INST\]/g, "")
+    .replace(/<<SYS>>|<<\/SYS>>/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function MarkdownBody({ text }: { text: string }) {
+  const cleaned = cleanChatText(text);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -123,9 +137,22 @@ function MarkdownBody({ text }: { text: string }) {
             {children}
           </a>
         ),
+        pre: ({ children }) => <pre className="md-pre">{children}</pre>,
+        code: ({ className, children, ...props }) => {
+          const inline = !className;
+          return inline ? (
+            <code className="md-inline-code" {...props}>
+              {children}
+            </code>
+          ) : (
+            <code className={className} {...props}>
+              {children}
+            </code>
+          );
+        },
       }}
     >
-      {text}
+      {cleaned}
     </ReactMarkdown>
   );
 }
@@ -162,7 +189,10 @@ export function App() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
   const [agentSummary, setAgentSummary] = useState("");
+  const [agentStatus, setAgentStatus] = useState("");
+  const [pickingFolder, setPickingFolder] = useState(false);
   const [tree, setTree] = useState<Array<{ name: string; path: string; type: string; size?: number | null }>>([]);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef<string | null>(null);
   const progressRef = useRef<PullProgress | null>(null);
@@ -430,12 +460,32 @@ export function App() {
     }
   }
 
+  async function loadWorkspaceTree() {
+    try {
+      const treeR = await fetch(apiUrl("/api/workspace/tree?path=.")).then((x) => x.json());
+      if (treeR.ok) {
+        setTree(treeR.entries || []);
+        setWorkspaceReady(true);
+        return true;
+      }
+      setTree([]);
+      setAgentStatus(treeR.error || "Could not list folder");
+      return false;
+    } catch (e) {
+      setTree([]);
+      setAgentStatus(String(e));
+      return false;
+    }
+  }
+
   async function applyWorkspace(path?: string) {
     const root = (path ?? workspace).trim();
     if (!root) {
-      setStatus("Enter a folder path on this Mac");
+      // Empty field: open the native picker instead of failing silently.
+      await browseWorkspace();
       return;
     }
+    setAgentStatus(`Setting workspace…`);
     try {
       const r = await fetch(apiUrl("/api/workspace"), {
         method: "POST",
@@ -444,16 +494,55 @@ export function App() {
       });
       const j = await r.json();
       if (!j.ok) {
+        setWorkspaceReady(false);
+        setTree([]);
+        setAgentStatus(j.error || "Could not set workspace");
         setStatus(j.error || "Could not set workspace");
         return;
       }
       setWorkspace(String(j.root));
       setStatus(`Workspace: ${j.root}`);
-      const treeR = await fetch(apiUrl("/api/workspace/tree?path=.")).then((x) => x.json());
-      if (treeR.ok) setTree(treeR.entries || []);
-      else setTree([]);
+      setAgentStatus(`Using ${j.root}`);
+      await loadWorkspaceTree();
     } catch (e) {
+      setWorkspaceReady(false);
+      setAgentStatus(String(e));
       setStatus(String(e));
+    }
+  }
+
+  async function browseWorkspace() {
+    if (agentBusy || pickingFolder) return;
+    setPickingFolder(true);
+    setAgentStatus("Choose a folder…");
+    try {
+      const r = await fetch(apiUrl("/api/workspace/pick"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const j = await r.json();
+      if (j.cancelled) {
+        setAgentStatus("Folder picker cancelled");
+        return;
+      }
+      if (!j.ok || !j.root) {
+        setWorkspaceReady(false);
+        setTree([]);
+        setAgentStatus(j.error || "Could not pick folder");
+        setStatus(j.error || "Could not pick folder");
+        return;
+      }
+      setWorkspace(String(j.root));
+      setStatus(`Workspace: ${j.root}`);
+      setAgentStatus(`Using ${j.root}`);
+      await loadWorkspaceTree();
+    } catch (e) {
+      setWorkspaceReady(false);
+      setAgentStatus(String(e));
+      setStatus(String(e));
+    } finally {
+      setPickingFolder(false);
     }
   }
 
@@ -535,7 +624,7 @@ export function App() {
       <header className="top titlebar">
         <div className="traffic-spacer" aria-hidden />
         <div className="brand-row">
-          <img className="mark" src="./kestrel-icon.png" alt="" width={36} height={36} />
+          <img className="mark" src="./windhover-icon.png" alt="" width={36} height={36} />
           <div className="brand">
             <strong>Windhover</strong>
             <span>windhover-engine</span>
@@ -889,21 +978,46 @@ export function App() {
                 <span>Folder</span>
                 <input
                   value={workspace}
-                  onChange={(e) => setWorkspace(e.target.value)}
+                  onChange={(e) => {
+                    setWorkspace(e.target.value);
+                    setWorkspaceReady(false);
+                  }}
                   placeholder="/path/to/your/project"
-                  disabled={agentBusy}
+                  disabled={agentBusy || pickingFolder}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void applyWorkspace();
+                    }
+                  }}
                 />
               </label>
-              <button type="button" className="btn ghost" disabled={agentBusy} onClick={() => void applyWorkspace()}>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={agentBusy || pickingFolder}
+                onClick={() => void browseWorkspace()}
+              >
+                {pickingFolder ? "…" : "Browse…"}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={agentBusy || pickingFolder}
+                onClick={() => void applyWorkspace()}
+              >
                 Use folder
               </button>
             </div>
+            {agentStatus ? <p className="status agent-status">{agentStatus}</p> : null}
 
             <div className="agent-body">
               <aside className="agent-tree" aria-label="Workspace files">
                 <strong>Files</strong>
-                {tree.length === 0 ? (
-                  <p className="muted">Set a folder to list files</p>
+                {!workspaceReady ? (
+                  <p className="muted">Browse or enter a path, then Use folder</p>
+                ) : tree.length === 0 ? (
+                  <p className="muted">Folder is empty</p>
                 ) : (
                   <ul>
                     {tree.map((e) => (

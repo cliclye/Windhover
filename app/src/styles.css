@@ -766,6 +766,8 @@ textarea {
 
 .md {
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .md > :first-child {
@@ -785,16 +787,20 @@ textarea {
   margin: 0.85rem 0 0.4rem;
   line-height: 1.25;
   color: var(--ink);
+  font-weight: 650;
 }
 
 .md h1 {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
 }
 .md h2 {
-  font-size: 1.12rem;
+  font-size: 1.08rem;
 }
 .md h3 {
-  font-size: 1.02rem;
+  font-size: 1rem;
+}
+.md h4 {
+  font-size: 0.95rem;
 }
 
 .md p {
@@ -806,17 +812,61 @@ textarea {
   font-weight: 650;
 }
 
+.md em {
+  font-style: italic;
+}
+
 .md ul,
 .md ol {
-  margin: 0.4rem 0;
-  padding-left: 1.25rem;
+  margin: 0.45rem 0;
+  padding-left: 1.35rem;
 }
 
 .md li {
-  margin: 0.2rem 0;
+  margin: 0.25rem 0;
 }
 
-.md code {
+.md li > p {
+  margin: 0.15rem 0;
+}
+
+.md blockquote {
+  margin: 0.55rem 0;
+  padding: 0.15rem 0 0.15rem 0.85rem;
+  border-left: 3px solid rgba(212, 165, 116, 0.55);
+  color: var(--muted);
+}
+
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0.85rem 0;
+}
+
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.65rem 0;
+  font-size: 0.9em;
+  display: block;
+  overflow-x: auto;
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md th {
+  background: rgba(0, 0, 0, 0.25);
+  font-weight: 650;
+}
+
+.md code,
+.md-inline-code {
   font-family: var(--mono);
   font-size: 0.84em;
   background: rgba(0, 0, 0, 0.35);
@@ -824,20 +874,26 @@ textarea {
   border-radius: 2px;
 }
 
-.md pre {
+.md pre,
+.md-pre {
   margin: 0.65rem 0;
   padding: 0.75rem 0.85rem;
   overflow: auto;
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid var(--line);
   border-radius: 3px;
+  tab-size: 2;
+  white-space: pre;
 }
 
-.md pre code {
+.md pre code,
+.md-pre code {
   background: none;
   padding: 0;
   font-size: 0.82rem;
   line-height: 1.45;
+  white-space: inherit;
+  tab-size: inherit;
 }
 
 .md a {
@@ -1090,7 +1146,11 @@ textarea {
   display: flex;
   gap: 0.6rem;
   align-items: end;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.agent-status {
+  margin: 0 0 0.75rem;
 }
 
 .workspace-field {

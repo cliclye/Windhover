@@ -1531,9 +1531,10 @@ int wh_run(int argc, char **argv) {
         ids[cur_len++] = next;
         generated++;
         if (spec_on) spec_update(ids, cur_len);
+        /* Never emit stop/EOS control tokens (e.g. <|im_end|>) into chat text. */
+        if ((eos >= 0 && next == eos) || (d->eos_id >= 0 && next == d->eos_id)) break;
         int nch = tok_decode(&T, &next, 1, outbuf, (int)sizeof(outbuf) - 1);
         if (nch > 0) { outbuf[nch] = 0; fputs(outbuf, stdout); fflush(stdout); }
-        if ((eos >= 0 && next == eos) || (d->eos_id >= 0 && next == d->eos_id)) break;
         if (generated >= ngen) break;
         if (cur_len + SPEC_K + 1 >= max_t) break;
 
@@ -1558,9 +1559,9 @@ int wh_run(int argc, char **argv) {
                     accepted_total++;
                     acc++;
                     if (spec_on) spec_update(ids, cur_len);
+                    if ((eos >= 0 && am == eos) || generated >= ngen) break;
                     int nc2 = tok_decode(&T, &am, 1, outbuf, (int)sizeof(outbuf) - 1);
                     if (nc2 > 0) { outbuf[nc2] = 0; fputs(outbuf, stdout); fflush(stdout); }
-                    if ((eos >= 0 && am == eos) || generated >= ngen) break;
                 } else break;
             }
             /* rewind kv to cur_len (we computed nd+1 positions from cur_len-1) */

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Windhover">
+  <rect width="1024" height="1024" rx="220" fill="#0a0e0c"/>
+  <path fill="#d4a574" d="M 512,268 L 490,292 L 474,330 L 417,300 L 337,255 L 247,220 L 192,235 L 227,295 L 302,360 L 382,430 L 437,490 L 464,545 L 450,620 L 434,690 L 470,745 L 512,780 L 554,745 L 590,690 L 574,620 L 560,545 L 587,490 L 642,430 L 722,360 L 797,295 L 832,235 L 777,220 L 687,255 L 607,300 L 550,330 L 534,292 L 512,268 Z"/>
+</svg>

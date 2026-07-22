@@ -7,8 +7,68 @@ on:
     branches: [dev, main]
 
 jobs:
+  # Product engine: build + token-exact teacher-forcing oracle (fixtures/glm_tiny).
   engine:
-    name: Engine (Linux, CPU)
+    name: Engine build + oracle (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang + OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libomp-dev
+      - name: Build + oracle
+        run: |
+          make -C engine clean
+          make -C engine test-oracle ARCH=x86-64-v3 CC=clang
+
+  engine-macos:
+    name: Engine build + oracle (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libomp
+        run: brew install libomp
+      - name: Build + oracle
+        run: |
+          make -C engine clean
+          make -C engine test-oracle ARCH=native
+
+  # Memory / resource-plan path (RAM budget, hard cap, planner) — the
+  # optimization layer that keeps models under a hard ceiling.
+  memory-budget:
+    name: Memory budget + resource plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install clang + OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libomp-dev
+      - name: Build engine + legacy glm (budget tests)
+        run: |
+          make -C engine ARCH=x86-64-v3 CC=clang
+          make -C c glm ARCH=x86-64-v3
+          make -C c tests/test_budget ARCH=x86-64-v3
+      - name: Stage glm_tiny fixture for legacy path
+        run: |
+          # c/glm_tiny is gitignored; reuse the tracked engine fixture.
+          rm -rf c/glm_tiny
+          cp -R engine/fixtures/glm_tiny c/glm_tiny
+          test -f c/ref_glm.json
+      - name: Budget unit test
+        run: ./c/tests/test_budget
+      - name: Memory ceiling adversarial tests
+        run: python3 tests/memory_ceiling/test_memory_ceiling.py
+      - name: Resource plan unit tests
+        run: cd c && python3 -m unittest tests.test_resource_plan tests.test_doctor tests.test_env_defaults -v
+
+  # Legacy colibrì C unit tests (headers / kernels still shared with tools).
+  legacy-c:
+    name: Legacy C unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -6434,9 +6434,16 @@ int main(int argc, char **argv){
             ok,nfull, loops==1 ? (nfull/tdt) : pos_s);
         if(loops>1) printf(" (BENCH_LOOPS=%d, %.3fs)\n", loops, tdt);
         else printf("\n");
-        if(ok<nfull) fprintf(stderr,
-            "[ORACLE] %d/%d mismatches — run: TF=1 DEBUG_LOGITS=1 for top-5 logit dump\n",
-            nfull-ok,nfull);
+        if(ok<nfull){
+            fprintf(stderr,
+                "[ORACLE] %d/%d mismatches — run: TF=1 DEBUG_LOGITS=1 for top-5 logit dump\n",
+                nfull-ok,nfull);
+            profile_print(&m,tdt);
+#ifdef COLI_CUDA
+            if(g_cuda_enabled) cuda_stats_print();
+#endif
+            return 1;
+        }
         profile_print(&m,tdt);
 #ifdef COLI_CUDA
         if(g_cuda_enabled) cuda_stats_print();

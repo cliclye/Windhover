@@ -137,8 +137,13 @@ endif
 
 # SNAP path relative to engine/ — fixtures live in fixtures/
 # Use POSIX env assignment so MSYS2 / Git Bash `sh` works (cmd `set` breaks .\exe).
+# Engine returns non-zero on TF mismatch; also assert the 32/32 line so a silent
+# "always 0" regression cannot greenwash CI.
 test-oracle: windhover-engine$(EXE)
-	SNAP=./fixtures/glm_tiny TF=1 ./windhover-engine$(EXE) 64 16 16
+	@out=$$(SNAP=./fixtures/glm_tiny TF=1 ./windhover-engine$(EXE) 64 16 16 2>&1); status=$$?; \
+	echo "$$out"; \
+	if [ $$status -ne 0 ]; then echo "oracle binary exited $$status" >&2; exit $$status; fi; \
+	echo "$$out" | grep -q '32/32' || { echo "oracle failed: expected 32/32" >&2; exit 1; }
 
 clean:
 	rm -f windhover-engine windhover-engine.exe kestrel-engine kestrel-engine.exe \

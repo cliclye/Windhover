@@ -20,6 +20,19 @@ def main() -> int:
         bundle = Path(__file__).resolve().parents[1]
         exe_dir = bundle / "engine"
 
+    # Windows: UTF-8 stdio before importing windhover (download progress uses Unicode).
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    if sys.platform == "win32":
+        os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+        for stream in (sys.stdout, sys.stderr):
+            if stream is None:
+                continue
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, OSError, ValueError):
+                pass
+
     os.environ.setdefault("WINDHOVER_ROOT", str(bundle))
 
     for name in ("windhover-engine.exe", "windhover-engine"):

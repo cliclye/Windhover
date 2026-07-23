@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2] — 2026-07-23
+
+### Fixes
+- **Windows model download:** Library/`windhover pull` no longer crashes with `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'`. Force UTF-8 stdio (and disable HF progress bars on Windows) so download banners and huggingface_hub output survive legacy cp1252 consoles.
+
 ## [0.3.1] — 2026-07-22
 
 ### App / API

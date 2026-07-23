@@ -112,7 +112,8 @@ fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
             // Avoid Windows cp1252 UnicodeEncodeError on download progress (U+2192).
             .env("PYTHONUTF8", "1")
             .env("PYTHONIOENCODING", "utf-8")
-            .env("HF_HUB_DISABLE_PROGRESS_BARS", "1");
+            .env("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+            .env("TQDM_DISABLE", "1");
         if let Some(eng) = sidecar_engine(&dirs) {
             cmd.env("WINDHOVER_ENGINE", &eng);
         }
@@ -180,6 +181,7 @@ fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .env("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+        .env("TQDM_DISABLE", "1")
         .current_dir(&root);
 
     let mut child = spawn_command(cmd)?;

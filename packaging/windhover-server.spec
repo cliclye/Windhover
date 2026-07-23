@@ -31,10 +31,66 @@ datas = [
     (str(REPO / "tools" / "agent_workspace.py"), "tools"),
 ]
 
-# Library downloads need huggingface_hub inside the frozen sidecar (Windows/Mac).
-# Lazy imports in windhover are invisible to Analysis — collect the package explicitly.
-_hf_datas, _hf_binaries, _hf_hidden = collect_all("huggingface_hub")
-datas += _hf_datas
+binaries = []
+hiddenimports = [
+    "bundled_windhover",
+    "agent_workspace",
+    "http.server",
+    "http.client",
+    "urllib.parse",
+    "urllib.request",
+    "uuid",
+    "argparse",
+    "json",
+    "socketserver",
+    "email",
+    "mimetypes",
+    "html",
+    "html.parser",
+    "hashlib",
+    "base64",
+    "ssl",
+    "resource",
+    "secrets",
+    "gzip",
+    "concurrent.futures",
+]
+
+# Library downloads need huggingface_hub (+ httpx stack) inside the frozen sidecar.
+# Lazy imports in windhover are invisible to Analysis — collect packages explicitly.
+for _pkg in (
+    "huggingface_hub",
+    "httpx",
+    "httpcore",
+    "anyio",
+    "h11",
+    "idna",
+    "certifi",
+    "filelock",
+    "fsspec",
+    "yaml",
+    "tqdm",
+    "packaging",
+    "click",
+):
+    try:
+        _d, _b, _h = collect_all(_pkg)
+    except Exception as e:
+        # yaml may be imported as PyYAML; hf-xet is optional/platform-specific.
+        print(f"[windhover-server.spec] skip collect_all({_pkg!r}): {e}")
+        continue
+    datas += _d
+    binaries += _b
+    hiddenimports += list(_h)
+    hiddenimports.append(_pkg)
+
+try:
+    _d, _b, _h = collect_all("hf_xet")
+    datas += _d
+    binaries += _b
+    hiddenimports += list(_h) + ["hf_xet"]
+except Exception as e:
+    print(f"[windhover-server.spec] hf_xet not collected (ok on some platforms): {e}")
 
 # Optional icon for Windows
 icon = None
@@ -45,48 +101,14 @@ if ico.is_file() and sys.platform == "win32":
 a = Analysis(
     [str(ROOT / "server_entry.py")],
     pathex=[str(REPO), str(ROOT)],
-    binaries=_hf_binaries,
+    binaries=binaries,
     datas=datas,
-    hiddenimports=[
-        "bundled_windhover",
-        "agent_workspace",
-        "huggingface_hub",
-        "huggingface_hub.file_download",
-        "huggingface_hub.hf_api",
-        "huggingface_hub.utils",
-        "filelock",
-        "fsspec",
-        "packaging",
-        "packaging.version",
-        "requests",
-        "tqdm",
-        "tqdm.auto",
-        "yaml",
-        "typing_extensions",
-        "http.server",
-        "http.client",
-        "urllib.parse",
-        "urllib.request",
-        "uuid",
-        "argparse",
-        "json",
-        "socketserver",
-        "email",
-        "mimetypes",
-        "html",
-        "html.parser",
-        "hashlib",
-        "base64",
-        "ssl",
-        "resource",
-        "secrets",
-        "gzip",
-        "concurrent.futures",
-    ]
-    + list(_hf_hidden),
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[str(ROOT / "pyi_rth_windhover_utf8.py")],
+    # transformers/torch stay out of the sidecar (huge). Engine chat still works;
+    # chat-template formatting falls back without transformers.
     excludes=["torch", "transformers", "numpy", "tkinter"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

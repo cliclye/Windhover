@@ -63,6 +63,18 @@ def main() -> int:
         except Exception:
             pass
 
+    # CI / packaging: verify Library-download deps inside the frozen binary.
+    if "--sidecar-selfcheck" in sys.argv:
+        try:
+            import huggingface_hub
+            from huggingface_hub import snapshot_download  # noqa: F401
+
+            print(f"sidecar-selfcheck ok huggingface_hub={huggingface_hub.__version__}")
+            return 0
+        except Exception as e:
+            print(f"sidecar-selfcheck FAILED: {type(e).__name__}: {e}", file=sys.stderr)
+            return 1
+
     os.environ.setdefault("WINDHOVER_ROOT", str(bundle))
 
     for name in ("windhover-engine.exe", "windhover-engine"):

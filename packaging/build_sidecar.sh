@@ -13,8 +13,18 @@ if [[ ! -d app/dist ]]; then
   (cd app && npm ci && npm run build)
 fi
 
-python3 -m pip install -q pyinstaller "huggingface_hub>=0.23"
-python3 -c "import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__)"
+python3 -m pip install -q \
+  pyinstaller \
+  "huggingface_hub>=0.23" \
+  "httpx>=0.23" \
+  filelock \
+  fsspec \
+  PyYAML \
+  tqdm \
+  packaging \
+  click \
+  hf-xet
+python3 -c "import huggingface_hub, httpx; from huggingface_hub import snapshot_download; print('huggingface_hub', huggingface_hub.__version__, 'httpx', httpx.__version__)"
 python3 -m PyInstaller packaging/windhover-server.spec --noconfirm --distpath packaging/dist --workpath packaging/build
 
 BIN_DIR="$ROOT/desktop/src-tauri/binaries"
@@ -27,6 +37,9 @@ if [[ -f "${SERVER_SRC}.exe" ]]; then
 else
   EXT=""
 fi
+
+# Prove Library-download imports work inside the frozen binary.
+"$SERVER_SRC" --sidecar-selfcheck
 
 if [[ -z "$TRIPLE" ]]; then
   case "$(uname -s)-$(uname -m)" in

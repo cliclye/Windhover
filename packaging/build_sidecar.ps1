@@ -15,9 +15,21 @@ if (-not (Test-Path "app/dist/index.html")) {
   Pop-Location
 }
 
-python -m pip install -q pyinstaller "huggingface_hub>=0.23"
-# Fail fast if hub is missing — Library downloads need it inside the frozen sidecar.
-python -c "import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__)"
+# Runtime deps for Library downloads (huggingface_hub 1.x uses httpx, not requests-only).
+$HubDeps = @(
+  "pyinstaller",
+  "huggingface_hub>=0.23",
+  "httpx>=0.23",
+  "filelock",
+  "fsspec",
+  "PyYAML",
+  "tqdm",
+  "packaging",
+  "click",
+  "hf-xet"
+)
+python -m pip install -q @HubDeps
+python -c "import huggingface_hub, httpx; from huggingface_hub import snapshot_download; print('huggingface_hub', huggingface_hub.__version__, 'httpx', httpx.__version__)"
 python -m PyInstaller packaging/windhover-server.spec --noconfirm --distpath packaging/dist --workpath packaging/build
 
 $BinDir = Join-Path $Root "desktop/src-tauri/binaries"
@@ -25,6 +37,10 @@ New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 
 $Server = Join-Path $Root "packaging/dist/windhover-server.exe"
 if (-not (Test-Path $Server)) { throw "missing $Server" }
+# Prove Library-download imports work inside the frozen binary (catches missing hub deps).
+$check = & $Server --sidecar-selfcheck
+if ($LASTEXITCODE -ne 0) { throw "sidecar-selfcheck failed: $check" }
+Write-Host $check
 Copy-Item -Force $Server (Join-Path $BinDir "windhover-server-$Triple.exe")
 Write-Host "Staged windhover-server-$Triple.exe"
 

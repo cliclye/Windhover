@@ -27,6 +27,13 @@ KPK convert via `numpy` + `safetensors`. Lazy imports are **invisible** to Analy
 - [ ] Phi / Gemma: `_ensure_engine_pack` runs torch-free KPK convert before chat.
 - [ ] Engine→transformers fallback only runs when `_transformers_available()`.
 
+## In-app updates
+
+- [ ] Release assets keep stable names: `Windhover-Windows-x64.exe`,
+      `Windhover-Windows-arm64.exe`, `Windhover-macOS-arm64.dmg`.
+- [ ] App version in `app/package.json` + `tauri.conf.json` matches the GitHub tag.
+- [ ] `/v1/update` returns `available: true` when a newer tag exists (smoke after tag).
+
 ## Do not
 
 - Redirect `Start-Process` stdout **and** stderr to the **same** log file on Windows

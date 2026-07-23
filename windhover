@@ -268,9 +268,12 @@ CATALOG_PATH = ROOT / "app" / "public" / "catalog.json"
 C_DIR = ROOT / "c"  # reference: openai_server, resource_plan, convert
 PREVIEW_REPO = os.environ.get("WINDHOVER_PREVIEW_MODEL", os.environ.get("KESTREL_PREVIEW_MODEL", "HuggingFaceTB/SmolLM2-360M-Instruct"))
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+GITHUB_REPO = os.environ.get("WINDHOVER_GITHUB_REPO", "cliclye/Windhover")
 _PREVIEW_PIPES: dict[str, tuple] = {}
 _PULL_JOBS: dict[str, dict] = {}
 _PULL_LOCK = threading.Lock()
+_UPDATE_CACHE: dict = {"checked_at": 0.0, "payload": None}
+_UPDATE_LOCK = threading.Lock()
 _WORKSPACE: dict = {"root": None}  # user-selected coding folder for Agent tab
 sys.path.insert(0, str(ROOT / "tools"))
 try:
@@ -300,6 +303,214 @@ def _rss_mb() -> float:
         return rss / 1024.0
     except Exception:
         return 0.0
+
+
+def _app_version() -> str:
+    """Installed app version (keep in sync with tauri.conf / package.json)."""
+    for path in (
+        ROOT / "app" / "package.json",
+        ROOT / "desktop" / "src-tauri" / "tauri.conf.json",
+    ):
+        try:
+            ver = json.loads(path.read_text(encoding="utf-8")).get("version")
+            if ver:
+                return str(ver).lstrip("v")
+        except Exception:
+            continue
+    return os.environ.get("WINDHOVER_VERSION", "0.3.6").lstrip("v")
+
+
+def _parse_semver(v: str) -> tuple[int, int, int]:
+    s = (v or "").strip().lstrip("v")
+    parts = []
+    for p in s.split(".")[:3]:
+        num = ""
+        for ch in p:
+            if ch.isdigit():
+                num += ch
+            else:
+                break
+        parts.append(int(num or 0))
+    while len(parts) < 3:
+        parts.append(0)
+    return parts[0], parts[1], parts[2]
+
+
+def _version_newer(latest: str, current: str) -> bool:
+    return _parse_semver(latest) > _parse_semver(current)
+
+
+def _update_platform_asset() -> tuple[str, str]:
+    """Return (os_key, preferred asset name substring) for GitHub release assets."""
+    import platform as _platform
+
+    mach = (_platform.machine() or "").lower()
+    if sys.platform == "darwin":
+        return "macos", "Windhover-macOS-arm64.dmg"
+    if sys.platform == "win32":
+        if mach in ("arm64", "aarch64"):
+            return "windows-arm64", "Windhover-Windows-arm64.exe"
+        return "windows-x64", "Windhover-Windows-x64.exe"
+    return "other", ""
+
+
+def _pick_release_asset(assets: list, preferred_name: str) -> dict | None:
+    if not assets:
+        return None
+    for a in assets:
+        name = str(a.get("name") or "")
+        if name == preferred_name:
+            return a
+    # Fuzzy fallback
+    prefer = preferred_name.lower()
+    for a in assets:
+        name = str(a.get("name") or "").lower()
+        if prefer and prefer in name:
+            return a
+    if sys.platform == "win32":
+        for a in assets:
+            name = str(a.get("name") or "").lower()
+            if name.endswith(".exe") and "windows" in name:
+                return a
+    if sys.platform == "darwin":
+        for a in assets:
+            name = str(a.get("name") or "").lower()
+            if name.endswith(".dmg"):
+                return a
+    return None
+
+
+def _check_app_update(*, force: bool = False) -> dict:
+    """Compare local version to GitHub latest release. Cached ~1h."""
+    now = time.time()
+    with _UPDATE_LOCK:
+        cached = _UPDATE_CACHE.get("payload")
+        if (
+            not force
+            and cached
+            and (now - float(_UPDATE_CACHE.get("checked_at") or 0)) < 3600
+        ):
+            return dict(cached)
+
+    current = _app_version()
+    plat, preferred = _update_platform_asset()
+    out = {
+        "ok": True,
+        "current": current,
+        "latest": current,
+        "available": False,
+        "platform": plat,
+        "tag": None,
+        "name": None,
+        "notes": None,
+        "html_url": f"https://github.com/{GITHUB_REPO}/releases/latest",
+        "download_url": None,
+        "asset_name": None,
+        "error": None,
+    }
+    if not preferred:
+        out["error"] = "Automatic updates are only supported on macOS and Windows."
+        with _UPDATE_LOCK:
+            _UPDATE_CACHE["checked_at"] = now
+            _UPDATE_CACHE["payload"] = dict(out)
+        return out
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"Windhover/{current}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        with _UPDATE_LOCK:
+            _UPDATE_CACHE["checked_at"] = now
+            _UPDATE_CACHE["payload"] = dict(out)
+        return out
+
+    tag = str(data.get("tag_name") or "").lstrip("v")
+    asset = _pick_release_asset(data.get("assets") or [], preferred)
+    out.update(
+        {
+            "latest": tag or current,
+            "available": bool(tag and _version_newer(tag, current)),
+            "tag": data.get("tag_name"),
+            "name": data.get("name"),
+            "notes": (data.get("body") or "")[:4000] or None,
+            "html_url": data.get("html_url") or out["html_url"],
+            "download_url": (asset or {}).get("browser_download_url"),
+            "asset_name": (asset or {}).get("name"),
+        }
+    )
+    if out["available"] and not out["download_url"]:
+        out["error"] = f"Latest release has no installer for {plat}."
+        out["available"] = False
+    with _UPDATE_LOCK:
+        _UPDATE_CACHE["checked_at"] = now
+        _UPDATE_CACHE["payload"] = dict(out)
+    return out
+
+
+def _apply_app_update(download_url: str | None = None) -> dict:
+    """Download the latest installer and launch it (in-place upgrade)."""
+    info = _check_app_update(force=False)
+    url = (download_url or info.get("download_url") or "").strip()
+    if not url:
+        info = _check_app_update(force=True)
+        url = (info.get("download_url") or "").strip()
+    if not url:
+        return {
+            "ok": False,
+            "error": info.get("error") or "No download URL for this platform.",
+            "update": info,
+        }
+
+    asset_name = info.get("asset_name") or url.rsplit("/", 1)[-1] or "Windhover-update"
+    dest = Path(tempfile.gettempdir()) / f"windhover-update-{info.get('latest') or 'latest'}-{asset_name}"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": f"Windhover/{_app_version()}"},
+        )
+        with urllib.request.urlopen(req, timeout=600) as resp, open(dest, "wb") as out:
+            shutil.copyfileobj(resp, out)
+    except Exception as e:
+        return {"ok": False, "error": f"Download failed: {type(e).__name__}: {e}"}
+
+    try:
+        if sys.platform == "win32":
+            # NSIS installer upgrades in place; hooks stop old Windhover processes.
+            subprocess.Popen(
+                [str(dest)],
+                cwd=str(dest.parent),
+                close_fds=True,
+            )
+            msg = (
+                "Installer launched. Follow the setup prompts — Windhover will close "
+                "and reopen on the new version. You do not need to uninstall first."
+            )
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(dest)], close_fds=True)
+            msg = (
+                "Disk image opened. Drag Windhover to Applications to replace the old app, "
+                "then relaunch from Applications."
+            )
+        else:
+            return {"ok": False, "error": "Unsupported platform for in-app update.", "path": str(dest)}
+    except Exception as e:
+        return {"ok": False, "error": f"Could not launch installer: {type(e).__name__}: {e}", "path": str(dest)}
+
+    return {
+        "ok": True,
+        "path": str(dest),
+        "message": msg,
+        "update": info,
+    }
 
 
 def _strip_engine_noise(text: str) -> str:
@@ -2278,6 +2489,7 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                     200,
                     {
                         "ok": True,
+                        "version": _app_version(),
                         "engine": str(ENGINE_BIN),
                         "engine_present": present,
                         "engine_on": present,
@@ -2290,6 +2502,9 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                         },
                     },
                 )
+            if path in ("/v1/update", "/api/update"):
+                force = (qs.get("force") or ["0"])[0] in ("1", "true", "yes")
+                return self._json(200, _check_app_update(force=force))
             if path == "/api/ollama/status":
                 models = _ollama_list_models()
                 return self._json(
@@ -2403,6 +2618,9 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                 body = json.loads(raw.decode() or "{}")
             except json.JSONDecodeError:
                 return self._json(400, {"error": "bad json"})
+            if path in ("/v1/update/apply", "/api/update/apply"):
+                result = _apply_app_update(body.get("download_url"))
+                return self._json(200 if result.get("ok") else 500, result)
             if path == "/api/pull":
                 mid = body.get("id") or body.get("model_id")
                 if not mid:

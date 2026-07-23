@@ -351,6 +351,18 @@ export function App() {
   const [pickingFolder, setPickingFolder] = useState(false);
   const [tree, setTree] = useState<Array<{ name: string; path: string; type: string; size?: number | null }>>([]);
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+  const [updateInfo, setUpdateInfo] = useState<{
+    available?: boolean;
+    current?: string;
+    latest?: string;
+    download_url?: string | null;
+    html_url?: string;
+    error?: string | null;
+    name?: string | null;
+  } | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState("");
   const threadRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef<string | null>(null);
   const progressRef = useRef<PullProgress | null>(null);
@@ -376,6 +388,7 @@ export function App() {
     try {
       const health = await fetch(apiUrl("/health")).then((r) => r.json());
       setEngineOk(!!health?.ok);
+      if (health?.version) setAppVersion(String(health.version));
       setEnginePresent(
         typeof health?.engine_present === "boolean"
           ? health.engine_present
@@ -424,6 +437,52 @@ export function App() {
     void refresh();
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
+  }, []);
+
+  async function checkForUpdate(force = false) {
+    try {
+      const q = force ? "?force=1" : "";
+      const j = await fetch(apiUrl(`/v1/update${q}`)).then((r) => r.json());
+      setUpdateInfo(j);
+      if (j?.current) setAppVersion(String(j.current));
+      if (force && !j?.available) {
+        setUpdateMsg(j?.error || (j?.latest ? `You're on the latest version (${j.latest}).` : "No update available."));
+      }
+      return j;
+    } catch (e) {
+      setUpdateMsg(`Update check failed: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
+  async function applyUpdate() {
+    if (updateBusy) return;
+    setUpdateBusy(true);
+    setUpdateMsg("Downloading update…");
+    try {
+      const j = await fetch(apiUrl("/v1/update/apply"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ download_url: updateInfo?.download_url || undefined }),
+      }).then((r) => r.json());
+      if (j?.ok) {
+        setUpdateMsg(String(j.message || "Installer launched. Finish setup to upgrade."));
+      } else {
+        setUpdateMsg(String(j?.error || "Update failed."));
+        if (updateInfo?.html_url) {
+          window.open(updateInfo.html_url, "_blank", "noopener,noreferrer");
+        }
+      }
+    } catch (e) {
+      setUpdateMsg(`Update failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    const t = setTimeout(() => void checkForUpdate(false), 2500);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
@@ -916,6 +975,17 @@ export function App() {
         <div className="traffic-spacer" aria-hidden />
         <span className="titlebar-label">Windhover</span>
         <div className="titlebar-end">
+          {updateInfo?.available ? (
+            <button
+              type="button"
+              className="btn update-btn"
+              disabled={updateBusy}
+              onClick={() => void applyUpdate()}
+              title={`Update to ${updateInfo.latest}`}
+            >
+              {updateBusy ? "Updating…" : `Update to ${updateInfo.latest}`}
+            </button>
+          ) : null}
           <div className={`engine-pill compact ${engineState}`} title={engineTitle}>
             <i className="dot" aria-hidden />
             <strong>
@@ -930,6 +1000,31 @@ export function App() {
           </div>
         </div>
       </header>
+
+      {updateInfo?.available ? (
+        <div className="update-banner" role="status">
+          <strong>Update available</strong>
+          <span>
+            Windhover {updateInfo.latest} is ready
+            {updateInfo.current ? ` (you have ${updateInfo.current})` : ""}. Update in place — no
+            uninstall needed.
+          </span>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={updateBusy}
+            onClick={() => void applyUpdate()}
+          >
+            {updateBusy ? "Downloading…" : "Update now"}
+          </button>
+          {updateInfo.html_url ? (
+            <a className="btn ghost" href={updateInfo.html_url} target="_blank" rel="noreferrer">
+              Release notes
+            </a>
+          ) : null}
+          {updateMsg ? <span className="update-msg">{updateMsg}</span> : null}
+        </div>
+      ) : null}
 
       <div className="app-frame">
         <nav className="rail" aria-label="Primary">
@@ -1550,10 +1645,58 @@ export function App() {
                 <h1>Advanced</h1>
                 <p>Live telemetry — no fake model routing</p>
               </div>
-              <button type="button" className="btn ghost" onClick={() => void refresh()}>
-                Refresh
-              </button>
+              <div className="session-actions">
+                <button type="button" className="btn ghost" onClick={() => void refresh()}>
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={updateBusy}
+                  onClick={() => void checkForUpdate(true)}
+                >
+                  Check for updates
+                </button>
+              </div>
             </header>
+
+            <div className="adv-block update-block">
+              <h2>App updates</h2>
+              <p className="muted">
+                Current version: <code>{appVersion || updateInfo?.current || "…"}</code>
+                {updateInfo?.latest ? (
+                  <>
+                    {" "}
+                    · Latest: <code>{updateInfo.latest}</code>
+                  </>
+                ) : null}
+              </p>
+              {updateInfo?.available ? (
+                <p>
+                  A newer build is available. Click Update now — Windows replaces the install in
+                  place; on macOS open the DMG and drag to Applications.
+                </p>
+              ) : (
+                <p className="muted">{updateMsg || "You're up to date (checked against GitHub Releases)."}</p>
+              )}
+              <div className="modal-actions" style={{ marginTop: "0.75rem" }}>
+                {updateInfo?.available ? (
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={updateBusy}
+                    onClick={() => void applyUpdate()}
+                  >
+                    {updateBusy ? "Downloading…" : "Update now"}
+                  </button>
+                ) : null}
+                {updateInfo?.html_url ? (
+                  <a className="btn ghost" href={updateInfo.html_url} target="_blank" rel="noreferrer">
+                    Open releases
+                  </a>
+                ) : null}
+              </div>
+            </div>
 
             <div className="metrics-grid">
               <div className={`metric engine-status-metric ${engineOk && enginePresent !== false ? "on" : "off"}`}>

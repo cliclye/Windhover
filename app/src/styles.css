@@ -90,7 +90,7 @@ button:disabled {
   height: 100%;
   min-height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   background: var(--bg);
   overflow: hidden;
 }
@@ -134,6 +134,63 @@ button:disabled {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #e8b86a;
+}
+
+.update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.85rem;
+  padding: 0.55rem 1.25rem;
+  border-bottom: 1px solid rgba(72, 140, 110, 0.4);
+  background: rgba(46, 110, 84, 0.18);
+  color: #d5ebe0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.update-banner strong {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9fd4b8;
+}
+
+.update-banner .btn {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.update-banner .update-msg {
+  flex: 1 1 100%;
+  opacity: 0.9;
+  font-size: 0.78rem;
+}
+
+.btn.update-btn {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  border: 1px solid rgba(100, 180, 140, 0.45);
+  background: rgba(46, 110, 84, 0.35);
+  color: #dff5ea;
+  font-size: 0.72rem;
+  padding: 0.28rem 0.65rem;
+}
+
+.btn.update-btn:hover:not(:disabled) {
+  background: rgba(46, 110, 84, 0.55);
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.update-block {
+  margin: 0 1.25rem 1rem;
 }
 
 .traffic-spacer {

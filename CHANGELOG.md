@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.6] — 2026-07-23
+
+### App
+- **In-app updates:** when a newer GitHub Release exists, Windhover shows an **Update** button. Windows downloads the NSIS installer and upgrades in place (no uninstall). macOS opens the new DMG. Also under Advanced → Check for updates.
+
 ## [0.3.5] — 2026-07-23
 
 ### Bugs fixed

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free OpenAI-compatible HTTP gateway for the colibri engine."""
+"""Dependency-free OpenAI-compatible HTTP gateway for the windhover engine."""
 
 import argparse
 import codecs
@@ -155,7 +155,7 @@ def content_text(content, param):
     parts = []
     for index, part in enumerate(content):
         if not isinstance(part, dict) or part.get("type") not in ("text", "input_text"):
-            raise APIError(400, "Colibri currently supports text message content only.",
+            raise APIError(400, "Windhover currently supports text message content only.",
                            f"{param}.{index}", "unsupported_content_type")
         if not isinstance(part.get("text"), str):
             raise APIError(400, "Text content parts require a string `text` field.",
@@ -363,7 +363,7 @@ def render_chat(messages, enable_thinking=False, reasoning_effort=None, tools=No
 
 def generation_options(body, limit):
     if body.get("n", 1) != 1:
-        raise APIError(400, "Colibri currently supports `n=1` only.", "n", "unsupported_value")
+        raise APIError(400, "Windhover currently supports `n=1` only.", "n", "unsupported_value")
     # `tools`/`functions` are handled by render_chat (declaration) + parse_tool_calls (output).
     choice = body.get("tool_choice")
     if choice is not None:
@@ -429,7 +429,7 @@ def read_engine_turn(stream, sentinel, on_bytes):
     while True:
         byte = stream.read(1)
         if byte == b"":
-            raise RuntimeError("colibri engine exited unexpectedly")
+            raise RuntimeError("windhover engine exited unexpectedly")
         pending += byte
         if pending.endswith(sentinel):
             data = pending[:-len(sentinel)]
@@ -475,7 +475,7 @@ class Engine:
         self.hits_seq = 0                      # latest "TIERS" snapshot from the engine
         read_engine_turn(self.process.stdout, READY, lambda _: None)
         self.dispatcher = threading.Thread(target=self._dispatch_stdout,
-                                           name="colibri-stdout", daemon=True)
+                                           name="windhover-stdout", daemon=True)
         self.dispatcher.start()
 
     @staticmethod
@@ -514,7 +514,7 @@ class Engine:
             while True:
                 line = self.process.stdout.readline()
                 if line == b"":
-                    raise RuntimeError("colibri engine exited unexpectedly")
+                    raise RuntimeError("windhover engine exited unexpectedly")
                 fields = line.decode("utf-8", "replace").strip().split()
                 if not fields:
                     continue
@@ -585,11 +585,11 @@ class Engine:
         events = queue.Queue()
         with self.pending_lock:
             if self.closed:
-                raise RuntimeError("colibri engine is shutting down")
+                raise RuntimeError("windhover engine is shutting down")
             if self.dispatcher_error is not None:
-                raise RuntimeError("colibri engine dispatcher stopped") from self.dispatcher_error
+                raise RuntimeError("windhover engine dispatcher stopped") from self.dispatcher_error
             if self.process.poll() is not None:
-                raise RuntimeError("colibri engine is not running")
+                raise RuntimeError("windhover engine is not running")
             request_id = str(self.next_request_id)
             self.next_request_id += 1
             self.pending[request_id] = events
@@ -598,7 +598,7 @@ class Engine:
         try:
             with self.write_lock:
                 if self.process.poll() is not None:
-                    raise RuntimeError("colibri engine is not running")
+                    raise RuntimeError("windhover engine is not running")
                 self.process.stdin.write(header + payload + b"\n")
                 self.process.stdin.flush()
         except Exception:
@@ -632,7 +632,7 @@ class Engine:
             if self.closed:
                 return
             self.closed = True
-        self._fail_pending(RuntimeError("colibri engine is shutting down"))
+        self._fail_pending(RuntimeError("windhover engine is shutting down"))
         if self.process.poll() is None:
             self.process.terminate()
             try:
@@ -645,7 +645,7 @@ class Engine:
 
 
 def model_object(model_id, created):
-    return {"id": model_id, "object": "model", "created": created, "owned_by": "colibri"}
+    return {"id": model_id, "object": "model", "created": created, "owned_by": "windhover"}
 
 
 class APIServer(ThreadingHTTPServer):
@@ -667,7 +667,7 @@ class APIServer(ThreadingHTTPServer):
 
 class APIHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "colibri"
+    server_version = "windhover"
 
     def log_message(self, fmt, *args):
         sys.stderr.write("[api] %s - %s\n" % (self.address_string(), fmt % args))
@@ -693,7 +693,7 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.send_header("Access-Control-Expose-Headers",
-                         "x-request-id, x-colibri-queue-wait-ms, Retry-After")
+                         "x-request-id, x-windhover-queue-wait-ms, Retry-After")
         self.send_header("Access-Control-Max-Age", "600")
         if "*" not in self.server.cors_origins:
             self.send_header("Vary", "Origin")
@@ -822,7 +822,7 @@ class APIHandler(BaseHTTPRequestHandler):
             pass
         except Exception as error:
             self.log_error("request failed: %s", error)
-            api_error = APIError(500, "The colibri engine failed to process the request.",
+            api_error = APIError(500, "The windhover engine failed to process the request.",
                                  None, "engine_error", "server_error")
             try:
                 self.send_json(500, error_object(api_error), request_id)
@@ -864,7 +864,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         with self.server.scheduler.admit(self.client_disconnected, cache_slot) as admission:
             queue_wait, cache_slot = admission
-            queue_headers = {"x-colibri-queue-wait-ms": str(round(queue_wait * 1000))}
+            queue_headers = {"x-windhover-queue-wait-ms": str(round(queue_wait * 1000))}
             if not stream:
                 output = []
                 stats = self.server.engine.generate(
@@ -1051,13 +1051,13 @@ class APIHandler(BaseHTTPRequestHandler):
     def completion(self, body, request_id):
         prompt = body.get("prompt")
         if not isinstance(prompt, str):
-            raise APIError(400, "Colibri currently requires `prompt` to be a string.", "prompt")
+            raise APIError(400, "Windhover currently requires `prompt` to be a string.", "prompt")
         if not prompt:
             raise APIError(400, "`prompt` must not be empty.", "prompt")
         self.generation(body, prompt, request_id, False)
 
 
-def serve(model, host="127.0.0.1", port=8000, model_id="glm-5.2-colibri", api_key=None,
+def serve(model, host="127.0.0.1", port=8000, model_id="glm-5.2", api_key=None,
           cap=8, max_tokens=1024, engine=HERE / "glm", env=None, cors_origins=None,
           max_queue=8, queue_timeout=300, kv_slots=1):
     if not 1 <= max_tokens:
@@ -1099,7 +1099,7 @@ def main():
     parser.add_argument("--engine", default=str(HERE / "glm"))
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--model-id", default=os.environ.get("COLI_MODEL_ID", "glm-5.2-colibri"))
+    parser.add_argument("--model-id", default=os.environ.get("COLI_MODEL_ID", "glm-5.2"))
     parser.add_argument("--api-key", default=os.environ.get("COLI_API_KEY"))
     parser.add_argument("--cors-origin", action="append", default=None,
                         help="allowed browser origin; repeat as needed (use '*' for any origin)")

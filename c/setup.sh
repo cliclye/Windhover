@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# colibrì — installazione su una macchina nuova (Linux x86-64, macOS, Windows/MinGW).
+# Windhover — installazione su una macchina nuova (Linux x86-64, macOS, Windows/MinGW).
 # Compila il motore e fa un self-test. Il MODELLO (~372 GB int4) va copiato a parte
 # o rigenerato con: coli convert --model <dir-su-ext4/NVMe>
 set -e
 cd "$(dirname "$0")"
-echo "🐦 colibrì — setup"
+echo "🐦 Windhover — setup"
 
 UNAME_S=$(uname -s)
 

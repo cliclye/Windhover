@@ -1,5 +1,5 @@
 {
-  description = "colibrì — run GLM-5.2 (744B MoE) on a consumer machine with ~25 GB RAM";
+  description = "Windhover — run large MoE models on a consumer machine with ~25 GB RAM";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
@@ -21,8 +21,8 @@
           datasets
         ]);
 
-        colibri = pkgs.stdenv.mkDerivation {
-          pname = "colibri";
+        windhover = pkgs.stdenv.mkDerivation {
+          pname = "windhover";
           version = "1.0";
           src = ./.;
 
@@ -48,13 +48,13 @@
             cp c/glm $out/bin/glm
 
             # Wrap coli (the Python CLI) so it finds the right python and the engine
-            mkdir -p $out/share/colibri
-            cp c/coli $out/share/colibri/coli
-            chmod +x $out/share/colibri/coli
-            cp -r c/tools $out/share/colibri/tools
+            mkdir -p $out/share/windhover
+            cp c/coli $out/share/windhover/coli
+            chmod +x $out/share/windhover/coli
+            cp -r c/tools $out/share/windhover/tools
 
             makeWrapper ${pythonEnv}/bin/python $out/bin/coli \
-              --add-flags "$out/share/colibri/coli" \
+              --add-flags "$out/share/windhover/coli" \
               --set PYTHONPATH "${pythonEnv}/${pkgs.python3.sitePackages}"
             runHook postInstall
           '';
@@ -71,7 +71,7 @@
 
           meta = with pkgs.lib; {
             description = "Run GLM-5.2 (744B MoE) on a consumer machine with ~25 GB RAM";
-            homepage = "https://github.com/JustVugg/colibri";
+            homepage = "https://github.com/cliclye/Windhover";
             license = licenses.asl20;
             platforms = platforms.linux;
             mainProgram = "glm";
@@ -80,23 +80,23 @@
       in
       rec {
         packages = {
-          default = colibri;
-          inherit colibri;
+          default = windhover;
+          inherit windhover;
         };
 
         apps = {
           default = {
             type = "app";
-            program = "${colibri}/bin/glm";
+            program = "${windhover}/bin/glm";
           };
           coli = {
             type = "app";
-            program = "${colibri}/bin/coli";
+            program = "${windhover}/bin/coli";
           };
         };
 
         devShells.default = pkgs.mkShell {
-          inputsFrom = [ colibri ];
+          inputsFrom = [ windhover ];
 
           packages = [
             pythonEnv
@@ -107,7 +107,7 @@
           ];
 
           shellHook = ''
-            echo "🐦 colibrì dev shell"
+            echo "🐦 Windhover dev shell"
             echo "  gcc: $(gcc --version | head -1)"
             echo "  python: $(python3 --version)"
             echo ""

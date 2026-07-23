@@ -26,7 +26,7 @@ Flags may also be given **after** the subcommand. Most flags map onto an engine 
 | `chat` | Interactive REPL chat. |
 | `serve` | Start the OpenAI-compatible HTTP server. |
 | `bench [tasks]` | Run benchmark tasks (`--limit`, `--data`). |
-| `convert` | Convert an FP8 repo to a colibrì int4 snapshot. |
+| `convert` | Convert an FP8 repo to a Windhover int4 snapshot. |
 
 ### Common flags (all subcommands)
 

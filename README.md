@@ -194,7 +194,7 @@ Quantization helps, but a naive load still wants a large contiguous working set.
 3. **Chat / Agent** talk to `windhover-engine` with a hard RAM ceiling.
 4. **Advanced** shows live RSS, tok/s, footprint, sparsity, AU hit — no silent model swap.
 
-Numerics lineage (Apache-2.0): [UPSTREAM.md](UPSTREAM.md).
+Numerics lineage is Apache-2.0; see [LICENSE](LICENSE).
 
 ---
 
@@ -318,4 +318,4 @@ Model home: `~/.windhover/models` (falls back to `~/.kestrel/models` if present)
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE). Upstream attribution in [UPSTREAM.md](UPSTREAM.md).
+Apache-2.0 — see [LICENSE](LICENSE).

@@ -220,7 +220,7 @@ static void model_init(Model *m, const char *snap, int cap, int bits) {
  * questa patch il container int8 causava SIGBUS (st_read_f32 su tensori I8). */
 static void load_expert_w(Model *m, const char *name, int8_t *q, float *scale, int O, int I, float *tmp) {
     st_tensor *t = st_find(&m->S, name);
-    if (t && t->dtype == 3) {                    /* I8/U8: container colibri */
+    if (t && t->dtype == 3) {                    /* I8/U8: container windhover */
         char qs[300]; snprintf(qs, sizeof(qs), "%s.qs", name);
         st_read_raw(&m->S, name, q, 1);
         st_read_f32(&m->S, qs, scale, 1);

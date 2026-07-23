@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-colibrì — tiny engine, immense model.
+Windhover — tiny engine, immense model.
 Run GLM-5.2 (744B) locally on CPU with roughly 15-26 GB of RAM.
 
   coli chat                 interactive chat (loads the model once)
@@ -47,11 +47,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 #
 # Installed layout ("make install"): this script is $(PREFIX)/bin/coli,
 # while the engine binaries and support files live in
-# $(PREFIX)/libexec/colibri, since they aren't meant to be run directly
+# $(PREFIX)/libexec/windhover, since they aren't meant to be run directly
 # by users. COLI_ENGINE overrides the engine path explicitly if neither
 # guess is right (e.g. a custom packaging layout).
 _EXE = ".exe" if sys.platform == "win32" else ""
-_LIBEXEC = os.path.join(os.path.dirname(HERE), "libexec", "colibri")
+_LIBEXEC = os.path.join(os.path.dirname(HERE), "libexec", "windhover")
 _here_glm = os.path.join(HERE, "glm" + _EXE)
 
 if os.environ.get("COLI_ENGINE"):
@@ -81,7 +81,7 @@ class C:
 TTY = sys.stdout.isatty() or os.environ.get("COLI_COLOR")=="1"
 if not TTY: C.off()
 
-# ---------- colibrì 8-bit (pixel art, 2 pixel verticali per carattere) ----------
+# ---------- Windhover 8-bit (pixel art, 2 pixel verticali per carattere) ----------
 SPRITE = [
     "....MMM.........",
     "...MMMMM..w.....",
@@ -115,7 +115,7 @@ def sprite_lines():
 def banner(sub=""):
     sp=sprite_lines()
     txt=[
-        f"{C.teal}{C.b}colibrì{C.r} {C.dim}v1.0{C.r}",
+        f"{C.teal}{C.b}Windhover{C.r} {C.dim}v1.0{C.r}",
         f"{C.dim}tiny engine, immense model{C.r}",
         f"{C.gray}GLM-5.2 · 744B MoE · int4 · streaming CPU{C.r}",
         f"{C.dgray}{sub}{C.r}" if sub else "",
@@ -410,7 +410,7 @@ def cmd_build(a):
     banner("build")
     if not os.path.exists(os.path.join(HERE, "Makefile")):
         sys.exit(f"{C.yel}coli build{C.r} only works from a source checkout (this is an installed copy).\n"
-                  f"  Clone https://github.com/JustVugg/colibri and run ./setup.sh, or make -C c glm.")
+                  f"  Clone https://github.com/cliclye/Windhover and run ./setup.sh, or make -C c glm.")
     sys.exit(subprocess.call(["make","-C",HERE,"glm"]))
 
 def cmd_info(a):
@@ -576,7 +576,7 @@ def cmd_chat(a):
                 p.stdin.write(b"\x02MORE\n"); p.stdin.flush()
             else:
                 p.stdin.write((msg.replace("\n"," ")+"\n").encode()); p.stdin.flush()
-            print(f"\n  {C.teal}◆ colibrì{C.r}")
+            print(f"\n  {C.teal}◆ Windhover{C.r}")
             dec=codecs.getincrementaldecoder("utf-8")("replace")
             state={"first":True}
             def prefill_tick(path=errlog.name):
@@ -714,7 +714,7 @@ def main():
     common.add_argument("--cap", type=int, default=8); common.add_argument("--ngen", type=int, default=1024)  # rete di sicurezza: la fine vera la decidono gli stop token
     common.add_argument("--topp", type=float, default=0); common.add_argument("--topk", type=int, default=0)
     common.add_argument("--temp", type=float, default=None)  # temperatura token (0=greedy, default 1.0+nucleus .95)
-    ap=argparse.ArgumentParser(prog="coli", parents=[common], description="colibrì — run GLM-5.2 locally")
+    ap=argparse.ArgumentParser(prog="coli", parents=[common], description="Windhover — run GLM-5.2 locally")
     sub=ap.add_subparsers(dest="cmd")
     sub.add_parser("build", parents=[common]); sub.add_parser("info", parents=[common])
     pp=sub.add_parser("plan",parents=[common])
@@ -725,7 +725,7 @@ def main():
     sub.add_parser("chat", parents=[common])
     ps=sub.add_parser("serve", parents=[common])
     ps.add_argument("--host",default="127.0.0.1"); ps.add_argument("--port",type=int,default=8000)
-    ps.add_argument("--model-id",default=os.environ.get("COLI_MODEL_ID","glm-5.2-colibri"))
+    ps.add_argument("--model-id",default=os.environ.get("COLI_MODEL_ID","glm-5.2"))
     ps.add_argument("--api-key",default=os.environ.get("COLI_API_KEY"))
     ps.add_argument("--cors-origin",action="append",default=None)
     ps.add_argument("--max-queue",type=int,default=int(os.environ.get("COLI_MAX_QUEUE","8")))
@@ -733,7 +733,7 @@ def main():
     ps.add_argument("--kv-slots",type=int,default=int(os.environ.get("COLI_KV_SLOTS","1")))
     pw=sub.add_parser("web", parents=[common], help="serve + open the dashboard in a browser")
     for arg,kw in (("--host",dict(default="127.0.0.1")),("--port",dict(type=int,default=8000)),
-                   ("--model-id",dict(default=os.environ.get("COLI_MODEL_ID","glm-5.2-colibri"))),
+                   ("--model-id",dict(default=os.environ.get("COLI_MODEL_ID","glm-5.2"))),
                    ("--api-key",dict(default=os.environ.get("COLI_API_KEY"))),
                    ("--cors-origin",dict(action="append",default=None)),
                    ("--max-queue",dict(type=int,default=int(os.environ.get("COLI_MAX_QUEUE","8")))),
@@ -747,7 +747,7 @@ def main():
         _cache_root = os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))
     else:
         _cache_root = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-    _bench_cache = os.path.join(_cache_root, "colibri", "bench")
+    _bench_cache = os.path.join(_cache_root, "windhover", "bench")
     pb.add_argument("--data",default=_bench_cache)
     pc=sub.add_parser("convert", parents=[common]); pc.add_argument("--repo",default="zai-org/GLM-5.2-FP8")
     pc.add_argument("--ebits",type=int,default=4); pc.add_argument("--io-bits",type=int,default=8); pc.add_argument("--xbits",type=int,default=0)

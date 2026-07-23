@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hardware and model placement planning for colibri's disk/RAM/VRAM tiers."""
+"""Hardware and model placement planning for windhover's disk/RAM/VRAM tiers."""
 
 import json
 import os

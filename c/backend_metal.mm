@@ -1,4 +1,4 @@
-// Apple-GPU (Metal) backend for colibrì. Runtime-compiled shader (no Xcode needed),
+// Apple-GPU (Metal) backend for Windhover. Runtime-compiled shader (no Xcode needed),
 // zero-copy over unified memory. See backend_metal.h and docs/plans/2026-07-10-*.
 #import <Metal/Metal.h>
 #import <Foundation/Foundation.h>

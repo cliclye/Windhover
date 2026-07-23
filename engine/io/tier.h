@@ -1,5 +1,5 @@
-#ifndef COLIBRI_TIER_H
-#define COLIBRI_TIER_H
+#ifndef WINDHOVER_TIER_H
+#define WINDHOVER_TIER_H
 
 #include <stdint.h>
 

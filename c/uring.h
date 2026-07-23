@@ -1,7 +1,7 @@
 #ifndef COLI_URING_H
 #define COLI_URING_H
 
-/* Minimal Linux io_uring reader.  Colibri owns the ring from one thread, queues
+/* Minimal Linux io_uring reader.  Windhover owns the ring from one thread, queues
  * a batch of positioned reads, and reaps CQEs without a userspace spin loop. */
 #ifdef __linux__
 

@@ -1,5 +1,5 @@
-#ifndef COLIBRI_BACKEND_METAL_H
-#define COLIBRI_BACKEND_METAL_H
+#ifndef WINDHOVER_BACKEND_METAL_H
+#define WINDHOVER_BACKEND_METAL_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 /*
- * Apple-GPU (Metal) backend for colibrì. Apple Silicon has one GPU and unified
+ * Apple-GPU (Metal) backend for Windhover. Apple Silicon has one GPU and unified
  * memory, so there is no device list and no host<->device copy: resident weights
  * are read zero-copy from the RAM they already occupy. The shader is compiled at
  * runtime (newLibraryWithSource:), so no Xcode / offline metal compiler is needed.

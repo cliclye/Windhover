@@ -109,7 +109,7 @@ endif
 # --- install ---
 PREFIX     ?= /usr/local
 BINDIR     ?= $(PREFIX)/bin
-LIBEXECDIR ?= $(PREFIX)/libexec/colibri
+LIBEXECDIR ?= $(PREFIX)/libexec/windhover
 INSTALL    ?= install
 
 # CUDA=1 adds an opt-in backend for resident tensors. The default build remains

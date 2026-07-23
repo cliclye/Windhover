@@ -342,7 +342,7 @@ def main():
         print(f"[nvfp4] round-trip encode->dequant: max abs err = {maxerr:.3e} "
               f"({'OK' if maxerr < 1e-9 else 'FAIL'})")
         assert maxerr < 1e-9
-        # 3) requant colibri int4 su valori dequantati -> errore piccolo atteso
+        # 3) requant windhover int4 su valori dequantati -> errore piccolo atteso
         q, s = quant_int4(got.astype(np.float32), 4)
         rb = (I + 1)//2; qb = q.reshape(O, rb)
         lo = (qb & 0x0F).astype(np.int32) - 8; hi = ((qb >> 4) & 0x0F).astype(np.int32) - 8
@@ -353,7 +353,7 @@ def main():
         # spaziano 16x per il block-scale costa ~0.17 di errore relativo di suo. La soglia
         # larga becca solo una corruzione grossolana, non e' un bound di precisione.
         # EN: informational — per-row int4 requant of 16x-block-range data inherently ~0.17.
-        print(f"[nvfp4] dequant->colibri int4->dequant: errore rel medio = {rel:.4f} "
+        print(f"[nvfp4] dequant->windhover int4->dequant: errore rel medio = {rel:.4f} "
               f"(atteso ~0.17; {'OK' if rel < 0.30 else 'ANOMALO'})")
         assert rel < 0.30, f"requant rel err {rel:.3f} troppo alto: dequant probabilmente corrotto"
         print("[nvfp4] SELFTEST OK")
@@ -481,7 +481,7 @@ def main():
             s0, s1 = segs[t]
             while done[t] < s1 - s0 and not stopfail:
                 pos = s0 + done[t]
-                req = urllib.request.Request(url, headers={"User-Agent": "colibri-convert",
+                req = urllib.request.Request(url, headers={"User-Agent": "windhover-convert",
                                                            "Range": f"bytes={pos}-{s1-1}"})
                 try:
                     with urllib.request.urlopen(req, timeout=8) as r:
@@ -543,7 +543,7 @@ def main():
             have = os.path.getsize(part) if os.path.exists(part) else 0
             if expected is not None and have >= expected: break
             have0 = have
-            req = urllib.request.Request(url, headers={"User-Agent": "colibri-convert"})
+            req = urllib.request.Request(url, headers={"User-Agent": "windhover-convert"})
             if have: req.add_header("Range", f"bytes={have}-")
             try:
                 with urllib.request.urlopen(req, timeout=8) as r:

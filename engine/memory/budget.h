@@ -1,4 +1,4 @@
-/* budget.h — Phase 1 hard RAM ceiling on top of colibrì's soft RAM_GB plan.
+/* budget.h — Phase 1 hard RAM ceiling on top of Windhover's soft RAM_GB plan.
  *
  * probe_hardware / compute_plan mirror coli plan / resource_plan arithmetic.
  * budget_apply_hard_cap enforces the target via:

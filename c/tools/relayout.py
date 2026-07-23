@@ -8,7 +8,7 @@ Zero quality risk — pure I/O engineering:
   4. Emit a layout manifest (expert_id → new rank) for a future rewriter
 
 Input formats (any mix):
-  - ROUTE_TRACE lines: "call pos layer id:gate ..." (colibrì ROUTE_TRACE)
+  - ROUTE_TRACE lines: "call pos layer id:gate ..." (Windhover ROUTE_TRACE)
   - .coli_usage / stats.txt heat dumps (layer expert count ...)
 
 Usage:

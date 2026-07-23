@@ -1,5 +1,5 @@
-#ifndef COLIBRI_BACKEND_CUDA_H
-#define COLIBRI_BACKEND_CUDA_H
+#ifndef WINDHOVER_BACKEND_CUDA_H
+#define WINDHOVER_BACKEND_CUDA_H
 
 #include <stddef.h>
 #include <stdint.h>

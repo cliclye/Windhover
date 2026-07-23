@@ -37,7 +37,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 KESTREL_BIN = ROOT / "engine" / "windhover-engine"
-BASELINE_BIN = Path(os.environ.get("BASELINE_BIN", "/tmp/colibri-clone/c/glm"))
+BASELINE_BIN = Path(os.environ.get("BASELINE_BIN", "/tmp/windhover-baseline/c/glm"))
 OUT = ROOT / "docs" / "real_model_bench.json"
 
 TOK_RE = re.compile(r"([\d.]+)\s*tok/s", re.I)

@@ -61,7 +61,7 @@ class MakefilePlatformTests(unittest.TestCase):
                 self.assertIn(expected_flag, result.stdout)
 
     def test_darwin_portable_build_does_not_force_x86_architecture(self):
-        missing_libomp = "/colibri-test/missing-libomp"
+        missing_libomp = "/windhover-test/missing-libomp"
         result = self._dry_run(
             "portable", "arm64-apple-darwin", OMPDIR=missing_libomp
         )

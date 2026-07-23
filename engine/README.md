@@ -28,4 +28,4 @@ SNAP=~/.windhover/models/Qwen__Qwen2.5-Coder-1.5B-Instruct/kpk \
   PROMPT='Say hi' NGEN=32 ./windhover-engine 64 4 4
 ```
 
-Attribution: numerics lineage documented in repo-root `UPSTREAM.md` (Apache-2.0).
+Attribution: Apache-2.0 — see repo-root [LICENSE](../LICENSE).

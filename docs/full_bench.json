@@ -32,7 +32,7 @@
   },
   "stock": {
     "name": "stock",
-    "binary": "/tmp/colibri-clone/c/glm",
+    "binary": "/tmp/windhover-baseline/c/glm",
     "sha256": "0947bee45257e9a3cb5dc55b3b6c71473ef1f90803e454e3a032674026f5b277",
     "all_correct": true,
     "oracle": "32/32",

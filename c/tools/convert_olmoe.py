@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert OLMoE HuggingFace checkpoint to colibri int4 format.
+"""Convert OLMoE HuggingFace checkpoint to windhover int4 format.
 
 Downloads or converts a local OLMoE checkpoint (e.g., allenai/OLMoE-1B-7B-0125-Instruct).
 Dense weights stay as-is (engine reads BF16/F16 → F32 on load).
@@ -44,7 +44,7 @@ def is_expert_weight(name: str) -> bool:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Convert OLMoE HF checkpoint -> colibri int4")
+    ap = argparse.ArgumentParser(description="Convert OLMoE HF checkpoint -> int4")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--repo", help="HuggingFace repo ID")
     src.add_argument("--model", help="Local HF checkpoint directory")

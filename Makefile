@@ -7,7 +7,7 @@ all engine windhover-engine kestrel-engine:
 test-oracle:
 	$(MAKE) -C engine test-oracle ARCH=$(or $(ARCH),native)
 
-# Legacy colibrì tree (reference only)
+# Legacy Windhover tree (reference only)
 glm portable test check cuda-test install uninstall:
 	$(MAKE) -C c $@
 

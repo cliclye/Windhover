@@ -1,6 +1,6 @@
 # Environment Variables
 
-Reference for the environment variables read by the colibrì engine.
+Reference for the environment variables read by the Windhover engine.
 
 **Generated from `upstream/dev @ 6d3ed7e`** by scanning every `getenv()` site in `c/glm.c`. Defaults and behavior are taken from the source; see [MAINTAINING-DOCS.md](MAINTAINING-DOCS.md) to regenerate this after the code changes.
 

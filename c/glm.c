@@ -450,7 +450,7 @@ static void matmul_i4_grouped(float *y, const float *x, const uint8_t *q4, const
 }
 /* Decode hot path for gate+up: same exact q4 dot products as matmul_i4, but one
  * OpenMP dispatch covers both matrices. KTransformers uses persistent pools;
- * this keeps colibri dependency-free while removing one team launch/expert. */
+ * this keeps windhover dependency-free while removing one team launch/expert. */
 static void matmul_i4_pair(float *yg, float *yu, const float *x,
                            const uint8_t *qg, const float *sg,
                            const uint8_t *qu, const float *su, int I, int O){
@@ -5443,7 +5443,7 @@ static void stats_dump(Model *m, const char *path){ stats_dump_q(m,path,0); }
 
 /* CACHE CHE IMPARA: istogramma d'uso PERSISTENTE in <SNAP>/.coli_usage.
  * Caricato all'avvio (i contatori ripartono dalla storia), salvato a ogni turno:
- * piu' usi colibri', meglio l'auto-pin conosce i TUOI expert caldi. */
+ * piu' usi windhover, meglio l'auto-pin conosce i TUOI expert caldi. */
 static char g_usage_path[2100]="";
 static int64_t usage_load(Model *m, const char *path){
     FILE *f=fopen(path,"r"); if(!f) return 0;
@@ -5454,7 +5454,7 @@ static int64_t usage_load(Model *m, const char *path){
 }
 static void usage_save(Model *m){ if(g_usage_path[0]) stats_dump_q(m,g_usage_path,1); }
 
-/* HOT-STORE ("il redis del colibri'"): carica in RAM, UNA VOLTA e per sempre, i top expert
+/* HOT-STORE ("il redis del windhover'"): carica in RAM, UNA VOLTA e per sempre, i top expert
  * per frequenza d'uso misurata (file STATS di un run precedente), entro un budget in GB.
  * Ogni hit evita una lettura dal disco lento. */
 /* MLOCK: inchioda in RAM fisica gli expert pinnati cosi' il compressore di memoria di

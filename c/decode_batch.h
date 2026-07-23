@@ -1,5 +1,5 @@
-#ifndef COLIBRI_DECODE_BATCH_H
-#define COLIBRI_DECODE_BATCH_H
+#ifndef WINDHOVER_DECODE_BATCH_H
+#define WINDHOVER_DECODE_BATCH_H
 
 #include <stddef.h>
 #include <stdio.h>

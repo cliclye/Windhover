@@ -1,4 +1,4 @@
-# warmup.ps1 - overnight expert-cache warmup for colibri
+# warmup.ps1 - overnight expert-cache warmup for windhover
 #
 # Runs `coli run` in a loop with diverse prompts so the engine records which
 # routed experts your workload actually uses into .coli_usage. At startup the
@@ -91,7 +91,7 @@ $start = Get-Date
 $baseline = Get-Selections
 $line = "=" * 72
 "$line"                                  | Tee-Object -FilePath $Log -Append
-"colibri warmup - started $start"        | Tee-Object -FilePath $Log -Append
+"windhover warmup - started $start"        | Tee-Object -FilePath $Log -Append
 "  model:    $Model"                     | Tee-Object -FilePath $Log -Append
 "  rounds:   $Rounds x $($Prompts.Count) prompts" | Tee-Object -FilePath $Log -Append
 "  ngen:     $Ngen tokens/prompt"        | Tee-Object -FilePath $Log -Append
@@ -139,7 +139,7 @@ $final = Get-Selections
 $gain = $final - $baseline
 $duration = ($end - $start).ToString("hh\:mm\:ss")
 "$line"                                           | Tee-Object -FilePath $Log -Append
-"colibri warmup - finished $end"                  | Tee-Object -FilePath $Log -Append
+"windhover warmup - finished $end"                  | Tee-Object -FilePath $Log -Append
 "  duration:    $duration"                        | Tee-Object -FilePath $Log -Append
 "  selections:  $baseline -> $final (+$gain)"     | Tee-Object -FilePath $Log -Append
 "  next: python coli chat --model $Model"         | Tee-Object -FilePath $Log -Append

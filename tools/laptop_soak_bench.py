@@ -25,7 +25,7 @@ from bench_host import host_info
 
 ROOT = Path(__file__).resolve().parents[1]
 KESTREL_BIN = ROOT / "engine" / "windhover-engine"
-BASELINE_BIN = Path(os.environ.get("BASELINE_BIN", "/tmp/colibri-clone/c/glm"))
+BASELINE_BIN = Path(os.environ.get("BASELINE_BIN", "/tmp/windhover-baseline/c/glm"))
 SNAP = Path(
     os.environ.get(
         "KESTREL_SNAP",

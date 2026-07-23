@@ -30,9 +30,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 KESTREL_GLM = ROOT / "engine" / "windhover-engine"
-STOCK_GLM = Path("/tmp/colibri-clone/c/glm")
+STOCK_GLM = Path("/tmp/windhover-baseline/c/glm")
 KESTREL_C = ROOT / "engine"
-STOCK_C = Path("/tmp/colibri-clone/c")
+STOCK_C = Path("/tmp/windhover-baseline/c")
 # Kestrel fixtures live under engine/fixtures; SNAP still ./glm_tiny via symlink in engine/
 FIXTURE_SNAP = "./fixtures/glm_tiny"
 

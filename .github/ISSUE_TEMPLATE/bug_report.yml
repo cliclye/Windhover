@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible defect in Colibri.
+description: Report a reproducible defect in Windhover.
 title: "[Bug]: "
 body:
   - type: markdown

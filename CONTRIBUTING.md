@@ -1,6 +1,7 @@
 # Contributing
 
-Keep changes focused and preserve Colibri's dependency-free default CPU path.
+Thanks for helping improve Windhover. Keep changes focused, and preserve the
+dependency-free default CPU path for `windhover-engine`.
 
 ## Branches
 

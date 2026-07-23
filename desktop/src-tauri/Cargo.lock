@@ -1579,7 +1579,8 @@ dependencies = [
 ]
 
 [[package]]
-version = "0.3.1"
+name = "kestrel-desktop"
+version = "0.3.2"
 dependencies = [
  "tauri",
  "tauri-build",

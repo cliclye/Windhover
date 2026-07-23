@@ -12,5 +12,5 @@ Run them from `c/`, for example:
 
 ```sh
 python3 tools/convert_fp8_to_int4.py --selftest
-python3 tools/make_glm_bench_model.py --output /tmp/colibri-bench
+python3 tools/make_glm_bench_model.py --output /tmp/windhover-bench
 ```

@@ -118,7 +118,7 @@ These are read by the Python programs (not the `glm` engine), so they don't appe
 | `COLI_TOOL_SALVAGE` | `0` (off) | Opt-in de-mangler: reconstruct a malformed int4 tool call by mapping its lone payload onto the tool's primary parameter. Never rewrites well-formed output; recommended for int4 deployments. |
 | `COLI_THINK` | `0` (off) | Make thinking the default when the client sends *neither* `reasoning_effort` nor `enable_thinking`. Any explicit client value still wins. |
 | `COLI_MODEL` | unset | Default model directory (fallback for `--model`). |
-| `COLI_MODEL_ID` | `glm-5.2-colibri` | Model id reported by the API. |
+| `COLI_MODEL_ID` | `glm-5.2` | Model id reported by the API. |
 | `COLI_API_KEY` | unset | Required bearer token for the server. |
 | `COLI_MAX_QUEUE` | `8` | Max queued requests. |
 | `COLI_QUEUE_TIMEOUT` | `300` | Seconds a request may wait in the queue. |

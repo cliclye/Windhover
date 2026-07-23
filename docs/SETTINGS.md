@@ -54,7 +54,7 @@ Flags may also be given **after** the subcommand. Most flags map onto an engine 
 |---|---|---|
 | `--host` | `127.0.0.1` | Bind address. |
 | `--port` | `8000` | Port. |
-| `--model-id` | `$COLI_MODEL_ID` or `glm-5.2-colibri` | Model id reported by the API. |
+| `--model-id` | `$COLI_MODEL_ID` or `glm-5.2` | Model id reported by the API. |
 | `--api-key` | `$COLI_API_KEY` | Require this bearer token. |
 | `--cors-origin` | none (repeatable) | Allowed CORS origin(s). |
 | `--max-queue` | `$COLI_MAX_QUEUE` or `8` | Max queued requests. |
@@ -86,7 +86,7 @@ Run directly (or via `coli serve`). OpenAI-compatible `/v1/chat/completions`.
 | `--engine` | `./glm` | Path to the engine binary. |
 | `--host` | `127.0.0.1` | Bind address. |
 | `--port` | `8000` | Port. |
-| `--model-id` | `$COLI_MODEL_ID` or `glm-5.2-colibri` | Model id in API responses. |
+| `--model-id` | `$COLI_MODEL_ID` or `glm-5.2` | Model id in API responses. |
 | `--api-key` | `$COLI_API_KEY` | Required bearer token. |
 | `--cors-origin` | none (repeatable) | Allowed CORS origin(s). |
 | `--cap` | `8` | Expert-cache cap. |

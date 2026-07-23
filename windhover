@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import shutil
@@ -28,6 +29,112 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+# Windows consoles default to a legacy code page (cp1252/charmap). Progress
+# messages and huggingface_hub/tqdm use Unicode (e.g. U+2192), which raises
+# UnicodeEncodeError and aborts Library downloads. Force UTF-8 early and wrap
+# stdio so a failed reconfigure can never crash a pull.
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+if sys.platform == "win32":
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    os.environ.setdefault("TQDM_DISABLE", "1")
+
+
+class _SafeTextIO:
+    """Text stream wrapper that never raises UnicodeEncodeError on write."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    @property
+    def encoding(self) -> str:
+        if self._stream is None:
+            return "utf-8"
+        return getattr(self._stream, "encoding", None) or "utf-8"
+
+    def write(self, s):
+        if self._stream is None:
+            return 0 if s is None else len(s)
+        if not isinstance(s, str):
+            return self._stream.write(s)
+        try:
+            return self._stream.write(s)
+        except UnicodeEncodeError:
+            enc = self.encoding
+            safe = s.encode(enc, errors="replace").decode(enc, errors="replace")
+            return self._stream.write(safe)
+
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
+    def flush(self):
+        if self._stream is not None and hasattr(self._stream, "flush"):
+            self._stream.flush()
+
+    def reconfigure(self, *args, **kwargs):
+        if self._stream is not None and hasattr(self._stream, "reconfigure"):
+            return self._stream.reconfigure(*args, **kwargs)
+        return None
+
+    def isatty(self):
+        if self._stream is None:
+            return False
+        try:
+            return bool(self._stream.isatty())
+        except Exception:
+            return False
+
+    def fileno(self):
+        if self._stream is None:
+            raise io.UnsupportedOperation("fileno")
+        return self._stream.fileno()
+
+    def __getattr__(self, name):
+        if self._stream is None:
+            raise AttributeError(name)
+        return getattr(self._stream, name)
+
+
+class _NullTextIO(io.TextIOBase):
+    """Sink for windowed PyInstaller builds where stdout/stderr are None."""
+
+    encoding = "utf-8"
+
+    def write(self, s):
+        return 0 if s is None else len(s)
+
+    def flush(self):
+        return None
+
+
+def _configure_stdio_utf8() -> None:
+    """Make stdout/stderr UTF-8-safe so download progress cannot crash on Windows."""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            setattr(sys, name, _SafeTextIO(_NullTextIO()))
+            continue
+        if isinstance(stream, _SafeTextIO):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
+        # Always wrap: reconfigure is a no-op on some redirected/legacy handles.
+        setattr(sys, name, _SafeTextIO(stream))
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+            ctypes.windll.kernel32.SetConsoleCP(65001)
+        except Exception:
+            pass
+
+
+_configure_stdio_utf8()
 
 ROOT = Path(os.environ.get("WINDHOVER_ROOT", Path(__file__).resolve().parent))
 ENGINE_DIR = ROOT / "engine"
@@ -518,8 +625,8 @@ def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
     if _has_kpk(snap):
         return True
     if job_id:
-        _job_set(job_id, status="running", pct=98, message="Windhover convert (int4-g64 + calibrate)…")
-    print("running Windhover convert (one-time quantize + calibrate)…")
+        _job_set(job_id, status="running", pct=98, message="Windhover convert (int4-g64 + calibrate)...")
+    print("running Windhover convert (one-time quantize + calibrate)...")
     py = _ml_python()
     rc = subprocess.call([py, str(tool), "--snap", str(snap)])
     if rc != 0:
@@ -1279,7 +1386,7 @@ def _engine_env(model: Path, ram: float | None) -> dict[str, str]:
 
 def cmd_chat(ns: argparse.Namespace) -> int:
     if not ENGINE_BIN.is_file():
-        print("engine missing — run: windhover build", file=sys.stderr)
+        print("engine missing - run: windhover build", file=sys.stderr)
         return 1
     model = Path(ns.model)
     if not model.is_dir():
@@ -1300,7 +1407,7 @@ def cmd_chat(ns: argparse.Namespace) -> int:
 def cmd_serve(ns: argparse.Namespace) -> int:
     """Minimal serve: prefer coli openai_server with Windhover engine binary."""
     if not ENGINE_BIN.is_file():
-        print("engine missing — run: windhover build", file=sys.stderr)
+        print("engine missing - run: windhover build", file=sys.stderr)
         return 1
     model = Path(ns.model) if ns.model else None
     server = C_DIR / "openai_server.py"
@@ -1390,7 +1497,7 @@ def _install_fixture(mid: str, entry: dict, dest: Path) -> int:
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
     _write_kestrel_meta(dest, mid, entry, runner=False, chat=entry.get("chat") or "engine-oracle")
-    print(f"done (engine demo fixture → {dest})")
+    print(f"done (engine demo fixture -> {dest})")
     return 0
 
 
@@ -1412,7 +1519,7 @@ def _install_preview(mid: str, entry: dict, dest: Path) -> int:
         f"{entry.get('preview_repo') or PREVIEW_REPO} on first chat.\n"
         "This is NOT Kimi, Qwen, or any frontier MoE.\n"
     )
-    print(f"done (chat preview → {dest})")
+    print(f"done (chat preview -> {dest})")
     return 0
 
 
@@ -1476,7 +1583,7 @@ def _hf_snapshot_download(
                 status="running",
                 pct=1,
                 bytes=0,
-                message=f"Connecting to Hugging Face ({repo})…",
+                message=f"Connecting to Hugging Face ({repo})...",
             )
         mon = threading.Thread(target=monitor, daemon=True)
         mon.start()
@@ -1485,6 +1592,8 @@ def _hf_snapshot_download(
             # silently fill ~/.cache and double-consume disk on copy.
             cache_dir = MODELS_DIR / ".hf-cache"
             cache_dir.mkdir(parents=True, exist_ok=True)
+            # Re-wrap stdio right before HF I/O — libraries may reset handlers.
+            _configure_stdio_utf8()
             snapshot_download(
                 repo_id=repo,
                 local_dir=str(dest),
@@ -1502,7 +1611,7 @@ def _hf_snapshot_download(
                 status="running",
                 pct=97,
                 bytes=cur,
-                message=f"Verifying download ({_fmt_bytes(cur)})…",
+                message=f"Verifying download ({_fmt_bytes(cur)})...",
             )
     except OSError as e:
         if getattr(e, "errno", None) == 28:
@@ -1515,6 +1624,8 @@ def _hf_snapshot_download(
 
 
 def cmd_pull(ns: argparse.Namespace) -> int:
+    # Re-assert safe stdio: Windows pull threads/sidecars can inherit cp1252 handles.
+    _configure_stdio_utf8()
     catalog = {m["id"]: m for m in load_catalog()}
     mid = ns.model_id
     job_id = getattr(ns, "job_id", None)
@@ -1526,7 +1637,7 @@ def cmd_pull(ns: argparse.Namespace) -> int:
     entry = catalog[mid]
     dest = MODELS_DIR / mid.replace("/", "__")
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"pulling {mid} → {dest}")
+    print(f"pulling {mid} -> {dest}")
 
     # Demos removed from catalog — refuse if an old client still asks.
     if entry.get("source") in ("preview", "fixture") or mid.endswith("chat-preview") or "glm-tiny" in mid:
@@ -1578,7 +1689,7 @@ def cmd_pull(ns: argparse.Namespace) -> int:
     dest.mkdir(parents=True, exist_ok=True)
 
     try:
-        print(f"downloading {repo} (~{size_gb} GB) via huggingface_hub…")
+        print(f"downloading {repo} (~{size_gb} GB) via huggingface_hub...")
         _hf_snapshot_download(
             repo,
             dest,
@@ -1613,8 +1724,8 @@ def cmd_pull(ns: argparse.Namespace) -> int:
         convert = C_DIR / "tools" / "convert_fp8_to_int4.py"
         if convert.is_file():
             if job_id:
-                _job_set(job_id, status="running", pct=98, message="Converting FP8→int4…")
-            print("running FP8→int4 convert (may take a long time)…")
+                _job_set(job_id, status="running", pct=98, message="Converting FP8->int4...")
+            print("running FP8->int4 convert (may take a long time)...")
             out = dest / "int4"
             out.mkdir(exist_ok=True)
             rc = subprocess.call(
@@ -1748,7 +1859,7 @@ def cmd_purge_impostors(_: argparse.Namespace) -> int:
         if not kill:
             continue
         kind = "demo" if _is_demo_pack(path) else "impostor"
-        print(f"purging {kind} pack: {mid} → {path}")
+        print(f"purging {kind} pack: {mid} -> {path}")
         shutil.rmtree(path)
         n += 1
     print(f"purged {n} fake/demo pack(s)")
@@ -2658,10 +2769,18 @@ def cmd_app(ns: argparse.Namespace) -> int:
     if not dist.is_dir():
         pkg = ROOT / "app" / "package.json"
         if pkg.is_file() and not os.environ.get("WINDHOVER_APP_NO_AUTOPULL"):
-            print("building app…")
+            print("building app...")
             subprocess.call(["npm", "run", "build"], cwd=str(ROOT / "app"))
-    # Remove fake MoE stubs + Chat Preview / oracle demos
-    cmd_purge_impostors(argparse.Namespace())
+    # Packaged desktop sidecars set WINDHOVER_APP_NO_AUTOPULL=1. Defer impostor
+    # cleanup so /health comes up immediately (avoids a long frozen first launch).
+    if os.environ.get("WINDHOVER_APP_NO_AUTOPULL"):
+        threading.Thread(
+            target=lambda: cmd_purge_impostors(argparse.Namespace()),
+            daemon=True,
+            name="purge-impostors",
+        ).start()
+    else:
+        cmd_purge_impostors(argparse.Namespace())
     model = Path(ns.model) if ns.model else None
     if model is None:
         installed = [
@@ -2812,7 +2931,7 @@ def cmd_convert(ns: argparse.Namespace) -> int:
     rc = subprocess.call(cmd)
     if rc != 0 and not ns.no_calib:
         # calibration needs torch; fall back to plain quant pack
-        print("convert with calib failed — retrying without AWQ/calib…", file=sys.stderr)
+        print("convert with calib failed - retrying without AWQ/calib...", file=sys.stderr)
         rc = subprocess.call(
             [py, str(tool), "--snap", str(snap), "--attn-bits", str(ns.attn_bits),
              "--no-calib", "--no-awq"]

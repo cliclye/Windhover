@@ -76,7 +76,7 @@ keys, separators, quotes and enum bodies force everything. Two practical levers:
 
 ## Prior art
 
-The umbrella idea is not colibri's: **jump-forward decoding** (SGLang;
+The umbrella idea is not original to this tree: **jump-forward decoding** (SGLang;
 [XGrammar](https://arxiv.org/abs/2411.15100)) skips grammar-deterministic tokens by
 *constraining output*, and Outlines' coalescence does the analogous FSM move. What
 this implementation adds: forced spans as a **draft source verified in the target's

@@ -108,7 +108,12 @@ fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
         let mut cmd = Command::new(&server);
         cmd.env("WINDHOVER_HOST", "127.0.0.1")
             .env("WINDHOVER_PORT", "8000")
-            .env("WINDHOVER_APP_NO_AUTOPULL", "1");
+            .env("WINDHOVER_APP_NO_AUTOPULL", "1")
+            // Avoid Windows cp1252 UnicodeEncodeError on download progress (U+2192).
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+            .env("TQDM_DISABLE", "1");
         if let Some(eng) = sidecar_engine(&dirs) {
             cmd.env("WINDHOVER_ENGINE", &eng);
         }
@@ -121,7 +126,9 @@ fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
             server.display()
         );
         if let Some(mut child) = spawn_command(cmd) {
-            for _ in 0..80 {
+            // Wait longer on Windows — first launch often includes AV scanning.
+            let attempts = if cfg!(windows) { 300 } else { 80 };
+            for _ in 0..attempts {
                 if health_ok() {
                     return Some(child);
                 }
@@ -131,6 +138,8 @@ fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
                 }
                 thread::sleep(Duration::from_millis(100));
             }
+            // Keep the child even if health is still warming; navigate loop will retry.
+            return Some(child);
         }
     }
 
@@ -173,6 +182,10 @@ fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
         .arg("127.0.0.1")
         .arg("--port")
         .arg("8000")
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+        .env("TQDM_DISABLE", "1")
         .current_dir(&root);
 
     let mut child = spawn_command(cmd)?;
@@ -196,15 +209,26 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle().clone();
-            let child = start_backend(Some(&handle));
-            app.manage(Backend(Mutex::new(child)));
+            // Do not block the UI thread waiting for the sidecar — PyInstaller +
+            // Windows Defender can take tens of seconds on first launch.
+            app.manage(Backend(Mutex::new(None)));
+            let handle_bg = handle.clone();
+            thread::spawn(move || {
+                let child = start_backend(Some(&handle_bg));
+                if let Some(state) = handle_bg.try_state::<Backend>() {
+                    if let Ok(mut guard) = state.0.lock() {
+                        *guard = child;
+                    }
+                }
+            });
 
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_title("Windhover");
                 // Prefer the live Windhover server (UI + API same-origin).
                 let win2 = win.clone();
                 thread::spawn(move || {
-                    for _ in 0..90 {
+                    // Up to ~60s for slow first-run sidecar extraction / AV scan.
+                    for _ in 0..600 {
                         if health_ok() {
                             let url = Url::parse("http://127.0.0.1:8000/").expect("static url");
                             if let Err(e) = win2.navigate(url) {

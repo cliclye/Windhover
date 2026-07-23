@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.4] — 2026-07-23
+
+### Fixes
+- **Windows installer:** NSIS preinstall hook stops `Windhover.exe` / `windhover-server.exe` / `windhover-engine.exe` before copying files, so upgrades no longer fail with `Error opening file for writing: ...\windhover-server.exe`.
+
+
 ## [0.3.3] — 2026-07-23
 
 ### Fixes

@@ -65,8 +65,11 @@ Stable URLs:
 ### Install
 
 1. Download the installer for your architecture
-2. Run the NSIS setup (current-user install by default)
-3. Launch **Windhover** from the Start menu
+2. **Quit Windhover** if it is open (the installer also stops `windhover-server.exe` automatically)
+3. Run the NSIS setup (current-user install by default)
+4. Launch **Windhover** from the Start menu
+
+If setup says **Error opening file for writing: …\windhover-server.exe**, an old sidecar is still running — choose **Retry** after a second, or end `Windhover` / `windhover-server` in Task Manager and retry. v0.3.4+ kills those processes before copying files.
 
 The installer embeds `windhover-server` + `windhover-engine` — no repo checkout, Python, or MinGW required for end users. Models live under `%USERPROFILE%\.windhover\models`.
 

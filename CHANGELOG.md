@@ -4,6 +4,8 @@
 
 ### Fixes
 - **Windows model download:** Library/`windhover pull` no longer crashes with `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'`. Force UTF-8 stdio (and disable HF progress bars on Windows) so download banners and huggingface_hub output survive legacy cp1252 consoles.
+- **Windows catalog load:** read `catalog.json` (and other JSON) as UTF-8 so Library works when descriptions contain `→`.
+- **Windows ARM64 engine link:** add `-lpthread -lwinpthread` so clangarm64 static link resolves OpenMP/pthread symbols.
 
 ## [0.3.1] — 2026-07-22
 

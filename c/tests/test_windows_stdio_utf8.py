@@ -6,6 +6,7 @@ import argparse
 import importlib.machinery
 import importlib.util
 import io
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -35,6 +36,20 @@ class WindowsStdioUtf8Test(unittest.TestCase):
         self.assertEqual(encoded.decode("cp1252"), msg)
         with self.assertRaises(UnicodeEncodeError):
             f"pulling {mid} \u2192 {dest}".encode("cp1252")
+
+    def test_catalog_loads_as_utf8_with_arrow(self):
+        """catalog.json contains U+2192; locale cp1252 read_text() must not be used."""
+        wh = _load_windhover()
+        path = ROOT / "app" / "public" / "catalog.json"
+        self.assertTrue(path.is_file())
+        with self.assertRaises(UnicodeDecodeError):
+            path.read_bytes().decode("cp1252")
+        models = json.loads(path.read_text(encoding="utf-8")).get("models", [])
+        self.assertTrue(models)
+        with mock.patch.object(wh, "CATALOG_PATH", path):
+            loaded = wh.load_catalog()
+        self.assertTrue(isinstance(loaded, list))
+        self.assertGreater(len(loaded), 0)
 
     def test_configure_stdio_utf8_allows_arrow(self):
         wh = _load_windhover()

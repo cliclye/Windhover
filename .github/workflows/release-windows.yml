@@ -133,8 +133,14 @@ jobs:
               } catch { Start-Sleep -Milliseconds 250 }
             }
             if (-not $ok) { throw "health check failed" }
-            $cat = Invoke-WebRequest -Uri "http://127.0.0.1:8000/v1/catalog" -UseBasicParsing -TimeoutSec 5
-            if ($cat.StatusCode -ne 200) { throw "catalog status $($cat.StatusCode)" }
+            $catOk = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              try {
+                $cat = Invoke-WebRequest -Uri "http://127.0.0.1:8000/v1/catalog" -UseBasicParsing -TimeoutSec 10
+                if ($cat.StatusCode -eq 200 -and $cat.Content -match '"models"') { $catOk = $true; break }
+              } catch { Start-Sleep -Milliseconds 250 }
+            }
+            if (-not $catOk) { throw "catalog check failed" }
             Write-Host "server smoke ok"
           } finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }

@@ -348,7 +348,7 @@ def _snap_meta(snap: Path) -> dict:
     kj = snap / "kestrel.json"
     if kj.is_file():
         try:
-            return json.loads(kj.read_text())
+            return json.loads(kj.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             return {}
     return {}
@@ -668,7 +668,7 @@ def _preview_chat(
 
                 _cfgp = _P(load_src) / "config.json"
                 if _cfgp.is_file():
-                    _cfg = _j.loads(_cfgp.read_text())
+                    _cfg = _j.loads(_cfgp.read_text(encoding="utf-8"))
                     _mt = str(_cfg.get("model_type") or "").lower()
                     _arches = " ".join(str(a) for a in (_cfg.get("architectures") or []))
                     if _mt == "phi3" or "Phi3ForCausalLM" in _arches:
@@ -728,7 +728,7 @@ def _preview_chat(
 
             gcfg = _Path(load_src) / "generation_config.json"
             if gcfg.is_file():
-                ge = _json.loads(gcfg.read_text()).get("eos_token_id")
+                ge = _json.loads(gcfg.read_text(encoding="utf-8")).get("eos_token_id")
                 if ge is not None:
                     eos_ids = ge
         except Exception:
@@ -1356,7 +1356,7 @@ def cmd_serve(ns: argparse.Namespace) -> int:
 def load_catalog() -> list[dict]:
     if not CATALOG_PATH.is_file():
         return []
-    models = json.loads(CATALOG_PATH.read_text()).get("models", [])
+    models = json.loads(CATALOG_PATH.read_text(encoding="utf-8")).get("models", [])
     # HF models only — never surface preview/fixture demos as installable engines.
     out = []
     for m in models:
@@ -1975,7 +1975,7 @@ def _list_installed() -> list[dict]:
         kj = p / "kestrel.json"
         if kj.is_file():
             try:
-                meta.update(json.loads(kj.read_text()))
+                meta.update(json.loads(kj.read_text(encoding="utf-8")))
             except json.JSONDecodeError:
                 pass
         mode = _chat_mode(p)
@@ -2769,7 +2769,7 @@ def cmd_bench(ns: argparse.Namespace) -> int:
     status = ROOT / "docs" / "bench_loop_status.json"
     bench = ROOT / "docs" / "full_bench.json"
     if bench.is_file():
-        data = json.loads(bench.read_text())
+        data = json.loads(bench.read_text(encoding="utf-8"))
         cmp_ = data.get("comparison") or {}
         thr = cmp_.get("throughput_pos_per_s") or {}
         wall = cmp_.get("batch_wall_s") or {}

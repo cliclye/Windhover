@@ -275,6 +275,8 @@ _PULL_LOCK = threading.Lock()
 _UPDATE_CACHE: dict = {"checked_at": 0.0, "payload": None}
 _UPDATE_LOCK = threading.Lock()
 _LAST_CONVERT_ERROR: str | None = None
+_PREPARE_LOCK = threading.Lock()
+_PREPARE_BY_SNAP: dict[str, str] = {}  # snap path -> job_id
 _WORKSPACE: dict = {"root": None}  # user-selected coding folder for Agent tab
 sys.path.insert(0, str(ROOT / "tools"))
 try:
@@ -318,7 +320,7 @@ def _app_version() -> str:
                 return str(ver).lstrip("v")
         except Exception:
             continue
-    return os.environ.get("WINDHOVER_VERSION", "0.3.8").lstrip("v")
+    return os.environ.get("WINDHOVER_VERSION", "0.3.9").lstrip("v")
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
@@ -899,7 +901,11 @@ def _windhover_supported(snap: Path) -> bool:
     return mt in ("qwen2", "qwen3", "llama", "mistral", "gemma2", "gemma3", "phi3")
 
 
-_LAST_CONVERT_ERROR: str | None = None
+def _snap_key(snap: Path) -> str:
+    try:
+        return str(snap.resolve())
+    except Exception:
+        return str(snap)
 
 
 def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
@@ -917,11 +923,30 @@ def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
     if _has_kpk(snap):
         return True
     if job_id:
-        _job_set(job_id, status="running", pct=98, message="Windhover convert (int4-g64)...")
+        _job_set(
+            job_id,
+            status="running",
+            pct=50,
+            message="Converting weights for windhover-engine…",
+            phase="convert",
+        )
     print("running Windhover convert (one-time quantize)...")
 
     frozen = bool(getattr(sys, "frozen", False))
-    use_inprocess = frozen or not tool.is_file() or not _transformers_available()
+    # Always prefer in-process on Windows packaged builds and whenever torch is absent.
+    use_inprocess = (
+        frozen
+        or sys.platform == "win32"
+        or not tool.is_file()
+        or not _transformers_available()
+    )
+
+    def _progress(done: int, total: int, message: str) -> None:
+        if not job_id or total <= 0:
+            return
+        # Map convert into 50–99% so download jobs can use 0–50 earlier.
+        pct = 50 + int(49 * max(0, min(done, total)) / total)
+        _job_set(job_id, status="running", pct=pct, message=message, phase="convert")
 
     if use_inprocess:
         try:
@@ -936,7 +961,13 @@ def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
                 shutil.rmtree(outdir_path, ignore_errors=True)
             outdir = str(outdir_path)
             # No torch in the sidecar: skip calibration / AWQ (still a valid KPK).
-            kp.convert(str(snap), outdir, awq=False, calib=False)
+            kp.convert(
+                str(snap),
+                outdir,
+                awq=False,
+                calib=False,
+                on_progress=_progress,
+            )
             ok = _has_kpk(snap)
             if not ok:
                 _LAST_CONVERT_ERROR = (
@@ -967,17 +998,73 @@ def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
     return ok
 
 
-def _ensure_engine_pack(snap: Path) -> bool:
+def _start_prepare_job(snap: Path) -> str:
+    """Start (or reuse) a background KPK convert job for this snap. Returns job_id."""
+    key = _snap_key(snap)
+    with _PREPARE_LOCK:
+        existing = _PREPARE_BY_SNAP.get(key)
+        if existing:
+            job = _job_get(existing) or {}
+            if job.get("status") == "running":
+                return existing
+        job_id = str(uuid.uuid4())
+        _PREPARE_BY_SNAP[key] = job_id
+        mid = _snap_meta(snap).get("id") or snap.name
+        _job_set(
+            job_id,
+            status="running",
+            pct=50,
+            message=f"Preparing {mid} for windhover-engine…",
+            phase="convert",
+            model_id=mid,
+            snap=str(snap),
+        )
+
+    def _worker() -> None:
+        ok = _kpk_convert(snap, job_id)
+        if ok:
+            _job_set(
+                job_id,
+                status="done",
+                pct=100,
+                message="Engine pack ready — try Chat again.",
+                phase="convert",
+            )
+        else:
+            _job_set(
+                job_id,
+                status="error",
+                pct=0,
+                error=_LAST_CONVERT_ERROR or "KPK convert failed",
+                message="Engine pack convert failed",
+                phase="convert",
+            )
+        with _PREPARE_LOCK:
+            if _PREPARE_BY_SNAP.get(key) == job_id:
+                _PREPARE_BY_SNAP.pop(key, None)
+
+    threading.Thread(target=_worker, daemon=True, name=f"wh-prepare-{snap.name}").start()
+    return job_id
+
+
+def _ensure_engine_pack(snap: Path, *, blocking: bool = True) -> bool:
     """Make SNAP runnable by windhover-engine without transformers.
 
     Qwen/Llama/Mistral: dense load-time quant on raw HF weights.
     Phi/Gemma/etc.: build a KPK pack (numpy convert) when supported.
+
+    blocking=False starts a background prepare job and returns False until ready
+    (used by Chat so the HTTP request does not hang for minutes).
     """
     if _has_kpk(snap) or _dense_loadtime_ok(snap):
         return True
-    if _windhover_supported(snap) and _has_real_weights(snap):
+    if not (_windhover_supported(snap) and _has_real_weights(snap)):
+        return False
+    if blocking:
         return _kpk_convert(snap)
-    return False
+    # Non-blocking: kick off convert and let the client poll /api/jobs.
+    _start_prepare_job(snap)
+    return _has_kpk(snap)
 
 
 def _chat_mode(snap: Path) -> str:
@@ -1407,9 +1494,22 @@ def _agent_run(
             return {"ok": False, "error": f"model not chat-capable (mode={mode})"}
         if mode == "preview" and not _has_real_weights(snap):
             return {"ok": False, "error": "model has no real Hugging Face weights"}
-        if mode == "engine" and not _ensure_engine_pack(snap):
+        if mode == "engine" and not _ensure_engine_pack(snap, blocking=False):
             if _transformers_available() and _has_real_weights(snap):
                 mode = "preview"
+            elif _windhover_supported(snap) and _has_real_weights(snap):
+                job_id = _start_prepare_job(snap)
+                return {
+                    "ok": False,
+                    "error": (
+                        "Preparing this model for windhover-engine (converting weights). "
+                        "This can take several minutes for Phi/Gemma. Wait for the progress "
+                        "bar, then send your message again."
+                    ),
+                    "code": "engine_preparing",
+                    "job_id": job_id,
+                    "engine_active": False,
+                }
             else:
                 detail = _LAST_CONVERT_ERROR or "unknown convert error"
                 return {
@@ -2122,7 +2222,19 @@ def cmd_pull(ns: argparse.Namespace) -> int:
                 dest = out
     elif _windhover_supported(dest):
         # Dense pack → one-time Windhover KPK convert (mmap int4-g64 + calibration)
-        _kpk_convert(dest, job_id)
+        if not _kpk_convert(dest, job_id):
+            # Qwen/Llama/Mistral can still chat via dense load-time quant.
+            # Phi/Gemma require a KPK — fail install with a clear error.
+            if not _dense_loadtime_ok(dest):
+                err = (
+                    f"Engine pack convert failed for {mid}: "
+                    f"{_LAST_CONVERT_ERROR or 'unknown error'}. "
+                    "Retry Install from Library (needs a few minutes after download)."
+                )
+                print(err, file=sys.stderr)
+                if job_id:
+                    _job_set(job_id, status="error", error=err, pct=0)
+                return 1
 
     # Prefer catalog intent; upgrade preview→engine when the Windhover pack or
     # dense layout matches. Frontier MoEs (GLM/Kimi/…) stay on engine.c.
@@ -2453,6 +2565,15 @@ def _list_installed() -> list[dict]:
         )
         incomplete = (not _has_real_weights(p)) and (not has_kpk_files)
         meta["incomplete"] = bool(incomplete)
+        # Needs a one-time KPK convert before windhover-engine can load (Phi/Gemma).
+        needs_prepare = (
+            bool(_has_real_weights(p))
+            and not _has_kpk(p)
+            and not _dense_loadtime_ok(p)
+            and _windhover_supported(p)
+        )
+        meta["needs_prepare"] = needs_prepare
+        meta["engine_ready"] = bool(_has_kpk(p) or _dense_loadtime_ok(p) or mode == "preview")
         # Real HF engine packs, or transformers fallback only when real weights exist.
         meta["chat_ok"] = mode == "engine" or (mode == "preview" and _has_real_weights(p))
         # Partial / in-progress downloads are incomplete — not fake stubs.
@@ -2472,6 +2593,10 @@ def _list_installed() -> list[dict]:
             meta["ready"] = False
         if incomplete and not meta.get("description"):
             meta["description"] = "Incomplete download — reinstall from Library to fetch model weights."
+        elif needs_prepare and not meta.get("description"):
+            meta["description"] = (
+                "Downloaded — first chat prepares windhover-engine weights (one-time convert)."
+            )
         out.append(meta)
     # Virtual entries for models already installed in Ollama (no re-download).
     out.extend(_ollama_list_models())
@@ -2652,6 +2777,38 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
             if path in ("/v1/update/apply", "/api/update/apply"):
                 result = _apply_app_update(body.get("download_url"))
                 return self._json(200 if result.get("ok") else 500, result)
+            if path in ("/v1/prepare", "/api/prepare"):
+                mid = body.get("id") or body.get("model_id") or body.get("model")
+                snap = _resolve_model_dir(mid, None) if mid else None
+                if snap is None or not snap.is_dir():
+                    return self._json(404, {"ok": False, "error": f"model not installed: {mid}"})
+                if _has_kpk(snap) or _dense_loadtime_ok(snap):
+                    return self._json(
+                        200,
+                        {"ok": True, "ready": True, "id": mid, "message": "Already engine-ready"},
+                    )
+                if not (_windhover_supported(snap) and _has_real_weights(snap)):
+                    return self._json(
+                        400,
+                        {
+                            "ok": False,
+                            "error": "This model cannot be converted for windhover-engine.",
+                            "id": mid,
+                        },
+                    )
+                job_id = _start_prepare_job(snap)
+                return self._json(
+                    202,
+                    {
+                        "ok": True,
+                        "ready": False,
+                        "async": True,
+                        "job_id": job_id,
+                        "code": "engine_preparing",
+                        "id": mid,
+                        "message": "Converting weights for windhover-engine…",
+                    },
+                )
             if path == "/api/pull":
                 mid = body.get("id") or body.get("model_id")
                 if not mid:
@@ -3013,7 +3170,8 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                     backend = "preview"
                 else:
                     # Phi/Gemma need a KPK; Qwen/Llama/Mistral can run raw HF via dense.c.
-                    if not _ensure_engine_pack(snap):
+                    # Do not block the HTTP request for multi-minute converts — prepare async.
+                    if not _ensure_engine_pack(snap, blocking=False):
                         if _transformers_available() and _has_real_weights(snap):
                             text, stats = _preview_chat(
                                 messages, max_tokens, temperature, snap=snap
@@ -3043,14 +3201,29 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                                     ],
                                 },
                             )
+                        if _windhover_supported(snap) and _has_real_weights(snap):
+                            job_id = _start_prepare_job(snap)
+                            return self._json(
+                                202,
+                                {
+                                    "ok": False,
+                                    "error": (
+                                        "Preparing this model for windhover-engine "
+                                        "(converting weights). This can take several minutes "
+                                        "for Phi-4. Watch progress, then send again."
+                                    ),
+                                    "code": "engine_preparing",
+                                    "job_id": job_id,
+                                    "engine_active": False,
+                                    "id": _snap_meta(snap).get("id") or snap.name,
+                                },
+                            )
                         return self._json(
                             503,
                             _engine_inactive_payload(
                                 "Windhover engine could not prepare this model for chat "
                                 "(KPK convert failed). "
-                                "First chat after install converts Phi/Gemma weights once "
-                                "(may take several minutes). If it keeps failing, re-install "
-                                "from Library or check the server log.",
+                                "Re-install from Library or check the server log.",
                                 detail=_LAST_CONVERT_ERROR,
                             ),
                         )

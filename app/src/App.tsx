@@ -32,6 +32,8 @@ type Installed = {
   chat_ok?: boolean;
   chat_mode?: string;
   impostor?: boolean;
+  needs_prepare?: boolean;
+  engine_ready?: boolean;
   size_bytes?: number;
   weight_bytes?: number;
   has_weights?: boolean;
@@ -647,6 +649,37 @@ export function App() {
     setTab("chat");
   }
 
+  async function pollPrepareJob(jobId: string, modelLabel: string) {
+    setProgress({ id: modelLabel, pct: 50, message: `Preparing ${modelLabel} for engine…` });
+    setStatus(`Preparing ${modelLabel} for windhover-engine (one-time convert)…`);
+    for (;;) {
+      await new Promise((res) => setTimeout(res, 800));
+      const st = await fetch(apiUrl(`/api/jobs/${jobId}`)).then((x) => x.json());
+      if (st.error === "unknown job") {
+        setStatus("Lost prepare job — try Chat again");
+        setProgress(null);
+        return false;
+      }
+      const pct = typeof st.pct === "number" ? st.pct : 50;
+      setProgress({
+        id: modelLabel,
+        pct,
+        message: String(st.message || `Preparing ${modelLabel}…`),
+      });
+      if (st.status === "done") {
+        setStatus(`${modelLabel} is ready — send your message again`);
+        setProgress(null);
+        await refresh();
+        return true;
+      }
+      if (st.status === "error") {
+        setStatus(String(st.error || st.message || "Engine prepare failed"));
+        setProgress(null);
+        return false;
+      }
+    }
+  }
+
   async function send() {
     const text = input.trim();
     if (!text || sending) return;
@@ -678,6 +711,25 @@ export function App() {
         st.engine_active = false;
         if (j?.error) st.engine_error = String(j.error);
       }
+
+      // Phi/Gemma first-run: weights convert in the background — poll then nudge retry.
+      if (j?.code === "engine_preparing" || (r.status === 202 && j?.job_id)) {
+        const label = String(j?.id || modelId);
+        setMessages([
+          ...next,
+          {
+            role: "assistant",
+            content:
+              String(j?.error || "") ||
+              `Preparing ${label} for windhover-engine. This is a one-time convert and can take a few minutes on Windows. I'll show progress — send again when it finishes.`,
+            stats: { engine_active: false, backend: "preparing" },
+          },
+        ]);
+        setSending(false);
+        await pollPrepareJob(String(j.job_id), label);
+        return;
+      }
+
       if (!r.ok || j?.code === "engine_inactive") {
         const errMsg =
           String(j?.error || `Chat failed (${r.status})`) +
@@ -1299,6 +1351,9 @@ export function App() {
                           {impostor ? <span className="badge bad">Fake stub — remove</span> : null}
                           {incomplete && !downloading ? (
                             <span className="badge bad">Incomplete — reinstall</span>
+                          ) : null}
+                          {got && inst?.needs_prepare && !downloading && !incomplete ? (
+                            <span className="badge download">Needs engine prepare</span>
                           ) : null}
                           {downloading ? <span className="badge ready">Downloading</span> : null}
                         </div>

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.9] — 2026-07-23
+
+### Bugs fixed
+- **Windows Phi-4 / Gemma engine prepare:** first chat no longer hard-fails while converting. Convert runs in the background with progress; install fails clearly if Phi/Gemma KPK convert fails; Chat returns `engine_preparing` and the UI polls until ready.
+
 ## [0.3.8] — 2026-07-23
 
 ### Bugs fixed

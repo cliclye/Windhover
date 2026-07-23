@@ -344,7 +344,7 @@ def read_tensor(snap, fname, key):
     return _reshape_weight(arr, shape)
 
 
-def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8):
+def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8, on_progress=None):
     with open(os.path.join(snap, "config.json")) as f:
         cfg = json.load(f)
     desc = build_descriptor(cfg)
@@ -352,6 +352,11 @@ def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8):
     H, KV, hd = desc["heads"], desc["kv_heads"], desc["head_dim"]
     log(f"arch {desc['model_type']}: L={L} D={D} I={I} H={H}/{KV} hd={hd} "
         f"vocab={desc['vocab']} tie={desc['tie_embeddings']}")
+    if on_progress:
+        try:
+            on_progress(0, L, f"Converting {desc['model_type']} ({L} layers)…")
+        except Exception:
+            pass
 
     files, index = load_shards(snap)
 
@@ -551,6 +556,11 @@ def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8):
                     outlier_cols=16)
         if (i + 1) % 8 == 0 or i == L - 1:
             log(f"layer {i + 1}/{L} quantized")
+        if on_progress:
+            try:
+                on_progress(i + 1, L, f"Quantizing layer {i + 1}/{L}…")
+            except Exception:
+                pass
 
     meta_fmt["attn_qkv"] = f"int{attn_bits}" + ("_g64" if attn_bits == 4 else "_row")
     if D <= 4096:

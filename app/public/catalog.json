@@ -354,24 +354,28 @@
     },
     {
       "id": "Qwen/Qwen3.5-9B",
-      "name": "Qwen3.5 9B",
-      "description": "Qwen3.5-9B hybrid (linear+full attn) via WMIR KPK convert. Text-only. Mac+Windows.",
+      "name": "Qwen3.5 9B \u00b7 engine Q4",
+      "description": "Official Qwen3.5-9B (hybrid GDN + gated GQA). Install converts to Windhover int4/KPK (text-only), then chat on Mac and Windows.",
       "size_gb": 19.0,
       "license": "Apache-2.0",
+      "source": "hf_small",
       "hf_repo": "Qwen/Qwen3.5-9B",
+      "preview_repo": "Qwen/Qwen3.5-9B",
       "chat": "engine",
       "family": "qwen",
+      "tier": "mac16",
       "status": "ready",
+      "engine": "windhover-engine",
       "ram_gb": 18,
+      "engine_path": "kpk",
       "tags": [
         "qwen",
+        "q4",
         "ready",
         "wmir",
         "hybrid",
         "kpk"
-      ],
-      "engine": "windhover-engine",
-      "engine_path": "kpk"
+      ]
     },
     {
       "id": "Qwen/Qwen3.6-27B",

@@ -394,7 +394,7 @@ def _app_version() -> str:
                 return str(ver).lstrip("v")
         except Exception:
             continue
-    return os.environ.get("WINDHOVER_VERSION", "0.3.14").lstrip("v")
+    return os.environ.get("WINDHOVER_VERSION", "0.3.15").lstrip("v")
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
@@ -533,8 +533,82 @@ def _check_app_update(*, force: bool = False) -> dict:
     return out
 
 
+def _windows_install_dir() -> str | None:
+    """Best-effort path to the current NSIS install (%LOCALAPPDATA%\\Windhover)."""
+    if getattr(sys, "frozen", False):
+        parent = Path(sys.executable).resolve().parent
+        if (parent / "Windhover.exe").is_file():
+            return str(parent)
+    local = Path(os.environ.get("LOCALAPPDATA") or "") / "Windhover"
+    if (local / "Windhover.exe").is_file():
+        return str(local)
+    return None
+
+
+def _macos_app_bundle() -> Path | None:
+    """Path to the running Windhover.app, or /Applications/Windhover.app if present."""
+    if getattr(sys, "frozen", False):
+        p = Path(sys.executable).resolve()
+        for cand in (p, *p.parents):
+            if cand.suffix == ".app" and cand.name == "Windhover.app":
+                return cand
+    apps = Path("/Applications/Windhover.app")
+    if apps.is_dir():
+        return apps
+    return None
+
+
+def _spawn_macos_update_helper(dmg: Path, app_dst: Path) -> None:
+    """Quit, replace Windhover.app from the DMG, then relaunch — outside this process."""
+    script = Path(tempfile.gettempdir()) / f"windhover-update-{os.getpid()}.sh"
+    # Paths embedded with shlex so spaces/quotes in temp dirs are safe.
+    import shlex
+
+    dmg_q = shlex.quote(str(dmg))
+    dst_q = shlex.quote(str(app_dst))
+    script.write_text(
+        f"""#!/bin/bash
+set -euo pipefail
+DMG={dmg_q}
+DST={dst_q}
+sleep 2
+osascript -e 'tell application "Windhover" to quit' >/dev/null 2>&1 || true
+pkill -x Windhover >/dev/null 2>&1 || true
+pkill -x windhover-server >/dev/null 2>&1 || true
+pkill -x windhover-engine >/dev/null 2>&1 || true
+sleep 2
+MNT="$(mktemp -d /tmp/wh-upd.XXXXXX)"
+cleanup() {{ hdiutil detach "$MNT" -quiet >/dev/null 2>&1 || true; rm -rf "$MNT"; }}
+trap cleanup EXIT
+hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MNT" -quiet
+SRC="$(find "$MNT" -maxdepth 3 -name 'Windhover.app' -type d | head -n 1)"
+if [[ -z "${{SRC}}" || ! -d "${{SRC}}" ]]; then
+  echo "Windhover.app not found in DMG" >&2
+  exit 1
+fi
+rm -rf "$DST"
+ditto "$SRC" "$DST"
+xattr -cr "$DST" >/dev/null 2>&1 || true
+trap - EXIT
+hdiutil detach "$MNT" -quiet >/dev/null 2>&1 || true
+rm -rf "$MNT"
+open "$DST"
+rm -f "$DMG" || true
+rm -f {shlex.quote(str(script))} || true
+""",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    subprocess.Popen(
+        ["/bin/bash", str(script)],
+        cwd=str(script.parent),
+        start_new_session=True,
+        close_fds=True,
+    )
+
+
 def _apply_app_update(download_url: str | None = None) -> dict:
-    """Download the latest installer and launch it (in-place upgrade)."""
+    """Download the latest installer and apply it silently (in-place + relaunch)."""
     info = _check_app_update(force=False)
     url = (download_url or info.get("download_url") or "").strip()
     if not url:
@@ -561,32 +635,39 @@ def _apply_app_update(download_url: str | None = None) -> dict:
 
     try:
         if sys.platform == "win32":
-            # NSIS installer upgrades in place; hooks stop old Windhover processes.
+            # Tauri NSIS: /S silent, /UPDATE skip uninstall/reinstall page, /R relaunch app.
+            # /D= must be last and unquoted (NSIS rule) so we upgrade the same folder.
+            args = [str(dest), "/S", "/UPDATE", "/R"]
+            install_dir = _windows_install_dir()
+            if install_dir:
+                args.append(f"/D={install_dir}")
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             subprocess.Popen(
-                [str(dest)],
+                args,
                 cwd=str(dest.parent),
                 close_fds=True,
+                creationflags=flags,
             )
             msg = (
-                "Installer launched. Follow the setup prompts — Windhover will close "
-                "and reopen on the new version. You do not need to uninstall first."
+                "Installing update silently — Windhover will close and reopen on the new version."
             )
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(dest)], close_fds=True)
+            app_dst = _macos_app_bundle() or Path("/Applications/Windhover.app")
+            _spawn_macos_update_helper(dest, app_dst)
             msg = (
-                "Disk image opened. Drag Windhover to Applications to replace the old app, "
-                "then relaunch from Applications."
+                "Installing update — Windhover will quit, replace itself, and reopen automatically."
             )
         else:
             return {"ok": False, "error": "Unsupported platform for in-app update.", "path": str(dest)}
     except Exception as e:
-        return {"ok": False, "error": f"Could not launch installer: {type(e).__name__}: {e}", "path": str(dest)}
+        return {"ok": False, "error": f"Could not start update: {type(e).__name__}: {e}", "path": str(dest)}
 
     return {
         "ok": True,
         "path": str(dest),
         "message": msg,
         "update": info,
+        "restarting": True,
     }
 
 

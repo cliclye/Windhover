@@ -33,6 +33,8 @@ KPK convert via `numpy` + `safetensors`. Lazy imports are **invisible** to Analy
       `Windhover-Windows-arm64.exe`, `Windhover-macOS-arm64.dmg`.
 - [ ] App version in `app/package.json` + `tauri.conf.json` matches the GitHub tag.
 - [ ] `/v1/update` returns `available: true` when a newer tag exists (smoke after tag).
+- [ ] Windows apply uses silent NSIS (`/S /UPDATE /R`) — no uninstall wizard; app relaunches.
+- [ ] macOS apply replaces `/Applications/Windhover.app` (or running bundle) and relaunches.
 
 ## Catalog vs engine
 

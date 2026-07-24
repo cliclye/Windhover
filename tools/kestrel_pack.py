@@ -590,11 +590,20 @@ def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8, on_progr
         if any(t is None for t in (in_ln, post_ln, wq, wk, wv, wo, wg, wu, wd)):
             raise RuntimeError(f"kpk: layer {i} missing tensors")
 
+        # Qwen3.5 full attention: q_proj is [2*H*hd, D] → query + sigmoid gate.
+        w_qgate = None
+        if wq is not None and wq.ndim == 2 and wq.shape[0] == 2 * H * hd:
+            wq = np.ascontiguousarray(wq)
+            w_qgate = np.ascontiguousarray(wq[H * hd:])
+            wq = np.ascontiguousarray(wq[: H * hd])
+
         # --- exact AWQ folding ---
         # qkv: scale s folds out of input_layernorm weight
         sq = awq_scales.get(p + "self_attn.q_proj")  # same input for q/k/v
         if sq is not None and sq.shape[0] == D:
             wq, wk, wv = wq * sq[None, :], wk * sq[None, :], wv * sq[None, :]
+            if w_qgate is not None:
+                w_qgate = w_qgate * sq[None, :]
             in_ln = in_ln / sq
         # FFN neuron permutation: hottest-first so the AU cold tier is a
         # simple "hot prefix resident, cold tail streamed" split. Output is
@@ -653,10 +662,14 @@ def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8, on_progr
             put_g64(p + "self_attn.q_proj.weight", wq)
             put_g64(p + "self_attn.k_proj.weight", wk)
             put_g64(p + "self_attn.v_proj.weight", wv)
+            if w_qgate is not None:
+                put_g64(p + "self_attn.q_gate_proj.weight", w_qgate)
         else:
             put_i8(p + "self_attn.q_proj.weight", wq)
             put_i8(p + "self_attn.k_proj.weight", wk)
             put_i8(p + "self_attn.v_proj.weight", wv)
+            if w_qgate is not None:
+                put_i8(p + "self_attn.q_gate_proj.weight", w_qgate)
         # o_proj int8 for Phi-class widths — int4 here also skews near-tied tokens.
         if D <= 4096:
             put_i8(p + "self_attn.o_proj.weight", wo)

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.15] — 2026-07-24
+
+### App — seamless in-app updates
+- **Windows:** Update now runs the NSIS installer silently (`/S /UPDATE /R`) — no uninstall/reinstall wizard. The app closes, upgrades in place, and relaunches on the new version.
+- **macOS:** Update now mounts the DMG, replaces `Windhover.app`, clears quarantine attrs, and relaunches automatically (no drag-to-Applications step).
+
+### Engine — Qwen3.5 9B · engine Q4
+- **Official `Qwen/Qwen3.5-9B`** is installable and chat-capable via windhover-engine (text-only KPK).
+- Faithful **Gated DeltaNet** (recurrent) + **gated full-attention** (`q_proj` split + sigmoid gate), correct RoPE theta from `rope_parameters`.
+- Catalog entry: **Qwen3.5 9B · engine Q4** (`engine_path: kpk`).
+
 ## [0.3.14] — 2026-07-24
 
 ### Performance — Windows Phi / Qwen tok/s (round 2)

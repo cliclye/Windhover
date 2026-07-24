@@ -198,11 +198,15 @@ typedef struct {
     int chunk_size;                    /* attn_chunked / msa block */
     int has_gqa;                       /* 1 if q/k/v/o present */
     int has_linear;                    /* 1 if linear_gdn tensors present */
+    int has_q_gate;                    /* Qwen3.5 full-attn output gate */
     int layer_inter;                   /* MLP width (may differ per layer) */
     /* linear GDN (optional f32 / quant views) */
-    WT lin_qkv, lin_out;
+    WT lin_qkv, lin_out, lin_z, lin_a, lin_b;
     const float *lin_A_log, *lin_dt_bias, *lin_norm;
-    int lin_dim;                       /* in_proj out rows / 3 approx */
+    const float *lin_conv_w;           /* [qkv_rows, conv_k] f32 */
+    int lin_dim;                       /* value_dim (out_proj input) */
+    int lin_nk, lin_nv, lin_hk, lin_hv, lin_conv_k;
+    WT q_gate;                         /* [H*hd, D] sigmoid gate before o_proj */
 } WLayer;
 
 typedef struct {
@@ -223,7 +227,11 @@ typedef struct {
     float *x, *nrm, *tmp, *q, *k, *v, *ctx, *sc, *g, *u, *logit; /* batched: [S][*] */
     int8_t *xq; float *sx; int32_t *xqsum;   /* activation quant [S][I], [S], [S][ng] */
     float *dacc;                        /* down accum per thread [T][S][D] */
-    float *lin_state;                   /* [layers][lin_dim] recurrent state */
+    float *lin_state;                   /* [layers][nv*hk*hv] GDN recurrent */
+    float *lin_conv_state;              /* [layers][qkv_rows*(K-1)] conv state */
+    float *qgate;                       /* [S][H*hd] attn output gate scratch */
+    int lin_state_stride;               /* nv*hk*hv */
+    int lin_conv_stride;                /* qkv_rows*(K-1) */
     int nthreads;
     /* sparsity */
     float *cats_tau;                    /* [layers] chosen tau (0=off) */
@@ -241,6 +249,8 @@ typedef struct {
     double load_s;
     int prof;
 } WModel;
+
+#include "gdn.h"
 
 static WModel *g_wh;
 
@@ -967,31 +977,49 @@ static void wh_model_init(WModel *m, const char *snap) {
 
         int Li = l->layer_inter > 0 ? l->layer_inter : I;
         if (l->attn_kind == WMIR_OP_ATTN_LINEAR_GDN) {
-            /* Linear GDN: optional quantized projections. */
+            /* Qwen3.5 GDN geometry from WMIR model (defaults match 9B). */
+            l->lin_nk = d->lin_num_k_heads > 0 ? d->lin_num_k_heads : 16;
+            l->lin_nv = d->lin_num_v_heads > 0 ? d->lin_num_v_heads : 32;
+            l->lin_hk = d->lin_key_head_dim > 0 ? d->lin_key_head_dim : 128;
+            l->lin_hv = d->lin_value_head_dim > 0 ? d->lin_value_head_dim : 128;
+            l->lin_conv_k = d->lin_conv_kernel > 0 ? d->lin_conv_kernel : 4;
+            int key_dim = l->lin_nk * l->lin_hk;
+            int value_dim = l->lin_nv * l->lin_hv;
+            int qkv_rows = 2 * key_dim + value_dim;
+            l->lin_dim = value_dim;
             wt_from_view(m, P("model.layers.%d.linear_attn.in_proj_qkv.weight"),
-                         &l->lin_qkv, 0, D, 1);
-            if (l->lin_qkv.fmt != WT_NONE) {
-                l->lin_dim = l->lin_qkv.O / 3;
-                if (l->lin_dim < 1) l->lin_dim = D;
-                if (l->lin_dim > max_lin) max_lin = l->lin_dim;
-                l->has_linear = 1;
-            }
+                         &l->lin_qkv, qkv_rows, D, 1);
             wt_from_view(m, P("model.layers.%d.linear_attn.out_proj.weight"),
-                         &l->lin_out, D, l->lin_dim > 0 ? l->lin_dim : D, 0);
-            if (l->lin_out.fmt != WT_NONE && l->lin_dim <= 0) {
-                l->lin_dim = l->lin_out.I > 0 ? l->lin_out.I : D;
-                if (l->lin_dim > max_lin) max_lin = l->lin_dim;
-                l->has_linear = 1;
-            }
+                         &l->lin_out, D, value_dim, 0);
+            wt_from_view(m, P("model.layers.%d.linear_attn.in_proj_z.weight"),
+                         &l->lin_z, value_dim, D, 1);
+            wt_from_view(m, P("model.layers.%d.linear_attn.in_proj_a.weight"),
+                         &l->lin_a, l->lin_nv, D, 1);
+            wt_from_view(m, P("model.layers.%d.linear_attn.in_proj_b.weight"),
+                         &l->lin_b, l->lin_nv, D, 1);
+            if (l->lin_qkv.fmt != WT_NONE) l->has_linear = 1;
             snprintf(nm, sizeof(nm), "model.layers.%d.linear_attn.A_log", i);
             { st_view v; l->lin_A_log = st_view_get(&m->S, nm, &v) ? (const float *)v.p : NULL; }
             snprintf(nm, sizeof(nm), "model.layers.%d.linear_attn.dt_bias", i);
             { st_view v; l->lin_dt_bias = st_view_get(&m->S, nm, &v) ? (const float *)v.p : NULL; }
             snprintf(nm, sizeof(nm), "model.layers.%d.linear_attn.norm.weight", i);
             { st_view v; l->lin_norm = st_view_get(&m->S, nm, &v) ? (const float *)v.p : NULL; }
+            snprintf(nm, sizeof(nm), "model.layers.%d.linear_attn.conv1d.weight", i);
+            {
+                st_view v;
+                if (st_view_get(&m->S, nm, &v) && v.dtype == 2) {
+                    /* Accept [C,K] or [C,1,K] flattened. */
+                    l->lin_conv_w = (const float *)v.p;
+                }
+            }
+            int st_elems = l->lin_nv * l->lin_hk * l->lin_hv;
+            if (st_elems > max_lin) max_lin = st_elems;
         }
 
         wt_from_view(m, P("model.layers.%d.self_attn.q_proj.weight"), &l->q, H * hd, D, 1);
+        wt_from_view(m, P("model.layers.%d.self_attn.q_gate_proj.weight"),
+                     &l->q_gate, H * hd, D, 1);
+        l->has_q_gate = (l->q_gate.fmt != WT_NONE);
         wt_from_view(m, P("model.layers.%d.self_attn.k_proj.weight"), &l->k, KV * hd, D, 1);
         wt_from_view(m, P("model.layers.%d.self_attn.v_proj.weight"), &l->v, KV * hd, D, 1);
         wt_from_view(m, P("model.layers.%d.self_attn.o_proj.weight"), &l->o, D, H * hd, 0);
@@ -1048,8 +1076,23 @@ static void wh_model_init(WModel *m, const char *snap) {
                       l->gate.bytes + l->up.bytes + l->downT.bytes;
         #undef P
     }
-    if (max_lin > 0)
+    if (max_lin > 0) {
+        m->lin_state_stride = max_lin;
         m->lin_state = falloc((int64_t)d->layers * max_lin);
+        /* conv state: qkv_rows * (K-1); derive from first linear layer dims */
+        int qkv_rows = 0, Kc = 4;
+        for (int i = 0; i < d->layers; i++) {
+            if (!m->L[i].has_linear) continue;
+            int kd = m->L[i].lin_nk * m->L[i].lin_hk;
+            int vd = m->L[i].lin_nv * m->L[i].lin_hv;
+            int rows = 2 * kd + vd;
+            if (rows > qkv_rows) qkv_rows = rows;
+            if (m->L[i].lin_conv_k > Kc) Kc = m->L[i].lin_conv_k;
+        }
+        m->lin_conv_stride = qkv_rows * (Kc > 1 ? Kc - 1 : 1);
+        if (m->lin_conv_stride > 0)
+            m->lin_conv_state = falloc((int64_t)d->layers * m->lin_conv_stride);
+    }
     /* Scratch buffers sized to the widest MLP layer (double-wide, etc.). */
     for (int i = 0; i < d->layers; i++)
         if (m->L[i].layer_inter > d->inter) d->inter = m->L[i].layer_inter;
@@ -1183,85 +1226,43 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
         }
 
         if (l->has_linear && !l->has_gqa) {
-            /* Gated DeltaNet-style linear attention (recurrent):
-             *   qkv = W x; split q,k,v; state = decay*state + k⊙v; y = q⊙state; out = Wo y
-             * Faithful enough for text generation; full GDN conv/delta later. */
-            int LD = l->lin_dim > 0 ? l->lin_dim : D;
+            /* Faithful Qwen3.5 Gated DeltaNet (recurrent), token by token. */
+            int key_dim = l->lin_nk * l->lin_hk;
+            int value_dim = l->lin_nv * l->lin_hv;
+            int qkv_rows = 2 * key_dim + value_dim;
+            /* Need scratch: qkv_rows + value_dim + 2*nv  — use g/u/tmp carefully.
+             * g is [S][I]; I=12288 for 9B covers qkv_rows=8192. */
+            if (qkv_rows > I) {
+                fprintf(stderr, "[wh] gdn qkv_rows %d exceeds mlp scratch %d\n", qkv_rows, I);
+                exit(1);
+            }
+            float *state = m->lin_state
+                ? m->lin_state + (int64_t)li * m->lin_state_stride : NULL;
+            float *cstate = m->lin_conv_state
+                ? m->lin_conv_state + (int64_t)li * m->lin_conv_stride : NULL;
             for (int s = 0; s < S; s++) {
                 float *nrm = m->nrm + (int64_t)s * D;
-                float *qkv = m->g + (int64_t)s * I; /* reuse gate scratch before MLP */
-                if (3 * LD > I) {
-                    fprintf(stderr, "[wh] linear_gdn dim %d exceeds mlp scratch %d\n", LD, I);
+                float *qkv = m->g + (int64_t)s * I;
+                float *zbuf = m->u + (int64_t)s * I; /* value_dim */
+                float *ab = zbuf + value_dim;        /* 2*nv */
+                float *out = m->tmp + (int64_t)s * D;
+                if (!state) {
+                    fprintf(stderr, "[wh] gdn missing recurrent state\n");
                     exit(1);
                 }
-                memset(qkv, 0, (size_t)(3 * LD) * sizeof(float));
-                if (l->lin_qkv.fmt == WT_I8R) {
-                    for (int o = 0; o < 3 * LD && o < l->lin_qkv.O; o++) {
-                        const int8_t *row = l->lin_qkv.q8 + (int64_t)o * D;
-                        float acc = 0.f;
-                        for (int j = 0; j < D; j++) acc += (float)row[j] * nrm[j];
-                        qkv[o] = acc * l->lin_qkv.rs[o];
-                    }
-                } else if (l->lin_qkv.fmt == WT_F32 && l->lin_qkv.f) {
-                    for (int o = 0; o < 3 * LD && o < l->lin_qkv.O; o++) {
-                        const float *row = l->lin_qkv.f + (int64_t)o * D;
-                        float acc = 0.f;
-                        for (int j = 0; j < D; j++) acc += row[j] * nrm[j];
-                        qkv[o] = acc;
-                    }
-                }
-                float *qq = qkv, *kk = qkv + LD, *vv = qkv + 2 * LD;
-                float *st = m->lin_state ? m->lin_state + (int64_t)li * LD : NULL;
-                float decay = 0.95f;
-                if (l->lin_A_log) {
-                    float a = l->lin_A_log[0];
-                    decay = 1.f / (1.f + expf(-a));
-                    if (decay < 0.5f) decay = 0.5f;
-                    if (decay > 0.999f) decay = 0.999f;
-                }
-                float *y = m->ctx + (int64_t)s * H * hd; /* park in ctx then project */
-                memset(y, 0, (size_t)D * sizeof(float));
-                if (st) {
-                    for (int j = 0; j < LD; j++) {
-                        st[j] = decay * st[j] + kk[j] * vv[j];
-                        y[j % D] += qq[j] * st[j];
-                    }
-                } else {
-                    for (int j = 0; j < LD && j < D; j++) y[j] = qq[j] * kk[j] * vv[j];
-                }
-                /* out proj into tmp then residual */
-                float *out = m->tmp;
-                memset(out, 0, (size_t)D * sizeof(float));
-                if (l->lin_out.fmt == WT_I8R) {
-                    for (int o = 0; o < D; o++) {
-                        const int8_t *row = l->lin_out.q8 + (int64_t)o * l->lin_out.I;
-                        float acc = 0.f;
-                        int nin = l->lin_out.I < LD ? l->lin_out.I : LD;
-                        for (int j = 0; j < nin; j++) acc += (float)row[j] * y[j];
-                        out[o] = acc * l->lin_out.rs[o];
-                    }
-                } else if (l->lin_out.fmt == WT_F32 && l->lin_out.f) {
-                    for (int o = 0; o < D; o++) {
-                        const float *row = l->lin_out.f + (int64_t)o * l->lin_out.I;
-                        float acc = 0.f;
-                        int nin = l->lin_out.I < LD ? l->lin_out.I : LD;
-                        for (int j = 0; j < nin; j++) acc += row[j] * y[j];
-                        out[o] = acc;
-                    }
-                } else {
-                    memcpy(out, y, (size_t)D * sizeof(float));
-                }
+                wh_gdn_step(l, nrm, D, d->eps, state, cstate, qkv, zbuf, ab, out);
                 float *x = m->x + (int64_t)s * D;
                 if (d->post_norms && l->post_ln)
                     rmsnorm_row(out, out, l->post_ln, D, d->eps,
                                 d->norm == WH_NORM_RMS_GEMMA);
                 for (int j = 0; j < D; j++) x[j] += out[j];
             }
-            /* fall through to MLP below — skip GQA block */
             goto wh_layer_mlp;
         }
 
         mm_wt_run(&l->q, m->xq, m->sx, m->xqsum, m->q, S, H * hd);
+        if (l->has_q_gate && m->qgate)
+            mm_wt_run(&l->q_gate, m->xq, m->sx, m->xqsum, m->qgate, S, H * hd);
         if (kv_src == li) {
             mm_wt_run(&l->k, m->xq, m->sx, m->xqsum, m->k, S, KV * hd);
             mm_wt_run(&l->v, m->xq, m->sx, m->xqsum, m->v, S, KV * hd);
@@ -1358,6 +1359,15 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
                 for (int t = t0; t <= p; t++)
                     kv_axpy_v(cx, sc[t], V8 + (int64_t)t * hd,
                               VS + (int64_t)t * (hd / WH_KVG), hd);
+            }
+        }
+        /* Qwen3.5 attn output gate: ctx *= sigmoid(gate) before o_proj */
+        if (l->has_q_gate && m->qgate) {
+            for (int s = 0; s < S; s++) {
+                float *cx = m->ctx + (int64_t)s * H * hd;
+                float *gg = m->qgate + (int64_t)s * H * hd;
+                for (int j = 0; j < H * hd; j++)
+                    cx[j] *= wh_sigmoid_f(gg[j]);
             }
         }
         /* o proj */
@@ -1706,6 +1716,12 @@ static void wh_alloc_scratch(WModel *m, int max_t) {
     m->k = falloc((int64_t)S * d->kv_heads * hd);
     m->v = falloc((int64_t)S * d->kv_heads * hd);
     m->ctx = falloc((int64_t)S * H * hd);
+    {
+        int need_gate = 0;
+        for (int i = 0; i < d->layers; i++)
+            if (m->L[i].has_q_gate) { need_gate = 1; break; }
+        if (need_gate) m->qgate = falloc((int64_t)S * H * hd);
+    }
     m->sc = falloc((int64_t)S * H * max_t);
     m->g = falloc((int64_t)S * I);
     m->u = falloc((int64_t)S * I);

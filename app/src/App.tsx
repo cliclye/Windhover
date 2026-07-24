@@ -469,18 +469,23 @@ export function App() {
         body: JSON.stringify({ download_url: updateInfo?.download_url || undefined }),
       }).then((r) => r.json());
       if (j?.ok) {
-        setUpdateMsg(String(j.message || "Installer launched. Finish setup to upgrade."));
-      } else {
-        setUpdateMsg(String(j?.error || "Update failed."));
-        if (updateInfo?.html_url) {
-          window.open(updateInfo.html_url, "_blank", "noopener,noreferrer");
-        }
+        setUpdateMsg(
+          String(
+            j.message ||
+              "Installing update — Windhover will restart on the new version automatically."
+          )
+        );
+        // Keep busy: the process is about to be replaced / killed by the installer.
+        return;
+      }
+      setUpdateMsg(String(j?.error || "Update failed."));
+      if (updateInfo?.html_url) {
+        window.open(updateInfo.html_url, "_blank", "noopener,noreferrer");
       }
     } catch (e) {
       setUpdateMsg(`Update failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setUpdateBusy(false);
     }
+    setUpdateBusy(false);
   }
 
   useEffect(() => {
@@ -1067,8 +1072,8 @@ export function App() {
             <strong>Update available</strong>
             <span>
               Windhover {updateInfo.latest} is ready
-              {updateInfo.current ? ` (you have ${updateInfo.current})` : ""}. Update in place — no
-              uninstall needed.
+              {updateInfo.current ? ` (you have ${updateInfo.current})` : ""}. One click installs and
+              restarts — no uninstall.
             </span>
             <button
               type="button"
@@ -1076,7 +1081,7 @@ export function App() {
               disabled={updateBusy}
               onClick={() => void applyUpdate()}
             >
-              {updateBusy ? "Downloading…" : "Update now"}
+              {updateBusy ? "Updating…" : "Update now"}
             </button>
             {updateInfo.html_url ? (
               <a className="btn ghost" href={updateInfo.html_url} target="_blank" rel="noreferrer">
@@ -1738,8 +1743,8 @@ export function App() {
               </p>
               {updateInfo?.available ? (
                 <p>
-                  A newer build is available. Click Update now — Windows replaces the install in
-                  place; on macOS open the DMG and drag to Applications.
+                  A newer build is available. Click Update now — Windhover downloads, installs
+                  silently, and restarts on the new version.
                 </p>
               ) : (
                 <p className="muted">{updateMsg || "You're up to date (checked against GitHub Releases)."}</p>
@@ -1752,7 +1757,7 @@ export function App() {
                     disabled={updateBusy}
                     onClick={() => void applyUpdate()}
                   >
-                    {updateBusy ? "Downloading…" : "Update now"}
+                    {updateBusy ? "Updating…" : "Update now"}
                   </button>
                 ) : null}
                 {updateInfo?.html_url ? (

@@ -218,7 +218,24 @@ def lower_qwen35(cfg: dict[str, Any]) -> dict[str, Any]:
     ) else "qwen3_5"
     model = _base_model(tc, family=family)
     model["qk_norm"] = True
-    model["partial_rotary"] = float(tc.get("partial_rotary_factor") or 0.25)
+    rp = tc.get("rope_parameters") if isinstance(tc.get("rope_parameters"), dict) else {}
+    if not rp and isinstance(cfg.get("rope_parameters"), dict):
+        rp = cfg["rope_parameters"]
+    model["partial_rotary"] = float(
+        rp.get("partial_rotary_factor")
+        or tc.get("partial_rotary_factor")
+        or 0.25
+    )
+    if rp.get("rope_theta") is not None:
+        model["rope_theta"] = float(rp["rope_theta"])
+    elif tc.get("rope_theta") is not None:
+        model["rope_theta"] = float(tc["rope_theta"])
+    model["attn_output_gate"] = 1 if tc.get("attn_output_gate", True) else 0
+    model["lin_num_k_heads"] = int(tc.get("linear_num_key_heads") or 0)
+    model["lin_num_v_heads"] = int(tc.get("linear_num_value_heads") or 0)
+    model["lin_key_head_dim"] = int(tc.get("linear_key_head_dim") or 0)
+    model["lin_value_head_dim"] = int(tc.get("linear_value_head_dim") or 0)
+    model["lin_conv_kernel"] = int(tc.get("linear_conv_kernel_dim") or 4)
     layer_types = list(tc.get("layer_types") or cfg.get("layer_types") or [])
     n = int(model["layers"])
     if not layer_types:

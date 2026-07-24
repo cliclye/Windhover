@@ -31,6 +31,8 @@ xattr -cr /Applications/Windhover.app
 
 Then open Windhover again (or right-click → **Open** → **Open**).
 
+Later updates from inside the app replace `/Applications/Windhover.app` and relaunch automatically.
+
 Alternatives:
 
 - Right-click **Windhover** → **Open** → **Open**
@@ -72,6 +74,10 @@ Stable URLs:
 If setup says **Error opening file for writing** for `windhover-server.exe`, end `Windhover` / `windhover-server` in Task Manager and click **Retry**. Newer installers kill those processes before copying files.
 
 The installer embeds `windhover-server` + `windhover-engine` — no repo checkout, Python, or MinGW required for end users. Models live under `%USERPROFILE%\.windhover\models`.
+
+### Updating
+
+In the app, use **Update now** when a newer release is available. Windhover downloads the installer, upgrades silently in place, and relaunches — no uninstall wizard.
 
 ### First launch — SmartScreen (unsigned builds)
 

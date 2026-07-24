@@ -45,6 +45,11 @@ typedef struct {
     float rope_attn_scale; /* multiply cos/sin (longrope attention_factor) */
     int rope_dim;          /* even; dims that receive RoPE (<= head_dim) */
     int rope_orig_max;     /* original_max_position_embeddings (longrope) */
+    /* Qwen3.5 hybrid GDN + gated full attention */
+    int attn_output_gate;
+    int lin_num_k_heads, lin_num_v_heads;
+    int lin_key_head_dim, lin_value_head_dim;
+    int lin_conv_kernel;
 } WhDesc;
 
 /* Families that can run on the dense/KPK path (hint; WMIR is source of truth). */

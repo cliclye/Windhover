@@ -228,6 +228,12 @@ static void wmir_desc_from_model(jval *model, WhDesc *d) {
     d->query_scale = wmir_jf(model, "query_scale", 0.f);
     d->partial_rotary = wmir_jf(model, "partial_rotary", 1.f);
     d->rope_attn_scale = wmir_jf(model, "rope_attn_scale", 1.f);
+    d->attn_output_gate = wmir_ji(model, "attn_output_gate", 0);
+    d->lin_num_k_heads = wmir_ji(model, "lin_num_k_heads", 0);
+    d->lin_num_v_heads = wmir_ji(model, "lin_num_v_heads", 0);
+    d->lin_key_head_dim = wmir_ji(model, "lin_key_head_dim", 0);
+    d->lin_value_head_dim = wmir_ji(model, "lin_value_head_dim", 0);
+    d->lin_conv_kernel = wmir_ji(model, "lin_conv_kernel", 0);
     d->rope_dim = d->head_dim;
     if (d->partial_rotary < 1.f - 1e-6f && d->head_dim > 0) {
         int rd = (int)(d->head_dim * d->partial_rotary);

@@ -1,4 +1,14 @@
+# Changelog
 
+## [0.3.14] — 2026-07-24
+
+### Performance — Windows Phi / Qwen tok/s (round 2)
+- **AVX2 MLP `axpy_i4g_row` / `axpy_i8_row`:** decode was still scalar on the down^T FFN path after the previous IDOT fix; this is now vectorized (shared `idot_avx.h`).
+- **AVX2 attention KV:** `kv_score` + `kv_axpy_v` use AVX2 int8 dots / axpy instead of scalar.
+- **Dense path:** wire `wh_dot_i4i8_avx` + AVX exact f32×int8 for QKV (`matmul_q_exact_*`) so non-KPK Qwen is not stuck on scalar.
+- **Prefill chunk** raised 64 → 80; Windows Chat defaults `WH_SPARSE=25` (set `WH_SPARSE=0` for full FFN quality).
+
+## [0.3.13] — 2026-07-24
 
 ### Fixed — Windows tok/s + RAM (Phi / Qwen / dense KPK)
 - **RAM stuck at 0 on Windows:** Process RSS used Unix-only `resource.getrusage`, which always failed on native Windows CPython. Now uses `GetProcessMemoryInfo` (WorkingSet). Chat stats also prefer the engine’s `rss_gb` / `footprint_gb` when present so the UI reflects real model memory without inflating it via fake counters.

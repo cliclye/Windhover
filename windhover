@@ -292,8 +292,6 @@ GITHUB_REPO = os.environ.get("WINDHOVER_GITHUB_REPO", "cliclye/Windhover")
 _PREVIEW_PIPES: dict[str, tuple] = {}
 _PULL_JOBS: dict[str, dict] = {}
 _PULL_LOCK = threading.Lock()
-_UPDATE_CACHE: dict = {"checked_at": 0.0, "payload": None}
-_UPDATE_LOCK = threading.Lock()
 _LAST_CONVERT_ERROR: str | None = None
 _PREPARE_LOCK = threading.Lock()
 _PREPARE_BY_SNAP: dict[str, str] = {}  # snap path -> job_id
@@ -303,6 +301,14 @@ try:
     import agent_workspace as _agent_ws  # type: ignore
 except ImportError:
     _agent_ws = None  # type: ignore
+try:
+    import chat_text as _chat_text  # type: ignore
+    import app_update as _app_update  # type: ignore
+    import ollama_client as _ollama_client  # type: ignore
+except ImportError as _tools_imp_err:
+    raise SystemExit(
+        f"windhover: missing tools modules (chat_text/app_update/ollama_client): {_tools_imp_err}"
+    ) from _tools_imp_err
 _LAST_STATS: dict = {
     "rss_mb": 0.0,
     "latency_ms": 0.0,
@@ -398,381 +404,76 @@ def _app_version() -> str:
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
-    s = (v or "").strip().lstrip("v")
-    parts = []
-    for p in s.split(".")[:3]:
-        num = ""
-        for ch in p:
-            if ch.isdigit():
-                num += ch
-            else:
-                break
-        parts.append(int(num or 0))
-    while len(parts) < 3:
-        parts.append(0)
-    return parts[0], parts[1], parts[2]
+    return _app_update.parse_semver(v)
 
 
 def _version_newer(latest: str, current: str) -> bool:
-    return _parse_semver(latest) > _parse_semver(current)
+    return _app_update.version_newer(latest, current)
 
 
 def _update_platform_asset() -> tuple[str, str]:
-    """Return (os_key, preferred asset name substring) for GitHub release assets."""
-    import platform as _platform
-
-    mach = (_platform.machine() or "").lower()
-    if sys.platform == "darwin":
-        return "macos", "Windhover-macOS-arm64.dmg"
-    if sys.platform == "win32":
-        if mach in ("arm64", "aarch64"):
-            return "windows-arm64", "Windhover-Windows-arm64.exe"
-        return "windows-x64", "Windhover-Windows-x64.exe"
-    return "other", ""
+    return _app_update.update_platform_asset()
 
 
 def _pick_release_asset(assets: list, preferred_name: str) -> dict | None:
-    if not assets:
-        return None
-    for a in assets:
-        name = str(a.get("name") or "")
-        if name == preferred_name:
-            return a
-    # Fuzzy fallback
-    prefer = preferred_name.lower()
-    for a in assets:
-        name = str(a.get("name") or "").lower()
-        if prefer and prefer in name:
-            return a
-    if sys.platform == "win32":
-        for a in assets:
-            name = str(a.get("name") or "").lower()
-            if name.endswith(".exe") and "windows" in name:
-                return a
-    if sys.platform == "darwin":
-        for a in assets:
-            name = str(a.get("name") or "").lower()
-            if name.endswith(".dmg"):
-                return a
-    return None
+    return _app_update.pick_release_asset(assets, preferred_name)
 
 
 def _check_app_update(*, force: bool = False) -> dict:
-    """Compare local version to GitHub latest release. Cached ~1h."""
-    now = time.time()
-    with _UPDATE_LOCK:
-        cached = _UPDATE_CACHE.get("payload")
-        if (
-            not force
-            and cached
-            and (now - float(_UPDATE_CACHE.get("checked_at") or 0)) < 3600
-        ):
-            return dict(cached)
-
-    current = _app_version()
-    plat, preferred = _update_platform_asset()
-    out = {
-        "ok": True,
-        "current": current,
-        "latest": current,
-        "available": False,
-        "platform": plat,
-        "tag": None,
-        "name": None,
-        "notes": None,
-        "html_url": f"https://github.com/{GITHUB_REPO}/releases/latest",
-        "download_url": None,
-        "asset_name": None,
-        "error": None,
-    }
-    if not preferred:
-        out["error"] = "Automatic updates are only supported on macOS and Windows."
-        with _UPDATE_LOCK:
-            _UPDATE_CACHE["checked_at"] = now
-            _UPDATE_CACHE["payload"] = dict(out)
-        return out
-
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": f"Windhover/{current}",
-        },
+    return _app_update.check_app_update(
+        current_version=_app_version(), github_repo=GITHUB_REPO, force=force
     )
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-        with _UPDATE_LOCK:
-            _UPDATE_CACHE["checked_at"] = now
-            _UPDATE_CACHE["payload"] = dict(out)
-        return out
-
-    tag = str(data.get("tag_name") or "").lstrip("v")
-    asset = _pick_release_asset(data.get("assets") or [], preferred)
-    out.update(
-        {
-            "latest": tag or current,
-            "available": bool(tag and _version_newer(tag, current)),
-            "tag": data.get("tag_name"),
-            "name": data.get("name"),
-            "notes": (data.get("body") or "")[:4000] or None,
-            "html_url": data.get("html_url") or out["html_url"],
-            "download_url": (asset or {}).get("browser_download_url"),
-            "asset_name": (asset or {}).get("name"),
-        }
-    )
-    if out["available"] and not out["download_url"]:
-        out["error"] = f"Latest release has no installer for {plat}."
-        out["available"] = False
-    with _UPDATE_LOCK:
-        _UPDATE_CACHE["checked_at"] = now
-        _UPDATE_CACHE["payload"] = dict(out)
-    return out
 
 
 def _windows_install_dir() -> str | None:
-    """Best-effort path to the current NSIS install (%LOCALAPPDATA%\\Windhover)."""
-    if getattr(sys, "frozen", False):
-        parent = Path(sys.executable).resolve().parent
-        if (parent / "Windhover.exe").is_file():
-            return str(parent)
-    local = Path(os.environ.get("LOCALAPPDATA") or "") / "Windhover"
-    if (local / "Windhover.exe").is_file():
-        return str(local)
-    return None
+    return _app_update.windows_install_dir()
 
 
 def _macos_app_bundle() -> Path | None:
-    """Path to the running Windhover.app, or /Applications/Windhover.app if present."""
-    if getattr(sys, "frozen", False):
-        p = Path(sys.executable).resolve()
-        for cand in (p, *p.parents):
-            if cand.suffix == ".app" and cand.name == "Windhover.app":
-                return cand
-    apps = Path("/Applications/Windhover.app")
-    if apps.is_dir():
-        return apps
-    return None
+    return _app_update.macos_app_bundle()
 
 
 def _spawn_macos_update_helper(dmg: Path, app_dst: Path) -> None:
-    """Quit, replace Windhover.app from the DMG, then relaunch — outside this process."""
-    script = Path(tempfile.gettempdir()) / f"windhover-update-{os.getpid()}.sh"
-    # Paths embedded with shlex so spaces/quotes in temp dirs are safe.
-    import shlex
-
-    dmg_q = shlex.quote(str(dmg))
-    dst_q = shlex.quote(str(app_dst))
-    script.write_text(
-        f"""#!/bin/bash
-set -euo pipefail
-DMG={dmg_q}
-DST={dst_q}
-sleep 2
-osascript -e 'tell application "Windhover" to quit' >/dev/null 2>&1 || true
-pkill -x Windhover >/dev/null 2>&1 || true
-pkill -x windhover-server >/dev/null 2>&1 || true
-pkill -x windhover-engine >/dev/null 2>&1 || true
-sleep 2
-MNT="$(mktemp -d /tmp/wh-upd.XXXXXX)"
-cleanup() {{ hdiutil detach "$MNT" -quiet >/dev/null 2>&1 || true; rm -rf "$MNT"; }}
-trap cleanup EXIT
-hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MNT" -quiet
-SRC="$(find "$MNT" -maxdepth 3 -name 'Windhover.app' -type d | head -n 1)"
-if [[ -z "${{SRC}}" || ! -d "${{SRC}}" ]]; then
-  echo "Windhover.app not found in DMG" >&2
-  exit 1
-fi
-rm -rf "$DST"
-ditto "$SRC" "$DST"
-xattr -cr "$DST" >/dev/null 2>&1 || true
-trap - EXIT
-hdiutil detach "$MNT" -quiet >/dev/null 2>&1 || true
-rm -rf "$MNT"
-open "$DST"
-rm -f "$DMG" || true
-rm -f {shlex.quote(str(script))} || true
-""",
-        encoding="utf-8",
-    )
-    script.chmod(0o755)
-    subprocess.Popen(
-        ["/bin/bash", str(script)],
-        cwd=str(script.parent),
-        start_new_session=True,
-        close_fds=True,
-    )
+    _app_update.spawn_macos_update_helper(dmg, app_dst)
 
 
 def _apply_app_update(download_url: str | None = None) -> dict:
-    """Download the latest installer and apply it silently (in-place + relaunch)."""
-    info = _check_app_update(force=False)
-    url = (download_url or info.get("download_url") or "").strip()
-    if not url:
-        info = _check_app_update(force=True)
-        url = (info.get("download_url") or "").strip()
-    if not url:
-        return {
-            "ok": False,
-            "error": info.get("error") or "No download URL for this platform.",
-            "update": info,
-        }
-
-    asset_name = info.get("asset_name") or url.rsplit("/", 1)[-1] or "Windhover-update"
-    dest = Path(tempfile.gettempdir()) / f"windhover-update-{info.get('latest') or 'latest'}-{asset_name}"
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": f"Windhover/{_app_version()}"},
-        )
-        with urllib.request.urlopen(req, timeout=600) as resp, open(dest, "wb") as out:
-            shutil.copyfileobj(resp, out)
-    except Exception as e:
-        return {"ok": False, "error": f"Download failed: {type(e).__name__}: {e}"}
-
-    try:
-        if sys.platform == "win32":
-            # Tauri NSIS: /S silent, /UPDATE skip uninstall/reinstall page, /R relaunch app.
-            # /D= must be last and unquoted (NSIS rule) so we upgrade the same folder.
-            args = [str(dest), "/S", "/UPDATE", "/R"]
-            install_dir = _windows_install_dir()
-            if install_dir:
-                args.append(f"/D={install_dir}")
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            subprocess.Popen(
-                args,
-                cwd=str(dest.parent),
-                close_fds=True,
-                creationflags=flags,
-            )
-            msg = (
-                "Installing update silently — Windhover will close and reopen on the new version."
-            )
-        elif sys.platform == "darwin":
-            app_dst = _macos_app_bundle() or Path("/Applications/Windhover.app")
-            _spawn_macos_update_helper(dest, app_dst)
-            msg = (
-                "Installing update — Windhover will quit, replace itself, and reopen automatically."
-            )
-        else:
-            return {"ok": False, "error": "Unsupported platform for in-app update.", "path": str(dest)}
-    except Exception as e:
-        return {"ok": False, "error": f"Could not start update: {type(e).__name__}: {e}", "path": str(dest)}
-
-    return {
-        "ok": True,
-        "path": str(dest),
-        "message": msg,
-        "update": info,
-        "restarting": True,
-    }
+    return _app_update.apply_app_update(
+        current_version=_app_version(),
+        github_repo=GITHUB_REPO,
+        download_url=download_url,
+    )
 
 
 def _strip_engine_noise(text: str) -> str:
-    """Remove windhover-engine log lines that must never appear as chat answers."""
-    import re
-
-    if not text:
-        return text
-    lines = []
-    for line in text.splitlines():
-        s = line.strip()
-        if not s:
-            lines.append(line)
-            continue
-        if re.match(r"^\[(?:wh|WH|CUDA|DSA|COLI|coli|windhover)\]", s):
-            continue
-        if re.match(r"^CATS sparsity", s, re.I):
-            continue
-        if re.search(r"\btok/s\b", s) and re.search(r"\b(?:prefill|decode|RSS|MB)\b", s, re.I):
-            continue
-        if re.match(r"^@@WH_STATS@@", s):
-            continue
-        lines.append(line)
-    return "\n".join(lines).strip()
+    return _chat_text.strip_engine_noise(text)
 
 
 def _truncate_repetition(text: str) -> str:
-    """Cut degenerate loops like 'How can I help you? How can I help you?'."""
-    import re
+    return _chat_text.truncate_repetition(text)
 
-    if not text or len(text) < 40:
-        return text
-    # Exact phrase repeated 3+ times
-    m = re.search(r"(.{12,120}?)(?:\s*\1){2,}", text, flags=re.DOTALL)
-    if m:
-        return text[: m.start() + len(m.group(1))].rstrip()
-    # Long runs of the same short token / punctuation
-    m = re.search(r"((?:\|\\s*){8,})", text)
-    if m:
-        return text[: m.start()].rstrip()
-    m = re.search(r"(\b\w{1,3}\b(?:\s+\b\w{1,3}\b){20,})", text)
-    if m:
-        return text[: m.start()].rstrip()
-    return text
+
+_TURN_END_MARKERS = _chat_text.TURN_END_MARKERS
+
+
+def _cut_at_turn_boundary(text: str) -> str:
+    return _chat_text.cut_at_turn_boundary(text)
 
 
 def _clean_chat_text(text: str, *, soft: bool = False) -> str:
-    """Strip chat-template / control tokens and tidy layout for UI display.
+    return _chat_text.clean_chat_text(text, soft=soft)
 
-    soft=True: only remove complete control tokens (safe for streaming deltas).
-    """
-    import re
 
-    if not text:
-        return text
-    s = _strip_engine_noise(text)
-    # Cut runaway decode at the first turn-ending marker (Phi <|end|>, ChatML, etc.)
-    if not soft:
-        cut = None
-        for marker in (
-            "<|end|>",
-            "<|im_end|>",
-            "<|eot_id|>",
-            "<end_of_turn>",
-            "<|user|>",
-            "<|assistant|>",
-            "<|system|>",
-        ):
-            idx = s.find(marker)
-            if idx >= 0 and (cut is None or idx < cut):
-                cut = idx
-        if cut is not None:
-            s = s[:cut]
-        # Collapse obvious phrase loops (missed EOS / degenerate sampling).
-        s = _truncate_repetition(s)
-    # Reasoning / chain-of-thought — never show to the user
-    s = re.sub(r"<think\b[^>]*>.*?</think>", "", s, flags=re.DOTALL | re.IGNORECASE)
-    s = re.sub(r"<thinking\b[^>]*>.*?</thinking>", "", s, flags=re.DOTALL | re.IGNORECASE)
-    s = re.sub(
-        r"<redacted_reasoning\b[^>]*>.*?</redacted_reasoning>",
-        "",
-        s,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    s = re.sub(r"<reason\b[^>]*>.*?</reason>", "", s, flags=re.DOTALL | re.IGNORECASE)
-    # Orphan open reasoning tags (model forgot to close)
-    s = re.sub(r"<think\b[^>]*>.*\Z", "", s, flags=re.DOTALL | re.IGNORECASE)
-    s = re.sub(r"<thinking\b[^>]*>.*\Z", "", s, flags=re.DOTALL | re.IGNORECASE)
-    s = re.sub(r"<redacted_reasoning\b[^>]*>.*\Z", "", s, flags=re.DOTALL | re.IGNORECASE)
-    # Stray closing tags left behind
-    s = re.sub(r"</(?:think|thinking|redacted_reasoning|reason)\s*>", "", s, flags=re.IGNORECASE)
-    # ChatML / Qwen / Llama / Gemma / Phi style control tokens
-    s = re.sub(r"<\|[^|>]+?\|>", "", s)
-    s = re.sub(r"</?s>", "", s)
-    s = re.sub(r"<end_of_turn>", "", s)
-    s = re.sub(r"<start_of_turn>\w*", "", s)
-    s = re.sub(r"\[/?INST\]", "", s)
-    s = re.sub(r"<<SYS>>|<</SYS>>", "", s)
-    if soft:
-        return s
-    # Collapse messy whitespace left behind by stripped tokens
-    s = re.sub(r"[ \t]+\n", "\n", s)
-    s = re.sub(r"\n{3,}", "\n\n", s)
-    return s.strip()
+def _snap_model_type(snap: Path) -> str:
+    return _chat_text.snap_model_type(snap)
+
+
+def _fallback_chat_prompt(messages: list, model_type: str = "") -> str:
+    return _chat_text.fallback_chat_prompt(messages, model_type)
+
+
+def _format_engine_prompt(snap: Path, messages: list | None, flat_prompt: str) -> str:
+    return _chat_text.format_engine_prompt(snap, messages, flat_prompt)
 
 
 def _ensure_hf_hub() -> None:
@@ -1306,41 +1007,6 @@ def _chat_mode(snap: Path) -> str:
     return "blocked"
 
 
-def _format_engine_prompt(snap: Path, messages: list | None, flat_prompt: str) -> str:
-    """Apply HF chat template when available so dense/engine packs get instruct formatting."""
-    if messages:
-        try:
-            from transformers import AutoTokenizer
-
-            tok = AutoTokenizer.from_pretrained(str(snap), trust_remote_code=True)
-            chat = []
-            for m in messages:
-                role = m.get("role") or "user"
-                content = (m.get("content") or "").strip()
-                if content and role in ("user", "assistant", "system"):
-                    chat.append({"role": role, "content": content})
-            if chat and hasattr(tok, "apply_chat_template") and tok.chat_template:
-                kwargs = {"tokenize": False, "add_generation_prompt": True}
-                # Qwen3 / Qwen3.5 default to long <think> blocks that burn max_tokens
-                # and look like a hung chat. Prefer direct answers in the app UI.
-                try:
-                    return tok.apply_chat_template(chat, enable_thinking=False, **kwargs)
-                except TypeError:
-                    return tok.apply_chat_template(chat, **kwargs)
-        except Exception as e:
-            sys.stderr.write(f"[windhover] chat template fallback: {e}\n")
-    if messages:
-        parts = []
-        for m in messages:
-            role = m.get("role") or "user"
-            content = (m.get("content") or "").strip()
-            if content:
-                parts.append(f"{role}: {content}")
-        if parts:
-            return "\n".join(parts) + "\nassistant:"
-    return flat_prompt
-
-
 def _preview_load_src(snap: Path | None, meta: dict, repo: str) -> str:
     """Prefer a real local HF checkout when weights were downloaded."""
     if snap and meta.get("weights"):
@@ -1617,7 +1283,9 @@ def _engine_chat(
                                 break
                     if emit:
                         try:
-                            on_delta(_clean_chat_text(emit.decode("utf-8", errors="replace"), soft=True))
+                            # Stream raw decode; UI/final path cleans the full buffer so
+                            # turn markers spanning chunk boundaries still cut junk.
+                            on_delta(emit.decode("utf-8", errors="replace"))
                         except Exception:
                             proc.kill()
                             raise
@@ -2651,70 +2319,23 @@ def cmd_purge_impostors(_: argparse.Namespace) -> int:
 
 
 def _is_ollama_model_id(model_id: str | None) -> bool:
-    return bool(model_id) and str(model_id).startswith("ollama/")
+    return _ollama_client.is_ollama_model_id(model_id)
 
 
 def _ollama_tag(model_id: str) -> str:
-    """ollama/gemma4:latest → gemma4:latest"""
-    return str(model_id)[len("ollama/") :].strip()
+    return _ollama_client.ollama_tag(model_id)
 
 
 def _ollama_url(path: str) -> str:
-    if not path.startswith("/"):
-        path = "/" + path
-    return f"{OLLAMA_HOST}{path}"
+    return _ollama_client.ollama_url(path, OLLAMA_HOST)
 
 
 def _ollama_reachable(timeout: float = 0.6) -> bool:
-    try:
-        req = urllib.request.Request(_ollama_url("/api/tags"), method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return 200 <= getattr(resp, "status", 200) < 300
-    except Exception:
-        return False
+    return _ollama_client.ollama_reachable(OLLAMA_HOST, timeout=timeout)
 
 
 def _ollama_list_models(timeout: float = 1.5) -> list[dict]:
-    """Return virtual installed entries for models already pulled into Ollama."""
-    try:
-        req = urllib.request.Request(_ollama_url("/api/tags"), method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8", errors="replace"))
-    except Exception:
-        return []
-    out: list[dict] = []
-    for m in data.get("models") or []:
-        name = str(m.get("name") or m.get("model") or "").strip()
-        if not name:
-            continue
-        size = int(m.get("size") or 0)
-        details = m.get("details") or {}
-        out.append(
-            {
-                "id": f"ollama/{name}",
-                "name": name,
-                "path": None,
-                "ready": True,
-                "engine": "ollama",
-                "source": "ollama",
-                "backend": "ollama",
-                "chat": "ollama",
-                "chat_mode": "ollama",
-                "chat_ok": True,
-                "impostor": False,
-                "has_weights": True,
-                "size_bytes": size,
-                "weight_bytes": size,
-                "family": "ollama",
-                "description": f"Local Ollama model ({name})",
-                "ollama_digest": m.get("digest"),
-                "ollama_modified": m.get("modified_at") or m.get("modified"),
-                "parameter_size": details.get("parameter_size"),
-                "quantization": details.get("quantization_level"),
-            }
-        )
-    out.sort(key=lambda x: str(x.get("id") or ""))
-    return out
+    return _ollama_client.ollama_list_models(OLLAMA_HOST, timeout=timeout)
 
 
 def _ollama_chat(
@@ -2724,102 +2345,15 @@ def _ollama_chat(
     *,
     model_tag: str,
 ) -> tuple[str, dict]:
-    """Proxy chat to the local Ollama OpenAI-compatible API."""
-    t0 = time.time()
-    clean_msgs = [
-        {"role": m.get("role") or "user", "content": m.get("content") or ""}
-        for m in messages
-        if (m.get("content") or "").strip() or (m.get("role") in ("assistant", "system"))
-    ]
-    text = ""
-    err: str | None = None
-    completion_tokens = 0
-    attempts = (
-        (
-            "/v1/chat/completions",
-            {
-                "model": model_tag,
-                "messages": clean_msgs,
-                "stream": False,
-                "temperature": float(temperature),
-                "max_tokens": int(max_tokens),
-            },
-        ),
-        (
-            "/api/chat",
-            {
-                "model": model_tag,
-                "messages": clean_msgs,
-                "stream": False,
-                "options": {
-                    "temperature": float(temperature),
-                    "num_predict": int(max_tokens),
-                },
-            },
-        ),
+    return _ollama_client.ollama_chat(
+        messages,
+        max_tokens,
+        temperature,
+        model_tag=model_tag,
+        host=OLLAMA_HOST,
+        rss_mb=_rss_mb(),
+        stats_sink=_LAST_STATS.update,
     )
-    for path, payload in attempts:
-        body = json.dumps(payload).encode("utf-8")
-        try:
-            req = urllib.request.Request(
-                _ollama_url(path),
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=600) as resp:
-                raw = json.loads(resp.read().decode("utf-8", errors="replace"))
-            if path.startswith("/v1/"):
-                choices = raw.get("choices") or []
-                if choices:
-                    msg = choices[0].get("message") or {}
-                    text = str(msg.get("content") or "")
-                usage = raw.get("usage") or {}
-                completion_tokens = int(usage.get("completion_tokens") or 0)
-            else:
-                msg = raw.get("message") or {}
-                text = str(msg.get("content") or raw.get("response") or "")
-                completion_tokens = int(raw.get("eval_count") or 0)
-            err = None
-            break
-        except urllib.error.HTTPError as e:
-            detail = ""
-            try:
-                detail = e.read().decode("utf-8", errors="replace")[:300]
-            except Exception:
-                pass
-            err = f"Ollama HTTP {e.code}: {e.reason}" + (f" — {detail}" if detail else "")
-        except Exception as e:
-            err = f"{type(e).__name__}: {e}"
-    dt = max(1e-6, time.time() - t0)
-    if err and not text:
-        stats = {
-            "backend": "ollama",
-            "error": err,
-            "selected_model": f"ollama/{model_tag}",
-            "preview_model": None,
-            "latency_ms": round(dt * 1000, 1),
-            "tokens_per_sec": 0.0,
-            "completion_tokens": 0,
-            "rss_mb": round(_rss_mb(), 1),
-            "engine": "ollama",
-        }
-        _LAST_STATS.update(stats)
-        return f"(ollama error: {err})", stats
-    ntok = completion_tokens if completion_tokens > 0 else max(1, len((text or "").split()))
-    stats = {
-        "backend": "ollama",
-        "selected_model": f"ollama/{model_tag}",
-        "preview_model": model_tag,
-        "family": "ollama",
-        "latency_ms": round(dt * 1000, 1),
-        "tokens_per_sec": round(ntok / dt, 2),
-        "completion_tokens": ntok,
-        "rss_mb": round(_rss_mb(), 1),
-        "engine": "ollama",
-    }
-    _LAST_STATS.update(stats)
-    return _clean_chat_text(text) or "(empty ollama generation)", stats
 
 
 def _list_installed() -> list[dict]:
@@ -3693,11 +3227,13 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                                 snap, prompt, max_tokens, temperature,
                                 messages=messages, on_delta=on_delta,
                             )
+                            # Final cleaned message replaces any streamed raw junk.
                             _sse({
                                 "id": "kestrel-chat",
                                 "object": "chat.completion.chunk",
                                 "model": mid_,
                                 "stats": stats,
+                                "message": {"role": "assistant", "content": _text or ""},
                                 "choices": [{"index": 0, "delta": {},
                                              "finish_reason": "stop"}],
                             })

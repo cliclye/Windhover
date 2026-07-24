@@ -29,6 +29,9 @@ datas = [
     (str(REPO / "app" / "public" / "catalog.json"), "app/public"),
     (str(REPO / "app" / "public" / "windhover-icon.png"), "app/public"),
     (str(REPO / "tools" / "agent_workspace.py"), "tools"),
+    (str(REPO / "tools" / "chat_text.py"), "tools"),
+    (str(REPO / "tools" / "app_update.py"), "tools"),
+    (str(REPO / "tools" / "ollama_client.py"), "tools"),
     # In-process KPK convert (numpy, no torch) for Phi/Gemma after Library install.
     (str(REPO / "tools" / "kestrel_pack.py"), "tools"),
     (str(REPO / "tools" / "wmir"), "tools/wmir"),
@@ -38,6 +41,9 @@ binaries = []
 hiddenimports = [
     "bundled_windhover",
     "agent_workspace",
+    "chat_text",
+    "app_update",
+    "ollama_client",
     "kestrel_pack",
     "wmir",
     "wmir.lower",

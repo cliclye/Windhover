@@ -148,13 +148,16 @@ static void wh_arm_chat_stops(Tok *T, WhDesc *d, const char *snap,
     WH_ADD_STOP(tok_id_of(T, "<|eot_id|>"));
     WH_ADD_STOP(tok_id_of(T, "<|eom_id|>"));
     WH_ADD_STOP(tok_id_of(T, "<end_of_turn>"));
+    WH_ADD_STOP(tok_id_of(T, "<start_of_turn>"));
     WH_ADD_STOP(tok_id_of(T, "<eos>"));
     WH_ADD_STOP(tok_id_of(T, "</s>"));
     WH_ADD_STOP(tok_id_of(T, "<|endoftext|>"));
     /* Also stop if the model starts the next role (runaway after missed EOS). */
     WH_ADD_STOP(tok_id_of(T, "<|user|>"));
+    WH_ADD_STOP(tok_id_of(T, "<|assistant|>"));
     WH_ADD_STOP(tok_id_of(T, "<|system|>"));
     WH_ADD_STOP(tok_id_of(T, "<|im_start|>"));
+    WH_ADD_STOP(tok_id_of(T, "<|start_header_id|>"));
     WH_ADD_STOP(d->eos_id);
     #undef WH_ADD_STOP
     /* Merge every eos_token_id from HF configs (Phi lists [<|end|>, <|endoftext|>]). */
@@ -1843,7 +1846,7 @@ int wh_run(int argc, char **argv) {
     tok_load(&T, tkp);
     /* Arm every known chat EOS from special tokens + HF generation_config arrays.
      * Missing a family end-marker (e.g. Phi <|end|>) causes runaway decode. */
-    int stops[16];
+    int stops[32];
     int nstop = 0;
     wh_arm_chat_stops(&T, d, snap, stops, &nstop, (int)(sizeof(stops) / sizeof(stops[0])));
     if (!quiet && nstop > 0) {

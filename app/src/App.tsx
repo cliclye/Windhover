@@ -1,26 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { apiUrl } from "./api";
+import {
+  agentVisibleReply,
+  toolActivityGroup,
+  toolActivityLabel,
+  type AgentToolResult,
+} from "./agentUi";
+import { cleanChatText, extractSSE } from "./chatText";
+import { MarkdownBody } from "./components/MarkdownBody";
+import { RailIcon, type Tab } from "./components/RailIcon";
+import {
+  FAMILIES,
+  formatCount,
+  formatParams,
+  isMacSmall,
+  isOllamaModel,
+  matchInstalled,
+  modelPickerLabel,
+  statusBadge,
+  type CatalogModel,
+  type Installed,
+} from "./modelMeta";
 
-type CatalogModel = {
-  id: string;
-  name: string;
-  description: string;
-  size_gb: number;
-  license?: string;
-  tags?: string[];
-  source?: string;
-  family?: string;
-  status?: string;
-  ram_gb?: number;
-  hf_repo?: string;
-  preview_repo?: string;
-  engine?: string;
-  chat?: string;
-  tier?: string;
-};
 
 type HfModelInfo = {
   ok?: boolean;
@@ -43,27 +45,6 @@ type HfModelInfo = {
     value?: number | string;
   }>;
   html_url?: string;
-};
-
-type Installed = {
-  id: string;
-  path?: string | null;
-  name?: string;
-  ready?: boolean;
-  engine?: string;
-  family?: string;
-  incomplete?: boolean;
-  chat_ok?: boolean;
-  chat_mode?: string;
-  impostor?: boolean;
-  needs_prepare?: boolean;
-  engine_ready?: boolean;
-  size_bytes?: number;
-  weight_bytes?: number;
-  has_weights?: boolean;
-  source?: string;
-  backend?: string;
-  description?: string;
 };
 
 type Msg = {
@@ -104,8 +85,6 @@ type PullProgress = {
   bytes?: number;
 };
 
-type Tab = "library" | "chat" | "agent" | "advanced";
-
 type AgentStep = {
   step: number;
   assistant?: string;
@@ -114,257 +93,6 @@ type AgentStep = {
   stats?: ChatStats;
   done?: boolean;
 };
-
-type AgentToolResult = {
-  tool?: string;
-  ok?: boolean;
-  error?: string;
-  path?: string;
-  summary?: string;
-  entries?: unknown[];
-};
-
-/** Strip tool-call soup from assistant text so the thread shows prose only. */
-function agentVisibleReply(text: string, hasTools: boolean): string {
-  let t = (text || "").trim();
-  if (!t) return "";
-  // Drop TOOL … END blocks
-  t = t.replace(/(?:^|\n)TOOL\s+\w+[\s\S]*?(?:\nEND\b)/gi, "\n");
-  // Drop fenced tool/json blocks
-  t = t.replace(/```(?:tool|json)\s*\n[\s\S]*?```/gi, "\n");
-  // Drop <tool>…</tool>
-  t = t.replace(/<tool>[\s\S]*?<\/tool>/gi, "\n");
-  t = t.replace(/\n{3,}/g, "\n\n").trim();
-  if (hasTools && !t) return "";
-  // Hide obvious regurgitated demo blurb when tools ran
-  if (hasTools && /simple calculator|basic arithmetic operations/i.test(t) && t.length < 800) {
-    return "";
-  }
-  return t;
-}
-
-/** Cursor-style one-liners for tool activity (collapsed by default). */
-function toolActivityLabel(tr: AgentToolResult): string {
-  const tool = String(tr.tool || "tool");
-  const path = tr.path ? String(tr.path) : "";
-  if (tr.ok === false) return `${tool} failed${path ? ` · ${path}` : ""}`;
-  if (tool.includes("read")) return path ? `Read ${path}` : "Read file";
-  if (tool.includes("write") || tool.includes("edit") || tool.includes("create")) {
-    return path ? `Edited ${path}` : "Edited file";
-  }
-  if (tool.includes("list") || tool.includes("tree") || tool.includes("glob")) {
-    const n = Array.isArray(tr.entries) ? tr.entries.length : 0;
-    if (n > 0) return `Explored ${n} item${n === 1 ? "" : "s"}${path ? ` in ${path}` : ""}`;
-    return path ? `Listed ${path}` : "Listed folder";
-  }
-  if (tr.summary) return String(tr.summary);
-  return path ? `${tool} · ${path}` : tool;
-}
-
-function toolActivityGroup(results: AgentToolResult[]): string {
-  if (!results.length) return "";
-  const labels = results.map(toolActivityLabel);
-  if (labels.length === 1) return labels[0];
-  const reads = labels.filter((l) => l.startsWith("Read ")).length;
-  const edits = labels.filter((l) => l.startsWith("Edited ")).length;
-  const explores = labels.filter((l) => l.startsWith("Explored ") || l.startsWith("Listed ")).length;
-  const parts: string[] = [];
-  if (explores) parts.push(`Explored ${explores} path${explores === 1 ? "" : "s"}`);
-  if (reads) parts.push(`Read ${reads} file${reads === 1 ? "" : "s"}`);
-  if (edits) parts.push(`Edited ${edits} file${edits === 1 ? "" : "s"}`);
-  const other = labels.length - explores - reads - edits;
-  if (other > 0) parts.push(`${other} other`);
-  return parts.join(", ");
-}
-
-const FAMILIES = [
-  { id: "all", label: "All" },
-  { id: "ollama", label: "Ollama" },
-  { id: "mac", label: "Mac 16GB" },
-  { id: "windhover", label: "Windhover" },
-  { id: "gemma", label: "Gemma" },
-  { id: "phi", label: "Phi" },
-  { id: "qwen", label: "Qwen" },
-  { id: "deepseek", label: "DeepSeek" },
-  { id: "minimax", label: "MiniMax" },
-  { id: "llama", label: "Llama" },
-  { id: "mistral", label: "Mistral" },
-  { id: "glm", label: "GLM" },
-  { id: "kimi", label: "Kimi" },
-] as const;
-
-function matchInstalled(list: Installed[], id: string) {
-  const key = id.replace("/", "__");
-  return list.find(
-    (m) => m.id === id || m.id === key || m.id?.endsWith(id.split("/").pop() || "")
-  );
-}
-
-function isOllamaModel(m: { id?: string; source?: string; backend?: string; chat_mode?: string }) {
-  return (
-    m.source === "ollama" ||
-    m.backend === "ollama" ||
-    m.chat_mode === "ollama" ||
-    String(m.id || "").startsWith("ollama/")
-  );
-}
-
-function modelPickerLabel(m: Installed) {
-  const name = m.name || m.id;
-  return isOllamaModel(m) ? `Ollama · ${name.replace(/^ollama\//, "")}` : name;
-}
-
-function isMacSmall(m: CatalogModel) {
-  return m.tier === "mac16" || m.source === "hf_small" || (m.tags || []).includes("mac16");
-}
-
-function statusBadge(m: CatalogModel) {
-  if (isMacSmall(m)) return { cls: "mac", label: "Mac 16GB" };
-  if (m.status === "ready" && m.chat === "preview") return { cls: "ready", label: "Preview" };
-  if (m.status === "ready" && m.chat === "engine-oracle") return { cls: "demo", label: "Engine demo" };
-  if (m.status === "download") return { cls: "download", label: "Download" };
-  if (m.status === "ready") return { cls: "ready", label: "Ready" };
-  return { cls: "download", label: m.status || "Download" };
-}
-
-function extractSSE(buffer: string) {
-  const frames = buffer.split(/\r?\n\r?\n/);
-  const rest = frames.pop() || "";
-  const data = frames.flatMap((frame) =>
-    frame
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart())
-  );
-  return { data, rest };
-}
-
-function formatCount(n?: number) {
-  if (n == null || Number.isNaN(n)) return "—";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
-
-function formatParams(n?: number) {
-  if (n == null || Number.isNaN(n)) return "—";
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  return String(n);
-}
-
-function cleanChatText(text: string): string {
-  let s = text;
-  // Truncate runaway decode at the first turn-ending marker
-  const markers = [
-    "<|end|>",
-    "<|im_end|>",
-    "<|eot_id|>",
-    "<end_of_turn>",
-    "<|user|>",
-    "<|assistant|>",
-    "<|system|>",
-    "<|im_start|>",
-  ];
-  let cut: number | null = null;
-  for (const m of markers) {
-    const i = s.indexOf(m);
-    if (i >= 0 && (cut === null || i < cut)) cut = i;
-  }
-  if (cut !== null) s = s.slice(0, cut);
-  return s
-    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
-    .replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, "")
-    .replace(/<redacted_reasoning\b[^>]*>[\s\S]*?<\/redacted_reasoning>/gi, "")
-    .replace(/<reason\b[^>]*>[\s\S]*?<\/reason>/gi, "")
-    .replace(/<think\b[^>]*>[\s\S]*$/gi, "")
-    .replace(/<thinking\b[^>]*>[\s\S]*$/gi, "")
-    .replace(/<\/?(?:think|thinking|redacted_reasoning|reason)\s*>/gi, "")
-    .replace(/^\[(?:wh|WH|CUDA|DSA|COLI|coli|windhover)\][^\n]*/gm, "")
-    .replace(/^CATS sparsity[^\n]*/gim, "")
-    .replace(/<\|[^|>]+?\|>/g, "")
-    .replace(/<\/?s>/g, "")
-    .replace(/<end_of_turn>/g, "")
-    .replace(/<start_of_turn>\w*/g, "")
-    .replace(/\[\/?INST\]/g, "")
-    .replace(/<<SYS>>|<<\/SYS>>/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function MarkdownBody({ text }: { text: string }) {
-  const cleaned = cleanChatText(text);
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noreferrer">
-            {children}
-          </a>
-        ),
-        pre: ({ children }) => <pre className="md-pre">{children}</pre>,
-        code: ({ className, children, ...props }) => {
-          const inline = !className;
-          return inline ? (
-            <code className="md-inline-code" {...props}>
-              {children}
-            </code>
-          ) : (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          );
-        },
-      }}
-    >
-      {cleaned}
-    </ReactMarkdown>
-  );
-}
-
-function RailIcon({ name }: { name: Tab }) {
-  const common = {
-    width: 18,
-    height: 18,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.75,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true as const,
-  };
-  if (name === "agent") {
-    return (
-      <svg {...common}>
-        <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
-        <circle cx="12" cy="12" r="4.5" />
-      </svg>
-    );
-  }
-  if (name === "chat") {
-    return (
-      <svg {...common}>
-        <path d="M5 6.5h14a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 19 16.5H10L6 20v-3.5H5A1.5 1.5 0 0 1 3.5 15V8A1.5 1.5 0 0 1 5 6.5z" />
-      </svg>
-    );
-  }
-  if (name === "library") {
-    return (
-      <svg {...common}>
-        <path d="M5 4.5h5.5v15H5zM13.5 4.5H19v15h-5.5z" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6.2 6.2l1.6 1.6M16.2 16.2l1.6 1.6M17.8 6.2l-1.6 1.6M7.8 16.2l-1.6 1.6" />
-    </svg>
-  );
-}
 
 export function App() {
   const [tab, setTab] = useState<Tab>("agent");
@@ -856,7 +584,7 @@ export function App() {
         }
         const content = j?.choices?.[0]?.message?.content || j?.error || "No response.";
         setLastStats(st);
-        paint(String(content), st);
+        paint(cleanChatText(String(content)), st);
         void refresh();
         return;
       }
@@ -884,6 +612,7 @@ export function App() {
             code?: string;
             detail?: string;
             stats?: ChatStats;
+            message?: { role?: string; content?: string };
             choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
           };
           try {
@@ -907,14 +636,20 @@ export function App() {
           if (piece) {
             gotToken = true;
             assistant += piece;
-            paint(assistant, finalStats);
+            paint(cleanChatText(assistant), finalStats);
+          }
+          // Server final cleaned text replaces streamed raw (cuts trailing junk).
+          if (obj.choices?.[0]?.finish_reason === "stop" && typeof obj.message?.content === "string") {
+            gotToken = true;
+            assistant = obj.message.content;
+            paint(cleanChatText(assistant) || "No response.", finalStats);
           }
         }
       }
       if (!gotToken && !assistant.trim()) {
         paint("No response from the model. Try again, or pick another installed model.");
       } else {
-        paint(assistant || "No response.", finalStats);
+        paint(cleanChatText(assistant) || "No response.", finalStats);
         if (finalStats) setLastStats(finalStats);
       }
       void refresh();

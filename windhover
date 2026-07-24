@@ -250,6 +250,25 @@ def _engine_bin() -> Path:
     return base
 
 
+def _engine_cwd() -> Path:
+    """Working directory for windhover-engine subprocesses.
+
+    Must be an existing directory. On Windows, CreateProcess fails with
+    WinError 267 (ERROR_DIRECTORY) if cwd is missing — packaged apps often
+    set ENGINE_DIR to bundle/engine which is not shipped; the binary lives
+    next to the sidecar instead.
+    """
+    if ENGINE_DIR.is_dir():
+        return ENGINE_DIR
+    try:
+        parent = Path(ENGINE_BIN).expanduser().resolve().parent
+        if parent.is_dir():
+            return parent
+    except Exception:
+        pass
+    return Path.cwd()
+
+
 ENGINE_BIN = _engine_bin()
 
 
@@ -321,7 +340,7 @@ def _app_version() -> str:
                 return str(ver).lstrip("v")
         except Exception:
             continue
-    return os.environ.get("WINDHOVER_VERSION", "0.3.11").lstrip("v")
+    return os.environ.get("WINDHOVER_VERSION", "0.3.12").lstrip("v")
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
@@ -1378,7 +1397,7 @@ def _engine_chat(
         if on_delta is None:
             p = subprocess.run(
                 [str(ENGINE_BIN), "64", "4", "4"],
-                cwd=str(ENGINE_DIR),
+                cwd=str(_engine_cwd()),
                 env=env,
                 capture_output=True,
             )
@@ -1387,7 +1406,7 @@ def _engine_chat(
             # stream stdout bytes to the client as they arrive
             proc = subprocess.Popen(
                 [str(ENGINE_BIN), "64", "4", "4"],
-                cwd=str(ENGINE_DIR),
+                cwd=str(_engine_cwd()),
                 env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1423,12 +1442,12 @@ def _engine_chat(
     except FileNotFoundError as e:
         raise EngineInactiveError(
             "Windhover engine is not active — could not start windhover-engine.",
-            detail=str(e),
+            detail=f"{e}; bin={ENGINE_BIN}; cwd={_engine_cwd()}",
         ) from e
     except OSError as e:
         raise EngineInactiveError(
             "Windhover engine is not active — failed to launch windhover-engine.",
-            detail=str(e),
+            detail=f"{e}; bin={ENGINE_BIN}; cwd={_engine_cwd()}",
         ) from e
 
     text = _dec(raw_out)
@@ -1835,7 +1854,7 @@ def cmd_oracle(_: argparse.Namespace) -> int:
     env["SNAP"] = str(ENGINE_DIR / "fixtures" / "glm_tiny") if sys.platform == "win32" else "./fixtures/glm_tiny"
     env["TF"] = "1"
     return subprocess.call(
-        [str(ENGINE_BIN), "64", "16", "16"], cwd=str(ENGINE_DIR), env=env
+        [str(ENGINE_BIN), "64", "16", "16"], cwd=str(_engine_cwd()), env=env
     )
 
 
@@ -1920,7 +1939,7 @@ def cmd_chat(ns: argparse.Namespace) -> int:
     env["NGEN"] = str(ns.ngen)
     env["TEMP"] = str(ns.temp)
     return subprocess.call(
-        [str(ENGINE_BIN), str(ns.cap), "4", "4"], cwd=str(ENGINE_DIR), env=env
+        [str(ENGINE_BIN), str(ns.cap), "4", "4"], cwd=str(_engine_cwd()), env=env
     )
 
 

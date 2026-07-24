@@ -195,7 +195,16 @@ def main() -> int:
 
     if hasattr(mod, "ROOT"):
         mod.ROOT = bundle
-        mod.ENGINE_DIR = bundle / "engine"
+        # Packaged builds ship windhover-engine next to the sidecar, not under
+        # bundle/engine. Point ENGINE_DIR at a real directory so subprocess cwd
+        # is valid on Windows (missing cwd → WinError 267).
+        eng_env = os.environ.get("WINDHOVER_ENGINE") or os.environ.get("COLI_ENGINE")
+        eng_path = Path(eng_env) if eng_env else None
+        if eng_path is not None and eng_path.is_file():
+            mod.ENGINE_DIR = eng_path.resolve().parent
+        else:
+            cand = bundle / "engine"
+            mod.ENGINE_DIR = cand if cand.is_dir() else exe_dir
         if hasattr(mod, "_engine_bin"):
             mod.ENGINE_BIN = mod._engine_bin()
         mod.CATALOG_PATH = bundle / "app" / "public" / "catalog.json"

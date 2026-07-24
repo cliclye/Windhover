@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.12] — 2026-07-23
+
+### Fixed
+- **Windows WinError 267** when chatting: packaged app launched `windhover-engine` with
+  cwd=`bundle/engine` (often missing). Use the engine binary’s directory (or another
+  existing path) so CreateProcess succeeds.
+
 ## [0.3.11] — 2026-07-23
 
 ### Engine — Universal Windhover Model IR (WMIR)

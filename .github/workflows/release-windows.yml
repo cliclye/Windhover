@@ -222,6 +222,37 @@ jobs:
               }
               if (-not $catOk) { throw "installed sidecar catalog check failed" }
               Write-Host "installer sidecar smoke ok"
+
+              # Prove windhover-engine can CreateProcess with cwd = its own dir
+              # (packaged apps used to pass missing bundle\engine → WinError 267).
+              if ($eng) {
+                Write-Host "Engine launch smoke: $($eng.FullName)"
+                $engDir = $eng.Directory.FullName
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName = $eng.FullName
+                $psi.Arguments = "64 4 4"
+                $psi.WorkingDirectory = $engDir
+                $psi.UseShellExecute = $false
+                $psi.RedirectStandardOutput = $true
+                $psi.RedirectStandardError = $true
+                $psi.CreateNoWindow = $true
+                # No SNAP on purpose — process must start; exit non-zero is OK.
+                $ep = [System.Diagnostics.Process]::Start($psi)
+                $ep.WaitForExit(15000) | Out-Null
+                if (-not $ep.HasExited) {
+                  try { $ep.Kill() } catch {}
+                  throw "windhover-engine launch hung (cwd=$engDir)"
+                }
+                $err = $ep.StandardError.ReadToEnd()
+                Write-Host "engine exit=$($ep.ExitCode) stderr=$($err.Substring(0, [Math]::Min(200, $err.Length)))"
+                # WinError 267 would prevent Start() or yield weird failures before SNAP check.
+                if ($err -match "WinError 267|directory name is invalid") {
+                  throw "engine cwd invalid: $err"
+                }
+                Write-Host "installer engine launch smoke ok (cwd=$engDir)"
+              } else {
+                throw "windhover-engine.exe missing next to installed sidecar"
+              }
             } finally {
               if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
             }

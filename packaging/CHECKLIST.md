@@ -41,6 +41,9 @@ KPK convert via `numpy` + `safetensors`. Lazy imports are **invisible** to Analy
 - [ ] Ready/download models are never `chat: blocked`.
 - [ ] New HF families land as `tools/wmir/lower.py` lowerers first; kernels only if a
       new op kind is required (`engine/runtime/wmir.h` + `tools/wmir/ops.py`).
+- [ ] `python3 tools/test_engine_cwd.py` passes (packaged cwd must exist — WinError 267).
+- [ ] Windows release installer smoke launches `windhover-engine.exe` with cwd = its
+      own directory (logs `installer engine launch smoke ok`).
 
 ## Do not
 

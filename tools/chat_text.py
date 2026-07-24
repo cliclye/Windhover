@@ -64,6 +64,64 @@ def truncate_repetition(text: str) -> str:
     return text
 
 
+def _is_gibberish_chunk(s: str) -> bool:
+    """True for keyboard-smash / high-entropy alnum tails (not normal prose)."""
+    t = re.sub(r"\s+", "", s or "")
+    if len(t) < 14:
+        return False
+    letters = sum(c.isalpha() for c in t)
+    digits = sum(c.isdigit() for c in t)
+    punct = sum(c in ";'\\/_+=-@#$%^&*`~|" for c in t)
+    if digits / len(t) >= 0.22:
+        return True
+    if punct / len(t) >= 0.12 and digits + letters > 8:
+        return True
+    if letters:
+        vowels = sum(c.lower() in "aeiou" for c in t if c.isalpha())
+        if vowels / letters < 0.18:
+            return True
+    # Long run with almost no spaces in the original slice
+    if " " not in s.strip() and len(t) >= 18 and letters + digits >= 14:
+        return True
+    return False
+
+
+def cut_gibberish_tail(text: str) -> str:
+    """Drop random alnum / code-fence junk after a finished sentence."""
+    if not text or len(text) < 20:
+        return text
+    s = text
+    # Code fence after a short finished reply
+    m = re.search(
+        r'(?s)(?<=[.!?…"\'\)\]])\s*```[\w+-]*\n.*\Z',
+        s,
+    )
+    if m and m.start() > 8:
+        head = s[: m.start()].rstrip()
+        if re.search(r'[.!?…"\'\)\]]\s*$', head):
+            return head
+    # Alphanumeric smash after sentence punctuation
+    m = re.search(
+        r'(?s)(?<=[.!?…"\'\)\]])\s+'
+        r"([A-Za-z0-9;'\\/_+=@#$%^&*`~|-]{14,}"
+        r"|(?:[A-Za-z0-9;'\\/_+=@#$%^&*`~|-]{6,}\s+){2,}[A-Za-z0-9;'\\/_+=@#$%^&*`~|-]*)"
+        r"\s*\Z",
+        s,
+    )
+    if m and m.start() > 0:
+        chunk = m.group(1) if m.lastindex else m.group(0)
+        if _is_gibberish_chunk(chunk):
+            return s[: m.start()].rstrip()
+    # Orphan smash on its own line after a blank line
+    m = re.search(
+        r"(?m)\n{1,2}([A-Za-z0-9;'\\/_+=@#$%^&*`~|-]{16,})\s*\Z",
+        s,
+    )
+    if m and m.start() > 0 and _is_gibberish_chunk(m.group(1)):
+        return s[: m.start()].rstrip()
+    return s
+
+
 def cut_at_turn_boundary(text: str) -> str:
     """Trim everything from the first next-turn / EOS marker onward."""
     if not text:
@@ -132,9 +190,11 @@ def clean_chat_text(text: str, *, soft: bool = False) -> str:
     s = re.sub(r"\[/?INST\]", "", s)
     s = re.sub(r"<<SYS>>|<</SYS>>", "", s)
     s = cut_at_turn_boundary(s)
+    s = cut_gibberish_tail(s)
     if soft:
         return s
     s = truncate_repetition(s)
+    s = cut_gibberish_tail(s)
     s = re.sub(r"[ \t]+\n", "\n", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
     return s.strip()

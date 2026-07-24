@@ -53,10 +53,11 @@
 
 #define WH_GS 64          /* weight quant group */
 #define WH_KVG 32         /* kv quant group */
-#define WH_PREFILL_S 80   /* prefill chunk (was 64; matches WH_MAXS headroom) */
-#define WH_MAXS 80        /* max batch rows in scratch (prefill/verify) */
+#define WH_PREFILL_S 128  /* larger prefill batch: more RAM, fewer round-trips */
+#define WH_MAXS 128       /* max batch rows in scratch (prefill/verify) */
 #define WH_MAX_HD 512     /* max head_dim for stack q8 buffer */
 #define WH_MAX_HIDDEN 8192
+#define WH_EMIT_HIST 768  /* rolling printable history for gibberish early-stop */
 
 /* Portable IEEE fp16 storage. Apple Clang accepts __fp16 by value; Linux
  * x86 Clang/GCC reject that, so prefer _Float16 when the compiler provides it. */
@@ -105,6 +106,71 @@ static void *balloc(int64_t n) {
 static int wh_is_stop(const int *stops, int nstop, int tok) {
     for (int i = 0; i < nstop; i++) if (stops[i] == tok) return 1;
     return 0;
+}
+
+/* Heuristic: stop decode when a finished sentence is followed by keyboard-smash. */
+static int wh_chunk_is_gibberish(const char *s, int n) {
+    if (!s || n < 14) return 0;
+    int letters = 0, digits = 0, punct = 0, vowels = 0, spaces = 0;
+    for (int i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == ' ' || c == '\n' || c == '\t') { spaces++; continue; }
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+            letters++;
+            char l = (char)(c | 32);
+            if (l == 'a' || l == 'e' || l == 'i' || l == 'o' || l == 'u') vowels++;
+        } else if (c >= '0' && c <= '9') digits++;
+        else if (strchr(";'\\/_+=@#$%^&*`~|-", (int)c)) punct++;
+    }
+    int solid = letters + digits + punct;
+    if (solid < 14) return 0;
+    if (digits * 100 >= solid * 22) return 1;
+    if (punct * 100 >= solid * 12 && solid > 8) return 1;
+    if (letters > 0 && vowels * 100 < letters * 18) return 1;
+    if (spaces == 0 && solid >= 18) return 1;
+    return 0;
+}
+
+static int wh_should_stop_gibberish(const char *hist, int hist_n,
+                                    const char *piece, int piece_n) {
+    if (!piece || piece_n < 1) return 0;
+    int has_end = 0;
+    for (int i = 0; i < hist_n; i++) {
+        char c = hist[i];
+        if (c == '.' || c == '!' || c == '?' || c == '"' || c == '\'') {
+            has_end = 1;
+            break;
+        }
+    }
+    if (!has_end) return 0;
+    if (wh_chunk_is_gibberish(piece, piece_n)) return 1;
+    int last = -1;
+    for (int i = 0; i < hist_n; i++) {
+        char c = hist[i];
+        if (c == '.' || c == '!' || c == '?') last = i;
+    }
+    if (last < 0 || last + 1 >= hist_n) return 0;
+    int start = last + 1;
+    while (start < hist_n && (hist[start] == ' ' || hist[start] == '\n')) start++;
+    if (hist_n - start >= 14 && wh_chunk_is_gibberish(hist + start, hist_n - start))
+        return 1;
+    return 0;
+}
+
+static void wh_emit_hist_append(char *hist, int *hist_n, const char *piece, int n) {
+    if (!piece || n <= 0) return;
+    if (n >= WH_EMIT_HIST) {
+        memcpy(hist, piece + (n - WH_EMIT_HIST), WH_EMIT_HIST);
+        *hist_n = WH_EMIT_HIST;
+        return;
+    }
+    if (*hist_n + n > WH_EMIT_HIST) {
+        int drop = *hist_n + n - WH_EMIT_HIST;
+        memmove(hist, hist + drop, (size_t)(*hist_n - drop));
+        *hist_n -= drop;
+    }
+    memcpy(hist + *hist_n, piece, (size_t)n);
+    *hist_n += n;
 }
 
 /* Pull every eos_token_id from config.json / generation_config.json (scalar or array). */
@@ -186,6 +252,26 @@ typedef struct {
     int noc;
     int64_t bytes;         /* weight+scale bytes (telemetry) */
 } WT;
+
+static void wh_mlock_bytes(const void *p, int64_t nbytes) {
+    if (!p || nbytes <= 0) return;
+    st_view hv;
+    memset(&hv, 0, sizeof(hv));
+    hv.p = (const char *)p;
+    hv.nbytes = nbytes;
+    st_view_lock(&hv, 1);
+    st_view_advise(&hv, 1);
+}
+
+static void wh_mlock_wt(const WT *w) {
+    if (!w) return;
+    if (w->fmt == WT_I4G && w->q4 && w->bytes > 0)
+        wh_mlock_bytes(w->q4, w->bytes);
+    else if (w->fmt == WT_I8R && w->q8 && w->bytes > 0)
+        wh_mlock_bytes(w->q8, w->bytes);
+    else if (w->fmt == WT_F32 && w->f && w->bytes > 0)
+        wh_mlock_bytes(w->f, w->bytes);
+}
 
 typedef struct {
     const float *in_ln, *post_ln;      /* norms (f32 views) */
@@ -1817,6 +1903,11 @@ int wh_run(int argc, char **argv) {
     float topp = getenv("TOPP") ? (float)atof(getenv("TOPP")) : 0.f;
     if (topp <= 0.f && getenv("NUCLEUS") && temp > 0.f)
         topp = (float)atof(getenv("NUCLEUS"));
+    /* Chat defaults: without nucleus/top-k, TEMP>0 drifts into rare-token soup. */
+    if (temp > 0.f) {
+        if (topk <= 0) topk = 40;
+        if (topp <= 0.f) topp = 0.9f;
+    }
     g_rng = getenv("SEED") ? (uint64_t)atoll(getenv("SEED"))
                            : (uint64_t)time(NULL) * 2654435761u ^ (uint64_t)getpid();
     int spec_on = getenv("WH_SPEC") ? atoi(getenv("WH_SPEC")) : 0;
@@ -1906,21 +1997,44 @@ int wh_run(int argc, char **argv) {
         au_plan(&M.au, d->layers, d->inter, unit, budget, other);
         au_ledger_set_budget(budget);
         if (budget > 0) budget_apply_hard_cap(budget);
-        /* mlock hot prefix + advise cold tail */
-        int do_mlock = getenv("MLOCK") ? atoi(getenv("MLOCK")) : (M.au.enabled ? 1 : 0);
-        if (M.au.enabled) {
+        /* mlock: pin hot AU prefix, or the full FFN when AU is off (speed > RAM). */
+        int do_mlock = getenv("MLOCK") ? atoi(getenv("MLOCK")) : 1;
+        if (do_mlock) {
+            for (int i = 0; i < d->layers; i++) {
+                WLayer *l = &M.L[i];
+                if (M.au.enabled) {
+                    int64_t hot_rows = (int64_t)M.au.hot_units * AU_BUNDLE;
+                    int64_t up_pre = hot_rows * (D_ / 2);
+                    st_view hv;
+                    hv.p = (const char *)l->up.q4; hv.nbytes = up_pre;
+                    st_view_lock(&hv, 1); st_view_advise(&hv, 1);
+                    hv.p = (const char *)l->downT.q4; hv.nbytes = hot_rows * (D_ / 2);
+                    st_view_lock(&hv, 1); st_view_advise(&hv, 1);
+                    hv.p = (const char *)(l->up.q4 + up_pre);
+                    hv.nbytes = ((int64_t)d->inter - hot_rows) * (D_ / 2);
+                    if (hv.nbytes > 0) st_view_advise(&hv, 0);
+                } else {
+                    wh_mlock_wt(&l->gate);
+                    wh_mlock_wt(&l->up);
+                    wh_mlock_wt(&l->downT);
+                    wh_mlock_wt(&l->q);
+                    wh_mlock_wt(&l->k);
+                    wh_mlock_wt(&l->v);
+                    wh_mlock_wt(&l->o);
+                }
+            }
+            wh_mlock_wt(&M.embed);
+            wh_mlock_wt(&M.lm);
+        } else if (M.au.enabled) {
             for (int i = 0; i < d->layers; i++) {
                 WLayer *l = &M.L[i];
                 int64_t hot_rows = (int64_t)M.au.hot_units * AU_BUNDLE;
                 int64_t up_pre = hot_rows * (D_ / 2);
                 st_view hv;
-                hv.p = l->up.q4; hv.nbytes = up_pre;
-                if (do_mlock) st_view_lock(&hv, 1); else st_view_advise(&hv, 1);
-                hv.p = l->downT.q4; hv.nbytes = hot_rows * (D_ / 2);
-                if (do_mlock) st_view_lock(&hv, 1); else st_view_advise(&hv, 1);
-                hv.p = l->up.q4 + up_pre;
-                hv.nbytes = ((int64_t)d->inter - hot_rows) * (D_ / 2);
-                if (hv.nbytes > 0) st_view_advise(&hv, 0);
+                hv.p = (const char *)l->up.q4; hv.nbytes = up_pre;
+                st_view_advise(&hv, 1);
+                hv.p = (const char *)l->downT.q4; hv.nbytes = hot_rows * (D_ / 2);
+                st_view_advise(&hv, 1);
             }
         }
     }
@@ -1962,6 +2076,8 @@ int wh_run(int argc, char **argv) {
     double t0 = now_s();
     int generated = 0, steps = 0, accepted_total = 0;
     char outbuf[8192];
+    char emit_hist[WH_EMIT_HIST];
+    int emit_hist_n = 0;
     int cur_len = np;
     float *lg = M.logit;
     int next = sample_logits(lg, d->vocab, temp, topk, topp);
@@ -1972,7 +2088,13 @@ int wh_run(int argc, char **argv) {
         /* Never emit stop/EOS control tokens (e.g. <|end|>, <|im_end|>) into chat text. */
         if (wh_is_stop(stops, nstop, next)) break;
         int nch = tok_decode(&T, &next, 1, outbuf, (int)sizeof(outbuf) - 1);
-        if (nch > 0) { outbuf[nch] = 0; fputs(outbuf, stdout); fflush(stdout); }
+        if (nch > 0) {
+            outbuf[nch] = 0;
+            if (wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nch))
+                break;
+            fputs(outbuf, stdout); fflush(stdout);
+            wh_emit_hist_append(emit_hist, &emit_hist_n, outbuf, nch);
+        }
         if (generated >= ngen) break;
         if (cur_len + SPEC_K + 1 >= max_t) break;
 
@@ -1999,7 +2121,13 @@ int wh_run(int argc, char **argv) {
                     if (spec_on) spec_update(ids, cur_len);
                     if (wh_is_stop(stops, nstop, am) || generated >= ngen) break;
                     int nc2 = tok_decode(&T, &am, 1, outbuf, (int)sizeof(outbuf) - 1);
-                    if (nc2 > 0) { outbuf[nc2] = 0; fputs(outbuf, stdout); fflush(stdout); }
+                    if (nc2 > 0) {
+                        outbuf[nc2] = 0;
+                        if (wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nc2))
+                            break;
+                        fputs(outbuf, stdout); fflush(stdout);
+                        wh_emit_hist_append(emit_hist, &emit_hist_n, outbuf, nc2);
+                    }
                 } else break;
             }
             /* rewind kv to cur_len (we computed nd+1 positions from cur_len-1) */

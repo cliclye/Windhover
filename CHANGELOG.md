@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.2] — 2026-07-24
+
+### Fixed
+- **Trailing gibberish after answers:** cuts keyboard-smash / code-fence junk after a finished sentence (server + UI), and the engine early-stops when that pattern appears mid-decode.
+- **Chat sampling:** nucleus (`TOPP=0.9`) + `TOPK=40`, lower default temp (`0.35`) and max tokens (`256`) so short replies don’t fill the budget with nonsense.
+
+### Performance
+- **Spend RAM for speed:** `MLOCK=1` pins full FFN/attn weights when AU is off; larger prefill batch (`WH_PREFILL_S`/`WH_MAXS` 128).
+- **Mac OMP uses P-cores only** (E-cores were lowering tok/s); mild `WH_SPARSE=25` on all platforms for chat.
+- Greedy chat enables `WH_SPEC=1` when temperature is 0.
+
 ## [0.4.1] — 2026-07-24
 
 ### Fixed

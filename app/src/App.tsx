@@ -526,8 +526,8 @@ export function App() {
         body: JSON.stringify({
           model: modelId,
           messages: next.map(({ role, content }) => ({ role, content })),
-          max_tokens: 512,
-          temperature: 0.7,
+          max_tokens: 256,
+          temperature: 0.35,
           stream,
         }),
       });

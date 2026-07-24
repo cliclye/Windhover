@@ -400,7 +400,7 @@ def _app_version() -> str:
                 return str(ver).lstrip("v")
         except Exception:
             continue
-    return os.environ.get("WINDHOVER_VERSION", "0.4.1").lstrip("v")
+    return os.environ.get("WINDHOVER_VERSION", "0.4.2").lstrip("v")
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
@@ -1189,18 +1189,27 @@ def _engine_chat(
     env = _engine_env(snap, None)
     env["PROMPT"] = formatted
     env["COLI_PROMPT"] = formatted
-    env["NGEN"] = str(max_tokens)
-    env["TEMP"] = str(temperature)
+    # Cap runaway decode: long budgets fill with nonsense when EOS is missed.
+    ngen = max(16, min(int(max_tokens), 256))
+    env["NGEN"] = str(ngen)
+    # Softer sampling + nucleus — full-vocab TEMP=0.7 was the main gibberish source.
+    temp = float(temperature)
+    if temp > 0.45:
+        temp = 0.45
+    env["TEMP"] = str(temp)
+    if temp > 0:
+        env.setdefault("TOPP", "0.9")
+        env.setdefault("TOPK", "40")
+        env["WH_SPEC"] = "0"
+    else:
+        env.setdefault("WH_SPEC", "1")
     env["QUIET"] = "1"
     env["DRAFT"] = "0"
     env["WH_JSON_STATS"] = "1"
-    # Windows chat: mild CATS sparsity (skip ~25% of low-|gate| FFN rows) is a large
-    # tok/s win on Phi/Qwen with acceptable quality. Set WH_SPARSE=0 to force full FFN.
-    if sys.platform == "win32":
-        env.setdefault("WH_SPARSE", "25")
-    else:
-        env.setdefault("WH_SPARSE", "0")
+    env.setdefault("MLOCK", "1")
+    env.setdefault("WH_SPARSE", "25")
     env.setdefault("IDOT", "1")
+    # Leave RAM_GB unset → AU off → entire FFN treated hot; MLOCK pins it in RAM.
 
     # Wall-clock budget: cold KPK load + prefill can be slow on CPU; still fail closed.
     if timeout_s is None:
@@ -1793,16 +1802,35 @@ def _engine_env(model: Path, ram: float | None) -> dict[str, str]:
     if ram:
         env["RAM_GB"] = str(ram)
         env["COLI_HARD_CAP"] = "1"
+    # Prefer keeping weights wired in RAM (Mac compressor + Windows working set).
+    env.setdefault("MLOCK", "1")
+    # Mild CATS sparsity: large tok/s win on Phi/Qwen; set WH_SPARSE=0 for exact FFN.
+    env.setdefault("WH_SPARSE", "25")
+    env.setdefault("IDOT", "1")
     # libgomp / libomp read OMP_* before/at process start. Tune on Windows and
     # macOS so Phi/Qwen/KPK decode isn't stuck on 1 thread / passive wait.
     if sys.platform in ("win32", "darwin") and not env.get("COLI_NO_OMP_TUNE"):
-        try:
-            sys.path.insert(0, str(C_DIR))
-            from resource_plan import physical_cpu_count  # type: ignore
+        n = None
+        if sys.platform == "darwin":
+            # P-cores only: E-cores lower aggregate bandwidth for these kernels.
+            try:
+                out = subprocess.check_output(
+                    ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
+                    text=True,
+                    timeout=2,
+                ).strip()
+                if out.isdigit() and int(out) > 0:
+                    n = out
+            except Exception:
+                n = None
+        if n is None:
+            try:
+                sys.path.insert(0, str(C_DIR))
+                from resource_plan import physical_cpu_count  # type: ignore
 
-            n = str(physical_cpu_count())
-        except Exception:
-            n = str(os.cpu_count() or 4)
+                n = str(physical_cpu_count())
+            except Exception:
+                n = str(os.cpu_count() or 4)
         for k, v in (
             ("OMP_WAIT_POLICY", "active"),
             ("GOMP_SPINCOUNT", "200000"),
@@ -1811,7 +1839,6 @@ def _engine_env(model: Path, ram: float | None) -> dict[str, str]:
         ):
             env.setdefault(k, v)
         if sys.platform == "win32":
-            # Lossless Windows I/O defaults (same as coli)
             env.setdefault("DIRECT", "1")
             env.setdefault("PIPE", "1")
             env.setdefault("PILOT_REAL", "1")
@@ -3016,9 +3043,9 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                 messages = body.get("messages") or []
                 if not any((m.get("content") or "").strip() for m in messages if m.get("role") == "user"):
                     return self._json(400, {"error": "empty prompt"})
-                max_tokens = int(body.get("max_tokens") or 512)
+                max_tokens = int(body.get("max_tokens") or 256)
                 temperature = float(
-                    body.get("temperature") if body.get("temperature") is not None else 0.7
+                    body.get("temperature") if body.get("temperature") is not None else 0.35
                 )
                 want_stream = bool(body.get("stream"))
 

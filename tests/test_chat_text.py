@@ -48,6 +48,14 @@ class ChatTextTests(unittest.TestCase):
             "Normal text about the assistant: role is fine",
         )
 
+    def test_gibberish_tail_after_greeting(self):
+        raw = "Hello! How can I help you? i23ruehf903hf3nflsdkjf;laksjdf"
+        self.assertEqual(clean_chat_text(raw), "Hello! How can I help you?")
+
+    def test_code_fence_after_greeting(self):
+        raw = "Hello! How can I help you?\n\n```python\nprint(1)\n```"
+        self.assertEqual(clean_chat_text(raw), "Hello! How can I help you?")
+
 
 if __name__ == "__main__":
     unittest.main()

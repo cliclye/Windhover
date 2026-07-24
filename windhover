@@ -317,15 +317,69 @@ _LAST_STATS: dict = {
 
 
 def _rss_mb() -> float:
+    """Process resident set size in MiB (works on Windows, macOS, Linux)."""
+    # Windows: Unix `resource` is missing — use GetProcessMemoryInfo (WorkingSet).
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+            psapi = ctypes.WinDLL("psapi")
+            kernel32 = ctypes.WinDLL("kernel32")
+            psapi.GetProcessMemoryInfo.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(PROCESS_MEMORY_COUNTERS),
+                wintypes.DWORD,
+            ]
+            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+            handle = kernel32.GetCurrentProcess()
+            if psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                return float(counters.WorkingSetSize) / (1024.0 * 1024.0)
+        except Exception:
+            pass
+        return 0.0
+
     try:
         import resource
 
         rss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
         if sys.platform == "darwin":
             return rss / (1024.0 * 1024.0)
+        # Linux: ru_maxrss is already KiB
         return rss / 1024.0
     except Exception:
         return 0.0
+
+
+def _rss_mb_prefer_engine(wh_stats: dict | None = None) -> float:
+    """Prefer engine-reported RSS (includes model footprint); fall back to host."""
+    if wh_stats:
+        try:
+            rss_gb = wh_stats.get("rss_gb")
+            if rss_gb is not None:
+                return round(float(rss_gb) * 1024.0, 1)
+            footprint = wh_stats.get("footprint_gb")
+            if footprint is not None:
+                return round(float(footprint) * 1024.0, 1)
+        except (TypeError, ValueError):
+            pass
+    return round(_rss_mb(), 1)
 
 
 def _app_version() -> str:
@@ -340,7 +394,7 @@ def _app_version() -> str:
                 return str(ver).lstrip("v")
         except Exception:
             continue
-    return os.environ.get("WINDHOVER_VERSION", "0.3.12").lstrip("v")
+    return os.environ.get("WINDHOVER_VERSION", "0.3.13").lstrip("v")
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
@@ -1488,7 +1542,7 @@ def _engine_chat(
         )
     ntok = int(wh_stats.get("tokens") or max(1, len((text or "").split())))
     stats = {
-        "rss_mb": round(_rss_mb(), 1),
+        "rss_mb": _rss_mb_prefer_engine(wh_stats),
         "latency_ms": round(elapsed * 1000, 1),
         "tokens_per_sec": wh_stats.get("decode_tok_s") or round(ntok / elapsed, 2),
         "completion_tokens": ntok,
@@ -1504,6 +1558,7 @@ def _engine_chat(
             "decode_tok_s": wh_stats.get("decode_tok_s"),
             "prefill_tok_s": wh_stats.get("prefill_tok_s"),
             "footprint_gb": wh_stats.get("footprint_gb"),
+            "rss_gb": wh_stats.get("rss_gb"),
             "sparsity_pct": wh_stats.get("sparsity_pct"),
             "bytes_per_tok": wh_stats.get("bytes_per_tok"),
             "au_hit_pct": wh_stats.get("au_hit_pct"),
@@ -1920,6 +1975,28 @@ def _engine_env(model: Path, ram: float | None) -> dict[str, str]:
     if ram:
         env["RAM_GB"] = str(ram)
         env["COLI_HARD_CAP"] = "1"
+    # Windows: libgomp reads OMP_* in a constructor before main(). Match coli's
+    # env_for defaults so Phi/Qwen/KPK decode isn't stuck on 1 thread / passive wait.
+    if sys.platform == "win32" and not env.get("COLI_NO_OMP_TUNE"):
+        try:
+            sys.path.insert(0, str(C_DIR))
+            from resource_plan import physical_cpu_count  # type: ignore
+
+            n = str(physical_cpu_count())
+        except Exception:
+            n = str(os.cpu_count() or 4)
+        for k, v in (
+            ("OMP_WAIT_POLICY", "active"),
+            ("GOMP_SPINCOUNT", "200000"),
+            ("OMP_DYNAMIC", "FALSE"),
+            ("OMP_NUM_THREADS", n),
+        ):
+            env.setdefault(k, v)
+        # Lossless Windows I/O defaults (same as coli) — keep RAM footprint low
+        # via mmap/DIRECT while raising effective bandwidth.
+        env.setdefault("DIRECT", "1")
+        env.setdefault("PIPE", "1")
+        env.setdefault("PILOT_REAL", "1")
     return env
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.13] — 2026-07-24
+
+### Fixed — Windows tok/s + RAM (Phi / Qwen / dense KPK)
+- **RAM stuck at 0 on Windows:** Process RSS used Unix-only `resource.getrusage`, which always failed on native Windows CPython. Now uses `GetProcessMemoryInfo` (WorkingSet). Chat stats also prefer the engine’s `rss_gb` / `footprint_gb` when present so the UI reflects real model memory without inflating it via fake counters.
+- **Extremely slow decode (~300s) on Windows x64:** KPK / dense kernels (`windhover.c`, `dense.c`) were ARM-NEON-only and fell back to **scalar** matmul on x86. Added AVX2 (+ AVX-VNNI when available) IDOT helpers shared via `engine/runtime/idot_avx.h` so Phi-4 Mini, Qwen, and other dense packs run at normal CPU tok/s.
+- **OpenMP defaults missing on desktop Windows:** Engine spawn now applies the same Windows OMP/I/O env as `coli` (`OMP_NUM_THREADS` = physical cores, `OMP_WAIT_POLICY=active`, `DIRECT`/`PIPE`/`PILOT_REAL`) **before** launching `windhover-engine.exe`, so libgomp actually sees them.
+
 ## [0.3.12] — 2026-07-23
 
 ### Fixed

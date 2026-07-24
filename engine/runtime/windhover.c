@@ -36,6 +36,9 @@
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
+#if defined(__AVX2__)
+#include "idot_avx.h"
+#endif
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -245,7 +248,10 @@ static WModel *g_wh;
 
 static inline int32_t dot_i8i8(const int8_t *w, const int8_t *x, int I) {
     int32_t sum = 0; int i = 0;
-#if defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
+#if defined(__AVX2__)
+    (void)i;
+    return wh_dot_i8i8_avx(w, x, I);
+#elif defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
     int32x4_t a0 = vdupq_n_s32(0), a1 = vdupq_n_s32(0), a2 = vdupq_n_s32(0), a3 = vdupq_n_s32(0);
     for (; i + 64 <= I; i += 64) {
         a0 = vdotq_s32(a0, vld1q_s8(w + i),      vld1q_s8(x + i));
@@ -266,7 +272,15 @@ static inline int32_t dot_i8i8(const int8_t *w, const int8_t *x, int I) {
 static inline float dot_i4g(const uint8_t *w4, const wh_f16 *sc, const wh_f16 *zp,
                             const int8_t *xq, const int32_t *xqsum, float sx, int I) {
     float acc = 0.f;
-#if defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
+#if defined(__AVX2__)
+    int ng = I / WH_GS;
+    for (int g = 0; g < ng; g++) {
+        const uint8_t *wg = w4 + ((int64_t)g * WH_GS >> 1);
+        const int8_t *xg = xq + g * WH_GS;
+        int32_t p = wh_dot_i4i8_avx(wg, xg, WH_GS);
+        acc += (float)sc[g] * (float)p + (float)zp[g] * (float)xqsum[g];
+    }
+#elif defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
     const uint8x16_t m4q = vdupq_n_u8(0x0F);
     const int8x16_t b8q = vdupq_n_s8(8);
     int ng = I / WH_GS;

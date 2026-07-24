@@ -20,6 +20,9 @@
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
+#if defined(__AVX2__)
+#include "idot_avx.h"
+#endif
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -145,11 +148,14 @@ static float qrow_i8(const float *x, int8_t *q, int I) {
     return s;
 }
 
-/* Engine-class int8·int8 dot (4-acc SDOT on Apple Silicon). */
+/* Engine-class int8·int8 dot (AVX2 on x86, 4-acc SDOT on Apple Silicon). */
 static inline int32_t dot_i8i8(const int8_t *w, const int8_t *x, int I) {
     int32_t sum = 0;
     int i = 0;
-#if defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
+#if defined(__AVX2__)
+    (void)i;
+    return wh_dot_i8i8_avx(w, x, I);
+#elif defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
     int32x4_t a0 = vdupq_n_s32(0), a1 = vdupq_n_s32(0);
     int32x4_t a2 = vdupq_n_s32(0), a3 = vdupq_n_s32(0);
     for (; i + 64 <= I; i += 64) {

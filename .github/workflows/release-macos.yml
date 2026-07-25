@@ -2,11 +2,15 @@
 #
 # Trigger: push a version tag (v0.1.0) or run manually from Actions.
 # Asset name is stable so website / README can use:
-#   https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg
+#   https://github.com/cliclye/Windhover/releases/latest/download/Windhover-macOS-arm64.dmg
 #
 # Signing / notarization: intentionally omitted. Without Apple Developer
 # secrets this ships an *unsigned* DMG — users must bypass Gatekeeper once
 # (see docs/DOWNLOAD.md). Add APPLE_* secrets later to enable signing.
+#
+# Parity with Windows release: build windhover-engine + windhover-server
+# sidecars and ship them via Tauri externalBin (previously Mac DMGs shipped
+# the UI shell only — chat/Library then had no engine).
 
 name: Release macOS
 
@@ -17,9 +21,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "GitHub Release tag to upload into (e.g. v0.1.0)"
+        description: "GitHub Release tag to upload into (e.g. v0.4.3)"
         required: true
-        default: "v0.3.12"
+        default: "v0.4.3"
 
 permissions:
   contents: write
@@ -37,6 +41,10 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -46,10 +54,41 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
+          key: mac-aarch64
 
-      - name: Install app frontend deps
+      - name: Install libomp (engine OpenMP)
+        run: brew install libomp
+
+      - name: Build windhover-engine
+        run: |
+          set -euo pipefail
+          make -C engine -j"$(sysctl -n hw.ncpu)" ARCH=native
+          test -f engine/windhover-engine
+          ls -lh engine/windhover-engine
+          otool -L engine/windhover-engine
+
+      - name: Engine oracle smoke
+        run: make -C engine test-oracle ARCH=native
+
+      - name: Install app frontend deps + build
         working-directory: app
-        run: npm ci
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build windhover-server sidecar
+        run: |
+          set -euo pipefail
+          ./packaging/build_sidecar.sh aarch64-apple-darwin
+          test -f desktop/src-tauri/binaries/windhover-server-aarch64-apple-darwin
+          test -f desktop/src-tauri/binaries/windhover-engine-aarch64-apple-darwin
+          # Engine must not depend on Homebrew paths after sidecar staging.
+          otool -L desktop/src-tauri/binaries/windhover-engine-aarch64-apple-darwin \
+            | tee /tmp/wh-engine-otool.txt
+          if grep -q '/opt/homebrew\|/usr/local/opt/libomp' /tmp/wh-engine-otool.txt; then
+            echo "ERROR: engine still linked against Homebrew libomp" >&2
+            exit 1
+          fi
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0.0" --locked
@@ -60,7 +99,7 @@ jobs:
         # report the misleading "damaged and can't be opened" error.
         run: cargo tauri build --bundles app --target aarch64-apple-darwin
 
-      - name: Ad-hoc codesign app bundle
+      - name: Bundle libomp + ad-hoc codesign
         run: |
           set -euo pipefail
           APP="$(find desktop/src-tauri/target -path '*/release/bundle/macos/*.app' -type d | head -n 1)"
@@ -69,9 +108,28 @@ jobs:
             find desktop/src-tauri/target -type d -name '*.app' 2>/dev/null || true
             exit 1
           fi
+          MACOS="$APP/Contents/MacOS"
+          echo "App: $APP"
+          ls -la "$MACOS"
+
+          # Ensure OpenMP dylib sits beside the engine (users without Homebrew).
+          if [ -f desktop/src-tauri/binaries/libomp.dylib ]; then
+            cp -f desktop/src-tauri/binaries/libomp.dylib "$MACOS/libomp.dylib"
+          fi
+          ENG="$(find "$MACOS" -maxdepth 1 -type f -name 'windhover-engine*' | head -n 1)"
+          if [ -z "$ENG" ]; then
+            echo "ERROR: windhover-engine missing from .app (externalBin not packaged)" >&2
+            exit 1
+          fi
+          SRV="$(find "$MACOS" -maxdepth 1 -type f -name 'windhover-server*' | head -n 1)"
+          if [ -z "$SRV" ]; then
+            echo "ERROR: windhover-server missing from .app (externalBin not packaged)" >&2
+            exit 1
+          fi
+          # Clear quarantine attrs that break first launch / child exec.
+          xattr -cr "$APP" || true
+
           echo "Signing: $APP"
-          # Replace linker-only adhoc signature with a full bundle signature
-          # (Sealed Resources). Without this, macOS often says the download is "damaged".
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
           codesign -dv --verbose=2 "$APP" 2>&1 | tee /tmp/windhover-codesign.txt
@@ -87,7 +145,7 @@ jobs:
           STAGE="$(mktemp -d)"
           cp -R "$APP" "$STAGE/Windhover.app"
           ln -s /Applications "$STAGE/Applications"
-          # Re-assert signature after copy
+          xattr -cr "$STAGE/Windhover.app" || true
           codesign --force --deep --sign - "$STAGE/Windhover.app"
           codesign --verify --deep --strict "$STAGE/Windhover.app"
           RM_DMG=dist/Windhover-macOS-arm64.dmg
@@ -118,9 +176,9 @@ jobs:
           make_latest: true
           generate_release_notes: true
           body: |
-            ## Windhover 0.3.12
+            ## Windhover
 
-            In-app updates from GitHub Releases; Windows Chat no longer requires torch after Library download. See [CHANGELOG.md](https://github.com/cliclye/Windhover/blob/main/CHANGELOG.md).
+            See [CHANGELOG.md](https://github.com/cliclye/Windhover/blob/main/CHANGELOG.md).
 
             ## Download
 
@@ -132,14 +190,7 @@ jobs:
             **[Windhover-Windows-arm64.exe](https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-arm64.exe)** — Snapdragon / ARM64
 
             ### First launch
-            - **macOS:** if Gatekeeper says the app is **“damaged”**, run `xattr -cr /Applications/Windhover.app` (not a corrupt download — see [docs/DOWNLOAD.md](https://github.com/cliclye/Windhover/blob/main/docs/DOWNLOAD.md))
+            - **macOS:** if Gatekeeper says the app is **“damaged”**, run `xattr -cr /Applications/Windhover.app` (not a corrupt download — see [docs/DOWNLOAD.md](https://github.com/cliclye/Windhover/docs/DOWNLOAD.md))
             - **Windows:** unsigned — SmartScreen may require More info → Run anyway
-
-            ### What's new (0.3.12)
-            - Windows: Phi-4/Gemma engine prepare runs in background with progress (no hard fail)
-            - Windows: UI layout + prior torch/hub fixes
-            - Windows: Chat after Library install uses windhover-engine (no `pip install torch`)
-            - Windows: torch-free KPK convert (numpy/safetensors) for Phi/Gemma packs
-            - Packaging selfcheck covers download + convert + chat routing
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

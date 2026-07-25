@@ -19,6 +19,10 @@
     ]
   },
   "bundle": {
-    "targets": ["app", "dmg"]
+    "targets": ["app", "dmg"],
+    "externalBin": [
+      "binaries/windhover-server",
+      "binaries/windhover-engine"
+    ]
   }
 }

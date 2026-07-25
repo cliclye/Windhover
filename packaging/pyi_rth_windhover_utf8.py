@@ -1,5 +1,6 @@
 # PyInstaller runtime hook — runs before any app code.
 # Prevents Windows cp1252/charmap UnicodeEncodeError during model downloads.
+# Also quiets HF/tqdm on macOS packaged sidecars (same failure mode via pipes).
 import os
 import sys
 

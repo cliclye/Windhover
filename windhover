@@ -33,12 +33,12 @@ from urllib.parse import parse_qs, quote, urlparse
 # Windows consoles default to a legacy code page (cp1252/charmap). Progress
 # messages and huggingface_hub/tqdm use Unicode (e.g. U+2192), which raises
 # UnicodeEncodeError and aborts Library downloads. Force UTF-8 early and wrap
-# stdio so a failed reconfigure can never crash a pull.
+# stdio so a failed reconfigure can never crash a pull. Same defaults on Mac
+# packaged sidecars (tqdm/HF can still break odd terminals / redirected pipes).
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-if sys.platform == "win32":
-    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    os.environ.setdefault("TQDM_DISABLE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TQDM_DISABLE", "1")
 
 
 class _SafeTextIO:
@@ -400,7 +400,7 @@ def _app_version() -> str:
                 return str(ver).lstrip("v")
         except Exception:
             continue
-    return os.environ.get("WINDHOVER_VERSION", "0.4.2").lstrip("v")
+    return os.environ.get("WINDHOVER_VERSION", "0.4.3").lstrip("v")
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
@@ -825,10 +825,11 @@ def _kpk_convert(snap: Path, job_id: str | None = None) -> bool:
     print("running Windhover convert (one-time quantize)...")
 
     frozen = bool(getattr(sys, "frozen", False))
-    # Always prefer in-process on Windows packaged builds and whenever torch is absent.
+    # Prefer in-process on packaged apps and on Windows/macOS desktop targets
+    # (sidecars ship without torch — same Phi/Gemma convert path as Windows).
     use_inprocess = (
         frozen
-        or sys.platform == "win32"
+        or sys.platform in ("win32", "darwin")
         or not tool.is_file()
         or not _transformers_available()
     )
@@ -1836,14 +1837,18 @@ def _engine_env(model: Path, ram: float | None) -> dict[str, str]:
             ("GOMP_SPINCOUNT", "200000"),
             ("OMP_DYNAMIC", "FALSE"),
             ("OMP_NUM_THREADS", n),
+            ("OMP_PROC_BIND", "close"),
         ):
             env.setdefault(k, v)
         if sys.platform == "win32":
+            # Lossless Windows I/O defaults (same as coli)
             env.setdefault("DIRECT", "1")
             env.setdefault("PIPE", "1")
             env.setdefault("PILOT_REAL", "1")
-        if sys.platform == "darwin":
-            env.setdefault("OMP_PROC_BIND", "close")
+        elif sys.platform == "darwin":
+            # PIPE helps MoE expert prefetch; DIRECT is a no-op on macOS.
+            env.setdefault("PIPE", "1")
+            env.setdefault("PILOT_REAL", "1")
     return env
 
 
@@ -2091,7 +2096,8 @@ def _hf_snapshot_download(
 
 
 def cmd_pull(ns: argparse.Namespace) -> int:
-    # Re-assert safe stdio: Windows pull threads/sidecars can inherit cp1252 handles.
+    # Re-assert safe stdio: Windows pull threads/sidecars can inherit cp1252 handles;
+    # macOS redirected pipes can hit the same UnicodeEncodeError path.
     _configure_stdio_utf8()
     catalog = {m["id"]: m for m in load_catalog()}
     mid = ns.model_id

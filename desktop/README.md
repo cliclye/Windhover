@@ -23,9 +23,15 @@ cargo tauri dev
 
 ### macOS
 
+Stage sidecars first (same idea as Windows — Mac DMGs must ship `windhover-server` + `windhover-engine`):
+
 ```sh
+brew install libomp
+./windhover build
+cd app && npm ci && npm run build && cd ..
+./packaging/build_sidecar.sh aarch64-apple-darwin
 cd desktop
-cargo tauri build --bundles app,dmg
+cargo tauri build --bundles app,dmg --target aarch64-apple-darwin
 open src-tauri/target/release/bundle/macos/Windhover.app
 ```
 

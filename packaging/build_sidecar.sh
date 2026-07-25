@@ -70,4 +70,35 @@ if [[ -f "${ENG}.exe" ]]; then ENG="${ENG}.exe"; EXT=".exe"; elif [[ -f "$ENG" ]
 if [[ -n "$ENG" ]]; then
   cp -f "$ENG" "$BIN_DIR/windhover-engine-${TRIPLE}${EXT}"
   echo "Staged $BIN_DIR/windhover-engine-${TRIPLE}${EXT}"
+
+  # macOS: ship libomp beside the engine and rewrite the install name so end
+  # users without Homebrew can still run windhover-engine (Windows static/gomp
+  # path already avoids this class of bug).
+  if [[ "$(uname -s)" == "Darwin" && -z "$EXT" ]]; then
+    OMP_SRC=""
+    for cand in \
+      "$(brew --prefix libomp 2>/dev/null)/lib/libomp.dylib" \
+      /opt/homebrew/opt/libomp/lib/libomp.dylib \
+      /usr/local/opt/libomp/lib/libomp.dylib
+    do
+      if [[ -n "$cand" && -f "$cand" ]]; then
+        OMP_SRC="$cand"
+        break
+      fi
+    done
+    if [[ -n "$OMP_SRC" ]]; then
+      cp -f "$OMP_SRC" "$BIN_DIR/libomp.dylib"
+      # Rewrite absolute Homebrew path → @loader_path (same folder as engine).
+      OLD_ID="$(otool -L "$BIN_DIR/windhover-engine-${TRIPLE}" | awk '/libomp\.dylib/{print $1; exit}')"
+      if [[ -n "$OLD_ID" ]]; then
+        install_name_tool -change "$OLD_ID" "@loader_path/libomp.dylib" \
+          "$BIN_DIR/windhover-engine-${TRIPLE}"
+      fi
+      install_name_tool -id "@loader_path/libomp.dylib" "$BIN_DIR/libomp.dylib" || true
+      echo "Staged $BIN_DIR/libomp.dylib (rewrote $OLD_ID)"
+      otool -L "$BIN_DIR/windhover-engine-${TRIPLE}" | head -n 8
+    else
+      echo "WARNING: libomp.dylib not found — packaged Mac engine may fail without Homebrew" >&2
+    fi
+  fi
 fi

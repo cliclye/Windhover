@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.3] — 2026-07-24
+
+### Fixed — macOS parity with Windows
+- **Mac DMGs now ship sidecars:** `tauri.macos.conf.json` declares `externalBin` for `windhover-server` + `windhover-engine` (previously only Windows did). Release CI builds the engine + PyInstaller sidecar before `cargo tauri build`.
+- **Bundled `libomp.dylib`:** Mac engine no longer depends on Homebrew `/opt/homebrew/.../libomp.dylib`; install name rewritten to `@loader_path` so chat works without brew.
+- **Torch-free KPK convert on Mac:** same in-process numpy/safetensors Phi/Gemma path as Windows (`darwin` + frozen).
+- **HF/tqdm quiet + UTF-8-safe stdio** on Mac packaged sidecars (same download crash class as Windows cp1252).
+- **Longer first-launch health wait** on Mac (30s, was ~8s) and broader sidecar discovery under `.app/Contents`.
+- Clears quarantine attrs on the engine (+ libomp) at sidecar start.
+
 ## [0.4.2] — 2026-07-24
 
 ### Fixed

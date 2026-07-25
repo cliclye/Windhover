@@ -46,6 +46,13 @@ fn sidecar_dirs(app: Option<&tauri::AppHandle>) -> Vec<PathBuf> {
             // Some installers nest under a resources/ or binaries/ folder.
             dirs.push(parent.join("binaries"));
             dirs.push(parent.join("resources"));
+            // macOS .app: also search Contents/Resources and Frameworks.
+            if let Some(contents) = parent.parent() {
+                dirs.push(contents.join("Resources"));
+                dirs.push(contents.join("Resources").join("binaries"));
+                dirs.push(contents.join("Frameworks"));
+                dirs.push(contents.join("MacOS"));
+            }
         }
     }
     if let Some(app) = app {
@@ -63,6 +70,21 @@ fn find_sidecar(dirs: &[PathBuf], names: &[&str]) -> Option<PathBuf> {
             let p = dir.join(name);
             if p.is_file() {
                 return Some(p);
+            }
+        }
+        // Fallback: Tauri may leave the target-triple suffix on disk.
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for ent in rd.flatten() {
+                let fname = ent.file_name();
+                let s = fname.to_string_lossy();
+                for name in names {
+                    if s == *name || s.starts_with(&format!("{name}-")) {
+                        let p = ent.path();
+                        if p.is_file() {
+                            return Some(p);
+                        }
+                    }
+                }
             }
         }
     }
@@ -126,8 +148,9 @@ fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
             server.display()
         );
         if let Some(mut child) = spawn_command(cmd) {
-            // Wait longer on Windows — first launch often includes AV scanning.
-            let attempts = if cfg!(windows) { 300 } else { 80 };
+            # Wait longer on first launch — Windows AV scan AND macOS Gatekeeper /
+            // PyInstaller extract can take tens of seconds.
+            let attempts = 300;
             for _ in 0..attempts {
                 if health_ok() {
                     return Some(child);
@@ -210,7 +233,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             // Do not block the UI thread waiting for the sidecar — PyInstaller +
-            // Windows Defender can take tens of seconds on first launch.
+            // Windows Defender / macOS Gatekeeper can take tens of seconds on first launch.
             app.manage(Backend(Mutex::new(None)));
             let handle_bg = handle.clone();
             thread::spawn(move || {

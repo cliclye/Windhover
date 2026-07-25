@@ -7,6 +7,7 @@ Runs `windhover app` with ROOT = bundle (MEIPASS) and engine beside the exe
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,11 +22,12 @@ def main() -> int:
         exe_dir = bundle / "engine"
 
     # Windows: UTF-8 stdio before importing windhover (download progress uses Unicode).
+    # macOS packaged sidecars get the same HF/tqdm quiet defaults (parity with Windows).
     os.environ.setdefault("PYTHONUTF8", "1")
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("TQDM_DISABLE", "1")
-    if sys.platform == "win32":
+    if sys.platform in ("win32", "darwin"):
         for stream in (sys.stdout, sys.stderr):
             if stream is None:
                 continue
@@ -157,6 +159,27 @@ def main() -> int:
         if alt.is_file():
             os.environ["WINDHOVER_ENGINE"] = str(alt)
             break
+    # macOS: clear quarantine on engine so first chat isn't killed by Gatekeeper.
+    if sys.platform == "darwin":
+        eng = os.environ.get("WINDHOVER_ENGINE")
+        if eng and Path(eng).is_file():
+            try:
+                subprocess.run(
+                    ["xattr", "-cr", eng],
+                    check=False,
+                    capture_output=True,
+                    timeout=5,
+                )
+                omp = Path(eng).resolve().parent / "libomp.dylib"
+                if omp.is_file():
+                    subprocess.run(
+                        ["xattr", "-cr", str(omp)],
+                        check=False,
+                        capture_output=True,
+                        timeout=5,
+                    )
+            except Exception:
+                pass
 
     # Ensure tools/ is importable from the bundle
     sys.path.insert(0, str(bundle))
@@ -197,7 +220,7 @@ def main() -> int:
         mod.ROOT = bundle
         # Packaged builds ship windhover-engine next to the sidecar, not under
         # bundle/engine. Point ENGINE_DIR at a real directory so subprocess cwd
-        # is valid on Windows (missing cwd → WinError 267).
+        # is valid on Windows (missing cwd → WinError 267) and macOS alike.
         eng_env = os.environ.get("WINDHOVER_ENGINE") or os.environ.get("COLI_ENGINE")
         eng_path = Path(eng_env) if eng_env else None
         if eng_path is not None and eng_path.is_file():

@@ -148,7 +148,7 @@ fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
             server.display()
         );
         if let Some(mut child) = spawn_command(cmd) {
-            # Wait longer on first launch — Windows AV scan AND macOS Gatekeeper /
+            // Wait longer on first launch - Windows AV scan AND macOS Gatekeeper /
             // PyInstaller extract can take tens of seconds.
             let attempts = 300;
             for _ in 0..attempts {

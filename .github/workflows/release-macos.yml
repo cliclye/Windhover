@@ -79,7 +79,7 @@ jobs:
       - name: Build windhover-server sidecar
         run: |
           set -euo pipefail
-          ./packaging/build_sidecar.sh aarch64-apple-darwin
+          bash packaging/build_sidecar.sh aarch64-apple-darwin
           test -f desktop/src-tauri/binaries/windhover-server-aarch64-apple-darwin
           test -f desktop/src-tauri/binaries/windhover-engine-aarch64-apple-darwin
           # Engine must not depend on Homebrew paths after sidecar staging.

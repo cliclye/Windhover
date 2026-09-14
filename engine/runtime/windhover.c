@@ -14,7 +14,9 @@
  * int8-row qkv+lm, int4-g64-asym o/gate/up/down^T with AWQ folded at convert.
  *
  * Env: SNAP PROMPT|COLI_PROMPT NGEN TEMP TOPK TOPP NUCLEUS SEED CTX QUIET
- *      RAM_GB WH_SPARSE(0|25|40) WH_SPEC(0|1) WH_STATS(1) MLOCK IDOT
+ *      RAM_GB WH_SPARSE(0|25|40) WH_SPEC(0|1) WH_STATS(1) MLOCK IDOT SERVE
+ *
+ * SERVE=1: load once, then length-prefixed turns on stdin (see tools/engine_session.py).
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -1747,8 +1749,15 @@ static uint64_t spec_hash(const int *ids, int n) {
 }
 static void spec_init(void) {
     for (int n = SPEC_NMIN; n <= SPEC_NMAX; n++) {
+        if (g_spec_tab[n].e) continue;
         g_spec_tab[n].cap = 1 << 16;
         g_spec_tab[n].e = calloc((size_t)g_spec_tab[n].cap, sizeof(SpecEnt));
+    }
+}
+static void spec_reset(void) {
+    for (int n = SPEC_NMIN; n <= SPEC_NMAX; n++) {
+        if (g_spec_tab[n].e && g_spec_tab[n].cap > 0)
+            memset(g_spec_tab[n].e, 0, (size_t)g_spec_tab[n].cap * sizeof(SpecEnt));
     }
 }
 static void spec_update(const int *ids, int len) {
@@ -1883,6 +1892,330 @@ int wh_can_run(const char *snap) {
     return 1;
 }
 
+static void wh_stdio_binary(void) {
+#ifdef _WIN32
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    setvbuf(stdout, NULL, _IONBF, 0);
+#endif
+    setvbuf(stdin, NULL, _IONBF, 0);
+}
+
+static void wh_reset_turn(WModel *m) {
+    m->kv_len = 0;
+    m->ffn_rows_total = 0;
+    m->ffn_rows_kept = 0;
+    m->t_attn = m->t_mlp = m->t_lm = 0;
+    m->au.hot_hits = m->au.cold_fetches = m->au.cold_drops = 0;
+    m->au.bytes_saved = 0;
+    if (m->lin_state && m->lin_state_stride > 0)
+        memset(m->lin_state, 0,
+               (size_t)m->d.layers * (size_t)m->lin_state_stride * sizeof(float));
+    if (m->lin_conv_state && m->lin_conv_stride > 0)
+        memset(m->lin_conv_state, 0,
+               (size_t)m->d.layers * (size_t)m->lin_conv_stride * sizeof(float));
+}
+
+static void wh_apply_budget(WModel *m, int max_t) {
+    WhDesc *d = &m->d;
+    double ram_gb = getenv("RAM_GB") ? atof(getenv("RAM_GB")) : 0.0;
+    int64_t budget = ram_gb > 0 ? (int64_t)(ram_gb * 1e9) : 0;
+    int D_ = d->hidden, ngD = D_ / WH_GS;
+    int64_t unit = (int64_t)AU_BUNDLE *
+        ((D_ / 2 + ngD * 4) * 2 +                 /* up + downT rows */
+         (D_ / 2 + ngD * 4));                     /* gate row */
+    int64_t ffn = (int64_t)d->layers * ((m->L[0].gate.bytes) + m->L[0].up.bytes +
+                                        m->L[0].downT.bytes);
+    int64_t kv_bytes = (int64_t)d->layers * d->kv_heads * max_t *
+                       (2 * d->head_dim + 4 * (d->head_dim / WH_KVG));
+    int64_t other = m->bytes_full - ffn + kv_bytes + (int64_t)6e8;
+    au_plan(&m->au, d->layers, d->inter, unit, budget, other);
+    au_ledger_set_budget(budget);
+    if (budget > 0) budget_apply_hard_cap(budget);
+    /* mlock: pin hot AU prefix, or the full FFN when AU is off (speed > RAM). */
+    int do_mlock = getenv("MLOCK") ? atoi(getenv("MLOCK")) : 1;
+    if (do_mlock) {
+        for (int i = 0; i < d->layers; i++) {
+            WLayer *l = &m->L[i];
+            if (m->au.enabled) {
+                int64_t hot_rows = (int64_t)m->au.hot_units * AU_BUNDLE;
+                int64_t up_pre = hot_rows * (D_ / 2);
+                st_view hv;
+                hv.p = (const char *)l->up.q4; hv.nbytes = up_pre;
+                st_view_lock(&hv, 1); st_view_advise(&hv, 1);
+                hv.p = (const char *)l->downT.q4; hv.nbytes = hot_rows * (D_ / 2);
+                st_view_lock(&hv, 1); st_view_advise(&hv, 1);
+                hv.p = (const char *)(l->up.q4 + up_pre);
+                hv.nbytes = ((int64_t)d->inter - hot_rows) * (D_ / 2);
+                if (hv.nbytes > 0) st_view_advise(&hv, 0);
+            } else {
+                wh_mlock_wt(&l->gate);
+                wh_mlock_wt(&l->up);
+                wh_mlock_wt(&l->downT);
+                wh_mlock_wt(&l->q);
+                wh_mlock_wt(&l->k);
+                wh_mlock_wt(&l->v);
+                wh_mlock_wt(&l->o);
+            }
+        }
+        wh_mlock_wt(&m->embed);
+        wh_mlock_wt(&m->lm);
+    } else if (m->au.enabled) {
+        for (int i = 0; i < d->layers; i++) {
+            WLayer *l = &m->L[i];
+            int64_t hot_rows = (int64_t)m->au.hot_units * AU_BUNDLE;
+            int64_t up_pre = hot_rows * (D_ / 2);
+            st_view hv;
+            hv.p = (const char *)l->up.q4; hv.nbytes = up_pre;
+            st_view_advise(&hv, 1);
+            hv.p = (const char *)l->downT.q4; hv.nbytes = hot_rows * (D_ / 2);
+            st_view_advise(&hv, 1);
+        }
+    }
+}
+
+static void wh_emit_json_stats(WModel *m, int np, int generated, int steps,
+                              double tps, double prefill_s) {
+    WhDesc *d = &m->d;
+    double sp = m->ffn_rows_total
+                ? 100.0 * (1.0 - (double)m->ffn_rows_kept / m->ffn_rows_total) : 0;
+    int64_t ffn_b = (m->L[0].up.bytes + m->L[0].downT.bytes) * d->layers;
+    double bytes_tok = (m->bytes_full - (double)ffn_b * sp / 100.0);
+    int64_t au_touch = m->au.hot_hits + m->au.cold_fetches + m->au.cold_drops;
+    double hit = au_touch
+        ? 100.0 * (double)m->au.hot_hits / (double)au_touch : 100.0;
+    printf("\n@@WH_STATS@@{\"decode_tok_s\":%.2f,\"prefill_tok_s\":%.1f,"
+           "\"rss_gb\":%.2f,\"footprint_gb\":%.2f,\"sparsity_pct\":%.1f,"
+           "\"bytes_per_tok\":%.0f,\"au_hit_pct\":%.1f,"
+           "\"tokens\":%d,\"forwards\":%d}\n",
+           tps, prefill_s > 0 ? np / prefill_s : 0, rss_gb(), footprint_gb(),
+           sp, bytes_tok, hit, generated, steps);
+}
+
+/* Prefill + decode one prompt into stdout. ids[] must hold max_t + SPEC_K. */
+static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
+                       int *ids, int max_t, const char *prompt, int prompt_len,
+                       int ngen, float temp, int topk, float topp, int spec_on,
+                       int quiet, int json_stats, int dump_logits) {
+    WhDesc *d = &m->d;
+    wh_reset_turn(m);
+    int enc_cap = max_t;
+    if (enc_cap < 1) enc_cap = 1;
+    int np = tok_encode(T, prompt, prompt_len, ids, enc_cap);
+    if (np < 1) {
+        fprintf(stderr, "[wh] empty prompt after tokenization\n");
+        return -1;
+    }
+    if (np > max_t) {
+        fprintf(stderr, "[wh] prompt tokens (%d) exceed context (%d); truncating\n",
+                np, max_t);
+        np = max_t;
+    }
+    if (ngen > 0 && np >= max_t) {
+        int keep = max_t - 1;
+        if (keep < 1) keep = 1;
+        np = keep;
+    }
+    if (np + ngen > max_t) ngen = max_t - np;
+    if (ngen < 1) {
+        fprintf(stderr, "[wh] no room for decode after prompt (np=%d max_t=%d)\n",
+                np, max_t);
+        return -1;
+    }
+
+    double tp0 = now_s();
+    int pos = 0;
+    while (pos < np) {
+        int S = np - pos;
+        if (S > WH_PREFILL_S) S = WH_PREFILL_S;
+        wh_forward(m, ids + pos, S, pos, 0);
+        pos += S;
+    }
+    double prefill_s = now_s() - tp0;
+    tau_arm(m);
+    if (dump_logits && getenv("WH_LOGITS")) {
+        FILE *lf = fopen(getenv("WH_LOGITS"), "wb");
+        if (lf) {
+            fwrite(m->logit, sizeof(float), (size_t)d->vocab, lf);
+            fclose(lf);
+        }
+    }
+    if (!quiet)
+        fprintf(stderr, "[wh] prefill %d tok in %.2fs (%.1f tok/s)\n",
+                np, prefill_s, prefill_s > 0 ? np / prefill_s : 0);
+
+    if (spec_on) {
+        spec_init();
+        spec_reset();
+        for (int i = SPEC_NMIN; i <= np; i++) spec_update(ids, i);
+    }
+
+    m->t_attn = m->t_mlp = m->t_lm = 0;
+    double t0 = now_s();
+    int generated = 0, steps = 0, accepted_total = 0;
+    char outbuf[8192];
+    char emit_hist[WH_EMIT_HIST];
+    int emit_hist_n = 0;
+    int cur_len = np;
+    float *lg = m->logit;
+    int next = sample_logits(lg, d->vocab, temp, topk, topp);
+    while (generated < ngen) {
+        ids[cur_len++] = next;
+        generated++;
+        if (spec_on) spec_update(ids, cur_len);
+        if (wh_is_stop(stops, nstop, next)) break;
+        int nch = tok_decode(T, &next, 1, outbuf, (int)sizeof(outbuf) - 1);
+        if (nch > 0) {
+            outbuf[nch] = 0;
+            if (wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nch))
+                break;
+            fputs(outbuf, stdout); fflush(stdout);
+            wh_emit_hist_append(emit_hist, &emit_hist_n, outbuf, nch);
+        }
+        if (generated >= ngen) break;
+        if (cur_len + SPEC_K + 1 >= max_t) break;
+
+        int draft[SPEC_K];
+        int nd = spec_on ? spec_draft(ids, cur_len, draft, SPEC_K) : 0;
+        if (nd > 0) {
+            int batch[SPEC_K + 1];
+            batch[0] = ids[cur_len - 1];
+            for (int j = 0; j < nd; j++) batch[j + 1] = draft[j];
+            wh_forward(m, batch, nd + 1, cur_len - 1, 1);
+            steps++;
+            int acc = 0;
+            for (int j = 0; j < nd; j++) {
+                float *lj = m->logit + (int64_t)j * d->vocab;
+                int am = 0; float v = lj[0];
+                for (int i2 = 1; i2 < d->vocab; i2++)
+                    if (lj[i2] > v) { v = lj[i2]; am = i2; }
+                if (am == draft[j]) {
+                    ids[cur_len++] = am;
+                    generated++;
+                    accepted_total++;
+                    acc++;
+                    if (spec_on) spec_update(ids, cur_len);
+                    if (wh_is_stop(stops, nstop, am) || generated >= ngen) break;
+                    int nc2 = tok_decode(T, &am, 1, outbuf, (int)sizeof(outbuf) - 1);
+                    if (nc2 > 0) {
+                        outbuf[nc2] = 0;
+                        if (wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nc2))
+                            break;
+                        fputs(outbuf, stdout); fflush(stdout);
+                        wh_emit_hist_append(emit_hist, &emit_hist_n, outbuf, nc2);
+                    }
+                } else break;
+            }
+            m->kv_len = cur_len;
+            float *last = m->logit + (int64_t)acc * d->vocab;
+            next = sample_logits(last, d->vocab, temp, topk, topp);
+            if (wh_is_stop(stops, nstop, ids[cur_len - 1])) break;
+        } else {
+            wh_forward(m, &ids[cur_len - 1], 1, cur_len - 1, 0);
+            steps++;
+            next = sample_logits(m->logit, d->vocab, temp, topk, topp);
+        }
+    }
+    fputc('\n', stdout);
+    fflush(stdout);
+    double dt = now_s() - t0;
+    double tps = dt > 0 ? generated / dt : 0;
+
+    if (getenv("WH_STATS") || !quiet) {
+        char aub[256], ledb[256];
+        au_stats_line(&m->au, aub, sizeof(aub));
+        double sp = m->ffn_rows_total
+                    ? 100.0 * (1.0 - (double)m->ffn_rows_kept / m->ffn_rows_total) : 0;
+        int64_t ffn_b = (m->L[0].up.bytes + m->L[0].downT.bytes) * d->layers;
+        double bytes_tok = (m->bytes_full - (double)ffn_b * sp / 100.0) / 1e9;
+        au_ledger_report("weights", m->bytes_full, 0, 0);
+        au_ledger_line(ledb, sizeof(ledb));
+        fprintf(stderr,
+                "[wh] decode %.2f tok/s (%d tok, %d fwd) | prefill %.1f tok/s | "
+                "RSS %.2f GB | footprint %.2f GB\n"
+                "[wh] sparsity %.1f%% | ~%.2f GB/tok | %s | %s\n",
+                tps, generated, steps, prefill_s > 0 ? np / prefill_s : 0,
+                rss_gb(), footprint_gb(), sp, bytes_tok, aub, ledb);
+        if (spec_on)
+            fprintf(stderr, "[wh] spec: %d accepted / %d generated (%.2f tok/fwd)\n",
+                    accepted_total, generated,
+                    steps > 0 ? (double)generated / steps : 0);
+        if (m->prof)
+            fprintf(stderr, "[wh][prof] attn=%.2fs mlp=%.2fs lm=%.2fs\n",
+                    m->t_attn, m->t_mlp, m->t_lm);
+    }
+    if (json_stats) wh_emit_json_stats(m, np, generated, steps, tps, prefill_s);
+    return generated;
+}
+
+static void wh_serve_end(void) {
+    printf("\x01\x01" "END" "\x01\x01\n");
+    fflush(stdout);
+}
+
+static int wh_serve_loop(WModel *m, Tok *T, const int *stops, int nstop,
+                         int *ids, int max_t, int quiet) {
+    char hdr[256];
+    printf("\x01\x01" "READY" "\x01\x01\n");
+    fflush(stdout);
+    while (fgets(hdr, (int)sizeof(hdr), stdin)) {
+        if (!strncmp(hdr, "WHQUIT", 6)) break;
+        int ngen = 64, topk = 0, nbytes = 0, spec = 0;
+        float temp = 0.f, topp = 0.f;
+        if (sscanf(hdr, "WHGEN %d %f %d %f %d %d",
+                   &ngen, &temp, &topk, &topp, &nbytes, &spec) != 6) {
+            fprintf(stderr, "[wh] serve: bad header\n");
+            printf("\n@@WH_STATS@@{\"error\":\"bad_header\"}\n");
+            wh_serve_end();
+            continue;
+        }
+        if (ngen < 1) ngen = 1;
+        if (ngen > 4096) ngen = 4096;
+        if (temp > 0.f) {
+            if (topk <= 0) topk = 40;
+            if (topp <= 0.f) topp = 0.9f;
+            spec = 0;
+        }
+        if (nbytes < 0) nbytes = 0;
+        if (nbytes > 8 * 1024 * 1024) {
+            fprintf(stderr, "[wh] serve: prompt too large (%d)\n", nbytes);
+            /* drain so the next header stays aligned */
+            char dump[4096];
+            int left = nbytes;
+            while (left > 0) {
+                int n = left > (int)sizeof(dump) ? (int)sizeof(dump) : left;
+                size_t got = fread(dump, 1, (size_t)n, stdin);
+                if (got == 0) break;
+                left -= (int)got;
+            }
+            printf("\n@@WH_STATS@@{\"error\":\"prompt_too_large\"}\n");
+            wh_serve_end();
+            continue;
+        }
+        char *prompt = malloc((size_t)nbytes + 1);
+        if (!prompt) {
+            fprintf(stderr, "[wh] serve: OOM prompt\n");
+            return 1;
+        }
+        size_t got = nbytes ? fread(prompt, 1, (size_t)nbytes, stdin) : 0;
+        prompt[got] = 0;
+        if ((int)got != nbytes) {
+            free(prompt);
+            fprintf(stderr, "[wh] serve: short prompt read\n");
+            printf("\n@@WH_STATS@@{\"error\":\"short_prompt\"}\n");
+            wh_serve_end();
+            break;
+        }
+        int rc = wh_generate(m, T, stops, nstop, ids, max_t, prompt, (int)got,
+                             ngen, temp, topk, topp, spec, quiet, 1, 0);
+        free(prompt);
+        if (rc < 0)
+            printf("\n@@WH_STATS@@{\"error\":\"empty_prompt\"}\n");
+        wh_serve_end();
+    }
+    return 0;
+}
+
 int wh_run(int argc, char **argv) {
     (void)argc; (void)argv;
     const char *snap0 = getenv("SNAP");
@@ -1891,6 +2224,7 @@ int wh_run(int argc, char **argv) {
     const char *snap = wh_resolve_snap(snap0, snapbuf, sizeof(snapbuf));
     if (!snap) { fprintf(stderr, "[wh] %s is not a KPK pack\n", snap0); return 1; }
 
+    int serve = getenv("SERVE") ? atoi(getenv("SERVE")) : 0;
     const char *prompt = getenv("COLI_PROMPT");
     if (!prompt) prompt = getenv("PROMPT");
     if (!prompt) prompt = "Say hello in one short sentence.";
@@ -1946,98 +2280,45 @@ int wh_run(int argc, char **argv) {
         fputc('\n', stderr);
     }
 
+    if (serve) {
+        wh_stdio_binary();
+        int ctx_env = getenv("CTX") ? atoi(getenv("CTX")) : 4096;
+        if (ctx_env < 256) ctx_env = 256;
+        if (ctx_env > 32768) ctx_env = 32768;
+        int max_t = ctx_env;
+        if (d->max_position > 0 && max_t > d->max_position) max_t = d->max_position;
+        int *ids = malloc((size_t)(max_t + SPEC_K + 8) * sizeof(int));
+        if (!ids) { fprintf(stderr, "[wh] OOM ids\n"); return 1; }
+        kv_alloc(&M, max_t);
+        wh_alloc_scratch(&M, max_t);
+        wh_load_cats(&M, snap);
+        M.tau_scale_cold = 2.0f;
+        wh_apply_budget(&M, max_t);
+        if (!quiet)
+            fprintf(stderr, "[wh] SERVE %s | %s L=%d D=%d I=%d | %.2f GB pack | "
+                    "load %.2fs | ctx %d | footprint %.2f GB\n",
+                    snap, d->model_type, d->layers, d->hidden, d->inter,
+                    M.bytes_full / 1e9, M.load_s, max_t, footprint_gb());
+        int rc = wh_serve_loop(&M, &T, stops, nstop, ids, max_t, quiet);
+        free(ids);
+        g_wh = NULL;
+        return rc;
+    }
+
     int cap = (int)strlen(prompt) + 64;
     if (cap < 256) cap = 256;
-    int *ids = malloc((size_t)(cap + ngen + SPEC_K + 8) * sizeof(int));
-    int np = tok_encode(&T, prompt, (int)strlen(prompt), ids, cap);
-    if (np < 1) { fprintf(stderr, "[wh] empty prompt after tokenization\n"); return 1; }
-
     int ctx_env = getenv("CTX") ? atoi(getenv("CTX")) : 0;
-    int max_t = np + ngen + SPEC_K + 8;
+    int max_t = cap + ngen + SPEC_K + 8;
     if (ctx_env > max_t) max_t = ctx_env;
     if (d->max_position > 0 && max_t > d->max_position) max_t = d->max_position;
-
-    /* Prefill writes KV at every prompt position — never allow np > max_t. */
-    if (np > max_t) {
-        fprintf(stderr, "[wh] prompt tokens (%d) exceed context (%d); truncating\n",
-                np, max_t);
-        np = max_t;
-        if (ngen > 0 && np >= max_t) {
-            /* leave at least one decode slot when possible */
-            int keep = max_t - 1;
-            if (keep < 1) keep = 1;
-            np = keep;
-        }
-    }
-    if (np + ngen > max_t) ngen = max_t - np;
-    if (ngen < 1) {
-        fprintf(stderr, "[wh] no room for decode after prompt (np=%d max_t=%d)\n",
-                np, max_t);
-        return 1;
-    }
+    int *ids = malloc((size_t)(max_t + SPEC_K + 8) * sizeof(int));
+    if (!ids) { fprintf(stderr, "[wh] OOM ids\n"); return 1; }
 
     kv_alloc(&M, max_t);
     wh_alloc_scratch(&M, max_t);
     wh_load_cats(&M, snap);
     M.tau_scale_cold = 2.0f;
-
-    /* ---- budget: ledger + AU plan + optional hard cap ---- */
-    double ram_gb = getenv("RAM_GB") ? atof(getenv("RAM_GB")) : 0.0;
-    int64_t budget = ram_gb > 0 ? (int64_t)(ram_gb * 1e9) : 0;
-    {
-        int D_ = d->hidden, ngD = D_ / WH_GS;
-        int64_t unit = (int64_t)AU_BUNDLE *
-            ((D_ / 2 + ngD * 4) * 2 +                 /* up + downT rows */
-             (D_ / 2 + ngD * 4));                     /* gate row */
-        int64_t ffn = (int64_t)d->layers * ((M.L[0].gate.bytes) + M.L[0].up.bytes +
-                                            M.L[0].downT.bytes);
-        int64_t kv_bytes = (int64_t)d->layers * d->kv_heads * max_t *
-                           (2 * d->head_dim + 4 * (d->head_dim / WH_KVG));
-        int64_t other = M.bytes_full - ffn + kv_bytes + (int64_t)6e8;
-        au_plan(&M.au, d->layers, d->inter, unit, budget, other);
-        au_ledger_set_budget(budget);
-        if (budget > 0) budget_apply_hard_cap(budget);
-        /* mlock: pin hot AU prefix, or the full FFN when AU is off (speed > RAM). */
-        int do_mlock = getenv("MLOCK") ? atoi(getenv("MLOCK")) : 1;
-        if (do_mlock) {
-            for (int i = 0; i < d->layers; i++) {
-                WLayer *l = &M.L[i];
-                if (M.au.enabled) {
-                    int64_t hot_rows = (int64_t)M.au.hot_units * AU_BUNDLE;
-                    int64_t up_pre = hot_rows * (D_ / 2);
-                    st_view hv;
-                    hv.p = (const char *)l->up.q4; hv.nbytes = up_pre;
-                    st_view_lock(&hv, 1); st_view_advise(&hv, 1);
-                    hv.p = (const char *)l->downT.q4; hv.nbytes = hot_rows * (D_ / 2);
-                    st_view_lock(&hv, 1); st_view_advise(&hv, 1);
-                    hv.p = (const char *)(l->up.q4 + up_pre);
-                    hv.nbytes = ((int64_t)d->inter - hot_rows) * (D_ / 2);
-                    if (hv.nbytes > 0) st_view_advise(&hv, 0);
-                } else {
-                    wh_mlock_wt(&l->gate);
-                    wh_mlock_wt(&l->up);
-                    wh_mlock_wt(&l->downT);
-                    wh_mlock_wt(&l->q);
-                    wh_mlock_wt(&l->k);
-                    wh_mlock_wt(&l->v);
-                    wh_mlock_wt(&l->o);
-                }
-            }
-            wh_mlock_wt(&M.embed);
-            wh_mlock_wt(&M.lm);
-        } else if (M.au.enabled) {
-            for (int i = 0; i < d->layers; i++) {
-                WLayer *l = &M.L[i];
-                int64_t hot_rows = (int64_t)M.au.hot_units * AU_BUNDLE;
-                int64_t up_pre = hot_rows * (D_ / 2);
-                st_view hv;
-                hv.p = (const char *)l->up.q4; hv.nbytes = up_pre;
-                st_view_advise(&hv, 1);
-                hv.p = (const char *)l->downT.q4; hv.nbytes = hot_rows * (D_ / 2);
-                st_view_advise(&hv, 1);
-            }
-        }
-    }
+    wh_apply_budget(&M, max_t);
 
     if (!quiet)
         fprintf(stderr, "[wh] %s | %s L=%d D=%d I=%d | %.2f GB pack | load %.2fs | "
@@ -2045,146 +2326,10 @@ int wh_run(int argc, char **argv) {
                 snap, d->model_type, d->layers, d->hidden, d->inter,
                 M.bytes_full / 1e9, M.load_s, footprint_gb());
 
-    /* ---- prefill in chunks ---- */
-    double tp0 = now_s();
-    int pos = 0;
-    while (pos < np) {
-        int S = np - pos;
-        if (S > WH_PREFILL_S) S = WH_PREFILL_S;
-        wh_forward(&M, ids + pos, S, pos, 0);
-        pos += S;
-    }
-    double prefill_s = now_s() - tp0;
-    tau_arm(&M);   /* online CATS thresholds from prefill activations */
-    if (getenv("WH_LOGITS")) {   /* parity harness: dump prefill logits */
-        FILE *lf = fopen(getenv("WH_LOGITS"), "wb");
-        if (lf) {
-            fwrite(M.logit, sizeof(float), (size_t)d->vocab, lf);
-            fclose(lf);
-        }
-    }
-    if (!quiet)
-        fprintf(stderr, "[wh] prefill %d tok in %.2fs (%.1f tok/s)\n",
-                np, prefill_s, prefill_s > 0 ? np / prefill_s : 0);
-
-    /* ---- decode ---- */
-    if (spec_on) spec_init();
-    if (spec_on)
-        for (int i = SPEC_NMIN; i <= np; i++) spec_update(ids, i);
-
-    M.t_attn = M.t_mlp = M.t_lm = 0;
-    double t0 = now_s();
-    int generated = 0, steps = 0, accepted_total = 0;
-    char outbuf[8192];
-    char emit_hist[WH_EMIT_HIST];
-    int emit_hist_n = 0;
-    int cur_len = np;
-    float *lg = M.logit;
-    int next = sample_logits(lg, d->vocab, temp, topk, topp);
-    while (generated < ngen) {
-        ids[cur_len++] = next;
-        generated++;
-        if (spec_on) spec_update(ids, cur_len);
-        /* Never emit stop/EOS control tokens (e.g. <|end|>, <|im_end|>) into chat text. */
-        if (wh_is_stop(stops, nstop, next)) break;
-        int nch = tok_decode(&T, &next, 1, outbuf, (int)sizeof(outbuf) - 1);
-        if (nch > 0) {
-            outbuf[nch] = 0;
-            if (wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nch))
-                break;
-            fputs(outbuf, stdout); fflush(stdout);
-            wh_emit_hist_append(emit_hist, &emit_hist_n, outbuf, nch);
-        }
-        if (generated >= ngen) break;
-        if (cur_len + SPEC_K + 1 >= max_t) break;
-
-        int draft[SPEC_K];
-        int nd = spec_on ? spec_draft(ids, cur_len, draft, SPEC_K) : 0;
-        if (nd > 0) {
-            /* verify batch: [next_input, draft...] -> logits for all */
-            int batch[SPEC_K + 1];
-            batch[0] = ids[cur_len - 1];
-            for (int j = 0; j < nd; j++) batch[j + 1] = draft[j];
-            wh_forward(&M, batch, nd + 1, cur_len - 1, 1);
-            steps++;
-            int acc = 0;
-            for (int j = 0; j < nd; j++) {
-                float *lj = M.logit + (int64_t)j * d->vocab;
-                int am = 0; float v = lj[0];
-                for (int i2 = 1; i2 < d->vocab; i2++)
-                    if (lj[i2] > v) { v = lj[i2]; am = i2; }
-                if (am == draft[j]) {
-                    ids[cur_len++] = am;
-                    generated++;
-                    accepted_total++;
-                    acc++;
-                    if (spec_on) spec_update(ids, cur_len);
-                    if (wh_is_stop(stops, nstop, am) || generated >= ngen) break;
-                    int nc2 = tok_decode(&T, &am, 1, outbuf, (int)sizeof(outbuf) - 1);
-                    if (nc2 > 0) {
-                        outbuf[nc2] = 0;
-                        if (wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nc2))
-                            break;
-                        fputs(outbuf, stdout); fflush(stdout);
-                        wh_emit_hist_append(emit_hist, &emit_hist_n, outbuf, nc2);
-                    }
-                } else break;
-            }
-            /* rewind kv to cur_len (we computed nd+1 positions from cur_len-1) */
-            M.kv_len = cur_len;
-            float *last = M.logit + (int64_t)acc * d->vocab;
-            next = sample_logits(last, d->vocab, temp, topk, topp);
-            if (wh_is_stop(stops, nstop, ids[cur_len - 1])) break;
-        } else {
-            wh_forward(&M, &ids[cur_len - 1], 1, cur_len - 1, 0);
-            steps++;
-            next = sample_logits(M.logit, d->vocab, temp, topk, topp);
-        }
-    }
-    fputc('\n', stdout);
-    fflush(stdout);
-    double dt = now_s() - t0;
-    double tps = dt > 0 ? generated / dt : 0;
-
-    if (getenv("WH_STATS") || !quiet) {
-        char aub[256], ledb[256];
-        au_stats_line(&M.au, aub, sizeof(aub));
-        double sp = M.ffn_rows_total
-                    ? 100.0 * (1.0 - (double)M.ffn_rows_kept / M.ffn_rows_total) : 0;
-        int64_t ffn_b = (M.L[0].up.bytes + M.L[0].downT.bytes) * d->layers;
-        double bytes_tok = (M.bytes_full - (double)ffn_b * sp / 100.0) / 1e9;
-        au_ledger_report("weights", M.bytes_full, 0, 0);
-        au_ledger_line(ledb, sizeof(ledb));
-        fprintf(stderr,
-                "[wh] decode %.2f tok/s (%d tok, %d fwd) | prefill %.1f tok/s | "
-                "RSS %.2f GB | footprint %.2f GB\n"
-                "[wh] sparsity %.1f%% | ~%.2f GB/tok | %s | %s\n",
-                tps, generated, steps, prefill_s > 0 ? np / prefill_s : 0,
-                rss_gb(), footprint_gb(), sp, bytes_tok, aub, ledb);
-        if (spec_on)
-            fprintf(stderr, "[wh] spec: %d accepted / %d generated (%.2f tok/fwd)\n",
-                    accepted_total, generated,
-                    steps > 0 ? (double)generated / steps : 0);
-        if (M.prof)
-            fprintf(stderr, "[wh][prof] attn=%.2fs mlp=%.2fs lm=%.2fs\n",
-                    M.t_attn, M.t_mlp, M.t_lm);
-    }
-    if (getenv("WH_JSON_STATS")) {
-        double sp = M.ffn_rows_total
-                    ? 100.0 * (1.0 - (double)M.ffn_rows_kept / M.ffn_rows_total) : 0;
-        int64_t ffn_b = (M.L[0].up.bytes + M.L[0].downT.bytes) * d->layers;
-        double bytes_tok = (M.bytes_full - (double)ffn_b * sp / 100.0);
-        int64_t au_touch = M.au.hot_hits + M.au.cold_fetches + M.au.cold_drops;
-        double hit = au_touch
-            ? 100.0 * (double)M.au.hot_hits / (double)au_touch : 100.0;
-        printf("\n@@WH_STATS@@{\"decode_tok_s\":%.2f,\"prefill_tok_s\":%.1f,"
-               "\"rss_gb\":%.2f,\"footprint_gb\":%.2f,\"sparsity_pct\":%.1f,"
-               "\"bytes_per_tok\":%.0f,\"au_hit_pct\":%.1f,"
-               "\"tokens\":%d,\"forwards\":%d}\n",
-               tps, prefill_s > 0 ? np / prefill_s : 0, rss_gb(), footprint_gb(),
-               sp, bytes_tok, hit, generated, steps);
-    }
+    int json_stats = getenv("WH_JSON_STATS") ? 1 : 0;
+    int rc = wh_generate(&M, &T, stops, nstop, ids, max_t, prompt, (int)strlen(prompt),
+                         ngen, temp, topk, topp, spec_on, quiet, json_stats, 1);
     free(ids);
     g_wh = NULL;
-    return 0;
+    return rc < 0 ? 1 : 0;
 }

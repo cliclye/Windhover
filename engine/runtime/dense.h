@@ -6,7 +6,8 @@
 /* 1 if SNAP/config.json looks like a dense GQA+SwiGLU causal LM (not MoE). */
 int dense_is_arch(const char *snap);
 
-/* Run dense generate using SNAP / PROMPT|COLI_PROMPT / NGEN env (same as MoE CLI). */
+/* Run dense generate using SNAP / PROMPT|COLI_PROMPT / NGEN env (same as MoE CLI).
+ * SERVE=1: same WHGEN stdin protocol as windhover.c. */
 int dense_run(int argc, char **argv);
 
 #endif

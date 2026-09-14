@@ -831,7 +831,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   padding: 0.35rem 0.55rem 0.55rem 0.85rem;
 }
 
-.composer-footer-left { min-width: 0; }
+.composer-footer-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
 
 .model-select {
   max-width: min(280px, 55vw);
@@ -842,6 +848,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 0.78rem;
   padding: 0.2rem 0.15rem;
 }
+
+.model-select.ram-select { max-width: 7.5rem; }
 
 .send-btn {
   display: grid;

@@ -37,6 +37,15 @@ export type WindhoverStats = {
   forwards?: number;
 };
 
+export type RamProfileInfo = {
+  name?: string;
+  label?: string;
+  blurb?: string;
+  ram_gb?: number | null;
+  physical_ram_gb?: number | null;
+  mlock?: number;
+};
+
 export type ChatStats = {
   rss_mb?: number;
   latency_ms?: number;
@@ -48,8 +57,12 @@ export type ChatStats = {
   family?: string;
   windhover?: WindhoverStats;
   engine_active?: boolean;
+  engine_warm?: boolean;
   engine_error?: string;
   fallback_from?: string;
+  ram_gb?: number | null;
+  ram_profile?: string;
+  mlock?: number;
 };
 
 export type PullProgress = {

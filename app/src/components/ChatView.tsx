@@ -56,6 +56,8 @@ export function ChatView({
                   <div className="bubble-meta">
                     {m.stats.tokens_per_sec} tok/s
                     {m.stats.latency_ms != null ? ` · ${m.stats.latency_ms} ms` : ""}
+                    {m.stats.ram_gb != null ? ` · cap ${m.stats.ram_gb} GB` : ""}
+                    {m.stats.ram_profile ? ` · ${m.stats.ram_profile}` : ""}
                     {m.stats.backend ? ` · ${m.stats.backend}` : ""}
                   </div>
                 ) : null}

@@ -18,7 +18,15 @@ import {
   type CatalogModel,
   type Installed,
 } from "./modelMeta";
-import type { AgentStep, ChatStats, EngineState, HfModelInfo, Msg, PullProgress } from "./types";
+import type {
+  AgentStep,
+  ChatStats,
+  EngineState,
+  HfModelInfo,
+  Msg,
+  PullProgress,
+  RamProfileInfo,
+} from "./types";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("agent");
@@ -41,6 +49,8 @@ export function App() {
     installed?: number;
     last?: ChatStats;
     chat_preview?: string;
+    engine_warm?: boolean;
+    ram_profile?: RamProfileInfo;
   } | null>(null);
   const [lastStats, setLastStats] = useState<ChatStats | null>(null);
   const [confirmUninstall, setConfirmUninstall] = useState<{ id: string; name: string; path?: string } | null>(
@@ -412,6 +422,19 @@ export function App() {
       setModelInfoErr(e instanceof Error ? e.message : String(e));
     } finally {
       setModelInfoBusy(false);
+    }
+  }
+
+  async function setRamProfile(name: string) {
+    try {
+      const j = await fetch(apiUrl("/api/ram-profile"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile: name }),
+      }).then((r) => r.json());
+      if (j?.ok) setStats((prev) => ({ ...(prev || {}), ram_profile: j }));
+    } catch {
+      /* keep last known cap */
     }
   }
 
@@ -808,26 +831,44 @@ export function App() {
             "Windhover engine is not active for the last reply (fallback or failure)."
           : null;
 
-  const modelSelect = (
+  const ramSelect = (
     <select
-      className="model-select"
-      value={activeModel}
-      onChange={(e) => {
-        setActiveModel(e.target.value);
-        if (tab === "chat") setMessages([]);
-      }}
-      disabled={!chatCapable.length}
-      aria-label="Model"
+      className="model-select ram-select"
+      value={stats?.ram_profile?.name || "balanced"}
+      disabled={sending || agentBusy}
+      title={stats?.ram_profile?.blurb || "RAM profile — Fast pins the full FFN; Balanced/Low-RAM set RAM_GB + AU"}
+      aria-label="RAM profile"
+      onChange={(e) => void setRamProfile(e.target.value)}
     >
-      {!chatCapable.length ? (
-        <option value="">Install a model or start Ollama</option>
-      ) : null}
-      {chatCapable.map((m) => (
-        <option key={m.id} value={m.id}>
-          {modelPickerLabel(m)}
-        </option>
-      ))}
+      <option value="fast">Fast</option>
+      <option value="balanced">Balanced</option>
+      <option value="low">Low-RAM</option>
     </select>
+  );
+
+  const modelSelect = (
+    <>
+      <select
+        className="model-select"
+        value={activeModel}
+        onChange={(e) => {
+          setActiveModel(e.target.value);
+          if (tab === "chat") setMessages([]);
+        }}
+        disabled={!chatCapable.length}
+        aria-label="Model"
+      >
+        {!chatCapable.length ? (
+          <option value="">Install a model or start Ollama</option>
+        ) : null}
+        {chatCapable.map((m) => (
+          <option key={m.id} value={m.id}>
+            {modelPickerLabel(m)}
+          </option>
+        ))}
+      </select>
+      {ramSelect}
+    </>
   );
 
   return (
@@ -1050,6 +1091,7 @@ export function App() {
           engineState={engineState}
           lastStats={lastStats}
           rssMb={Number(stats?.rss_mb ?? lastStats?.rss_mb ?? 0)}
+          ramProfile={stats?.ram_profile}
           workspace={workspace}
           onWorkspaceChange={(value) => {
             setWorkspace(value);

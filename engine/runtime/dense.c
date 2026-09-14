@@ -791,6 +791,148 @@ int dense_is_arch(const char *snap) {
     return hit;
 }
 
+static void dens_stdio_binary(void) {
+#ifdef _WIN32
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    setvbuf(stdout, NULL, _IONBF, 0);
+#endif
+    setvbuf(stdin, NULL, _IONBF, 0);
+}
+
+static void dens_alloc_kv(DModel *m, int max_t) {
+    DCfg *c = &m->c;
+    m->max_t = max_t;
+    m->kv_len = 0;
+    m->ws_sc = falloc((int64_t)c->n_heads * max_t);
+    m->K = calloc((size_t)c->n_layers, sizeof(float *));
+    m->V = calloc((size_t)c->n_layers, sizeof(float *));
+    for (int i = 0; i < c->n_layers; i++) {
+        m->K[i] = falloc((int64_t)c->n_kv_heads * max_t * c->head_dim);
+        m->V[i] = falloc((int64_t)c->n_kv_heads * max_t * c->head_dim);
+    }
+}
+
+static void dens_emit_json_stats(int generated, double tps, double prefill_s, int np) {
+    printf("\n@@WH_STATS@@{\"decode_tok_s\":%.2f,\"prefill_tok_s\":%.1f,"
+           "\"rss_gb\":%.2f,\"footprint_gb\":%.2f,\"sparsity_pct\":0.0,"
+           "\"bytes_per_tok\":0,\"au_hit_pct\":100.0,"
+           "\"tokens\":%d,\"forwards\":%d}\n",
+           tps, prefill_s > 0 && np > 0 ? np / prefill_s : 0,
+           rss_gb(), rss_gb(), generated, generated);
+}
+
+/* Greedy generate. Returns tokens produced, or -1 on empty prompt. */
+static int dens_generate(DModel *m, Tok *T, const int *stops, int nstop,
+                         const char *prompt, int prompt_len, int ngen, int quiet,
+                         int json_stats) {
+    DCfg *c = &m->c;
+    m->kv_len = 0;
+    int cap = prompt_len + 64;
+    if (cap < 256) cap = 256;
+    int *prompt_ids = malloc((size_t)cap * sizeof(int));
+    if (!prompt_ids) { fprintf(stderr, "OOM prompt ids\n"); return -1; }
+    int np = tok_encode(T, prompt, prompt_len, prompt_ids, cap);
+    if (np < 1) {
+        fprintf(stderr, "dense: prompt empty after tokenization\n");
+        free(prompt_ids);
+        return -1;
+    }
+    if (np >= m->max_t) np = m->max_t - 1;
+    if (np < 1) { free(prompt_ids); return -1; }
+    if (np + ngen > m->max_t) ngen = m->max_t - np;
+    if (ngen < 1) { free(prompt_ids); return -1; }
+
+    if (!quiet)
+        fprintf(stderr, "[dense] prefill %d tokens, generate up to %d\n", np, ngen);
+    double t_pre = now_s();
+    float *logit = NULL;
+    for (int i = 0; i < np; i++)
+        logit = dens_step(m, prompt_ids[i], i);
+    double prefill_s = now_s() - t_pre;
+    if (!quiet)
+        fprintf(stderr, "[dense] prefill %.2fs (%.2f tok/s)\n",
+                prefill_s, prefill_s > 0 ? np / prefill_s : 0);
+
+    if (m->prof) m->t_attn = m->t_mlp = m->t_lm = 0;
+    double t0 = now_s();
+    int generated = 0;
+    char outbuf[4096];
+    for (int s = 0; s < ngen; s++) {
+        int tok = argmax(logit, c->vocab);
+        generated++;
+        int hit = 0;
+        for (int i = 0; i < nstop; i++) if (stops[i] == tok) { hit = 1; break; }
+        if (hit) break;
+        int nch = tok_decode(T, &tok, 1, outbuf, (int)sizeof(outbuf) - 1);
+        if (nch > 0) {
+            outbuf[nch] = 0;
+            fputs(outbuf, stdout);
+            fflush(stdout);
+        }
+        if (s + 1 == ngen) break;
+        logit = dens_step(m, tok, np + s);
+    }
+    fputc('\n', stdout);
+    fflush(stdout);
+    double dt = now_s() - t0;
+    double tps = dt > 0 ? (generated / dt) : 0;
+    fprintf(stderr, "[dense] decode %.2f tok/s (%.2fs for %d toks) | RSS %.2f GB | load %.1fs\n",
+            tps, dt, generated, rss_gb(), m->load_s);
+    if (m->prof && generated > 0)
+        fprintf(stderr, "[dense][prof] attn=%.2fs mlp=%.2fs lm=%.2fs (decode window)\n",
+                m->t_attn, m->t_mlp, m->t_lm);
+    if (json_stats) dens_emit_json_stats(generated, tps, prefill_s, np);
+    free(prompt_ids);
+    return generated;
+}
+
+static int dens_serve_loop(DModel *m, Tok *T, const int *stops, int nstop, int quiet) {
+    char hdr[256];
+    printf("\x01\x01" "READY" "\x01\x01\n");
+    fflush(stdout);
+    while (fgets(hdr, (int)sizeof(hdr), stdin)) {
+        if (!strncmp(hdr, "WHQUIT", 6)) break;
+        int ngen = 32, topk = 0, nbytes = 0, spec = 0;
+        float temp = 0.f, topp = 0.f;
+        if (sscanf(hdr, "WHGEN %d %f %d %f %d %d",
+                   &ngen, &temp, &topk, &topp, &nbytes, &spec) != 6) {
+            printf("\n@@WH_STATS@@{\"error\":\"bad_header\"}\n");
+            printf("\x01\x01" "END" "\x01\x01\n");
+            fflush(stdout);
+            continue;
+        }
+        (void)topk; (void)temp; (void)topp; (void)spec;
+        if (ngen < 1) ngen = 1;
+        if (ngen > 512) ngen = 512;
+        if (nbytes < 0) nbytes = 0;
+        if (nbytes > 8 * 1024 * 1024) {
+            char dump[4096];
+            int left = nbytes;
+            while (left > 0) {
+                int n = left > (int)sizeof(dump) ? (int)sizeof(dump) : left;
+                size_t got = fread(dump, 1, (size_t)n, stdin);
+                if (got == 0) break;
+                left -= (int)got;
+            }
+            printf("\n@@WH_STATS@@{\"error\":\"prompt_too_large\"}\n");
+            printf("\x01\x01" "END" "\x01\x01\n");
+            fflush(stdout);
+            continue;
+        }
+        char *prompt = malloc((size_t)nbytes + 1);
+        if (!prompt) return 1;
+        size_t got = nbytes ? fread(prompt, 1, (size_t)nbytes, stdin) : 0;
+        prompt[got] = 0;
+        int rc = dens_generate(m, T, stops, nstop, prompt, (int)got, ngen, quiet, 1);
+        free(prompt);
+        if (rc < 0) printf("\n@@WH_STATS@@{\"error\":\"empty_prompt\"}\n");
+        printf("\x01\x01" "END" "\x01\x01\n");
+        fflush(stdout);
+    }
+    return 0;
+}
+
 int dense_run(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -803,6 +945,7 @@ int dense_run(int argc, char **argv) {
     if (ngen < 1) ngen = 1;
     if (ngen > 512) ngen = 512;
     int quiet = getenv("QUIET") ? atoi(getenv("QUIET")) : 0;
+    int serve = getenv("SERVE") ? atoi(getenv("SERVE")) : 0;
     /* Keep OpenMP workers hot across tiny matmul regions (same idea as MoE path). */
     setenv("OMP_WAIT_POLICY", "active", 0);
     setenv("OMP_PROC_BIND", "close", 0);
@@ -884,6 +1027,20 @@ int dense_run(int argc, char **argv) {
     int eos = nstop > 0 ? stops[0] : -1;
     (void)eos;
 
+    if (serve) {
+        dens_stdio_binary();
+        int ctx_env = getenv("CTX") ? atoi(getenv("CTX")) : 4096;
+        if (ctx_env < 256) ctx_env = 256;
+        if (ctx_env > 8192) ctx_env = 8192;
+        dens_alloc_kv(&m, ctx_env);
+        if (!quiet)
+            fprintf(stderr, "[dense] SERVE load %.1fs | ctx %d | RSS %.2f GB\n",
+                    m.load_s, ctx_env, rss_gb());
+        int rc = dens_serve_loop(&m, &T, stops, nstop, quiet);
+        g_dens = NULL;
+        return rc;
+    }
+
     int cap = (int)strlen(prompt) + 64;
     if (cap < 256) cap = 256;
     int *prompt_ids = malloc((size_t)cap * sizeof(int));
@@ -893,56 +1050,11 @@ int dense_run(int argc, char **argv) {
         fprintf(stderr, "dense: prompt empty after tokenization\n");
         return 1;
     }
-
-    m.max_t = np + ngen + 8;
-    m.ws_sc = falloc((int64_t)c->n_heads * m.max_t); /* per-head score rows for OpenMP */
-    m.K = calloc((size_t)c->n_layers, sizeof(float *));
-    m.V = calloc((size_t)c->n_layers, sizeof(float *));
-    for (int i = 0; i < c->n_layers; i++) {
-        m.K[i] = falloc((int64_t)c->n_kv_heads * m.max_t * c->head_dim);
-        m.V[i] = falloc((int64_t)c->n_kv_heads * m.max_t * c->head_dim);
-    }
-
-    fprintf(stderr, "[dense] prefill %d tokens, generate up to %d (eos=%d)\n", np, ngen, eos);
-    double t_pre = now_s();
-    float *logit = NULL;
-    for (int i = 0; i < np; i++)
-        logit = dens_step(&m, prompt_ids[i], i);
-    double prefill_s = now_s() - t_pre;
-    if (!quiet)
-        fprintf(stderr, "[dense] prefill %.2fs (%.2f tok/s)\n",
-                prefill_s, prefill_s > 0 ? np / prefill_s : 0);
-
-    if (m.prof) m.t_attn = m.t_mlp = m.t_lm = 0;
-    double t0 = now_s();
-    int generated = 0;
-    char outbuf[4096];
-    for (int s = 0; s < ngen; s++) {
-        int tok = argmax(logit, c->vocab);
-        generated++;
-        /* Stop before emit so control tokens like <|end|> / <|im_end|> never hit stdout. */
-        int hit = 0;
-        for (int i = 0; i < nstop; i++) if (stops[i] == tok) { hit = 1; break; }
-        if (hit) break;
-        int nch = tok_decode(&T, &tok, 1, outbuf, (int)sizeof(outbuf) - 1);
-        if (nch > 0) {
-            outbuf[nch] = 0;
-            fputs(outbuf, stdout);
-            fflush(stdout);
-        }
-        if (s + 1 == ngen) break;
-        logit = dens_step(&m, tok, np + s);
-    }
-    fputc('\n', stdout);
-    fflush(stdout);
-    double dt = now_s() - t0;
-    double tps = dt > 0 ? (generated / dt) : 0;
-    fprintf(stderr, "[dense] decode %.2f tok/s (%.2fs for %d toks) | RSS %.2f GB | load %.1fs\n",
-            tps, dt, generated, rss_gb(), m.load_s);
-    if (m.prof && generated > 0)
-        fprintf(stderr, "[dense][prof] attn=%.2fs mlp=%.2fs lm=%.2fs (decode window)\n",
-                m.t_attn, m.t_mlp, m.t_lm);
+    dens_alloc_kv(&m, np + ngen + 8);
     free(prompt_ids);
+    int json_stats = getenv("WH_JSON_STATS") ? 1 : 0;
+    int rc = dens_generate(&m, &T, stops, nstop, prompt, (int)strlen(prompt),
+                           ngen, quiet, json_stats);
     g_dens = NULL;
-    return 0;
+    return rc < 0 ? 1 : 0;
 }

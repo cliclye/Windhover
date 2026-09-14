@@ -33,7 +33,11 @@ export default function App() {
   // When the page is served by the engine itself (coli web), same-origin is the
   // right default: no CORS, no manual endpoint editing. The Vite dev server
   // (port 5173) keeps the classic default.
-  const servedByEngine = typeof window !== "undefined" && window.location.port !== "5173" && window.location.protocol.startsWith("http")
+  const servedByEngine =
+    typeof window !== "undefined" &&
+    !import.meta.env.DEV &&
+    window.location.port !== "5173" &&
+    window.location.protocol.startsWith("http")
   const defaultBase = servedByEngine ? `${window.location.origin}/v1` : "http://127.0.0.1:8000/v1"
   const [baseUrl, setBaseUrl] = useState(() => {
     const saved = stored(localStorage, "windhover.baseUrl", defaultBase)
@@ -350,7 +354,9 @@ export default function App() {
             {!loading && ttft != null ? <Badge>TTFT {(ttft/1000).toFixed(1)}s</Badge> : null}
             {!loading && lastRun?.usage ? <Badge>{lastRun.usage.prompt_tokens}→{lastRun.usage.completion_tokens}</Badge> : null}
             {lastRun?.queueWaitMs != null ? <Badge>queue {Math.round(lastRun.queueWaitMs)}ms</Badge> : null}
-            <Button variant="ghost" size="sm" onClick={() => { updateMessages([]); setTokPerSec(null); setTtft(null); setTokenCount(0); setTotalTokens({prompt:0,completion:0}) }} disabled={!messages.length || loading}><Trash2 className="size-3.5" /> Clear</Button>
+            {view === "chat" ? (
+              <Button variant="ghost" size="sm" onClick={() => { updateMessages([]); setTokPerSec(null); setTtft(null); setTokenCount(0); setTotalTokens({prompt:0,completion:0}) }} disabled={!messages.length || loading}><Trash2 className="size-3.5" /> Clear</Button>
+            ) : null}
           </div>
         </header>
 

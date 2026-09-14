@@ -198,7 +198,7 @@ export function AppSidebar({
         <>
           <div className="side-head">
             <strong>Settings</strong>
-            <span className="muted">{appVersion || "—"}</span>
+            {appVersion ? <span className="muted">{appVersion}</span> : null}
           </div>
           <nav className="side-nav" aria-label="Settings">
             {[

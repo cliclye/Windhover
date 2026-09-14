@@ -1108,7 +1108,7 @@ export function App() {
                   ? `${activeMeta.name || activeMeta.id}${isOllamaModel(activeMeta) ? " · Ollama" : ""}`
                   : "Install a model from Library, or start Ollama."
               }
-              banner={engineInactiveBanner}
+              banner={messages.length || sending ? engineInactiveBanner : null}
             />
           ) : null}
 

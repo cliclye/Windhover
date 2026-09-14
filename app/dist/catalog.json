@@ -301,7 +301,7 @@
     {
       "id": "zai-org/GLM-5.2-FP8",
       "name": "GLM-5.2",
-      "description": "Z.ai GLM-5.2 MoE+DSA (~756GB FP8). Engine MoE path after FP8→int4 convert (long). Same on Mac/Windows.",
+      "description": "Z.ai GLM-5.2 MoE+DSA (~756GB FP8). Engine MoE path after FP8\u2192int4 convert (long). Same on Mac/Windows.",
       "size_gb": 756,
       "license": "MIT",
       "hf_repo": "zai-org/GLM-5.2-FP8",

@@ -40,7 +40,7 @@ export type Installed = {
 export const FAMILIES = [
   { id: "all", label: "All" },
   { id: "ollama", label: "Ollama" },
-  { id: "mac", label: "Mac 16GB" },
+  { id: "mac", label: "16GB laptop" },
   { id: "windhover", label: "Windhover" },
   { id: "gemma", label: "Gemma" },
   { id: "phi", label: "Phi" },
@@ -84,7 +84,7 @@ export function isMacSmall(m: CatalogModel) {
 }
 
 export function statusBadge(m: CatalogModel) {
-  if (isMacSmall(m)) return { cls: "mac", label: "Mac 16GB" };
+  if (isMacSmall(m)) return { cls: "mac", label: "16GB laptop" };
   if (m.status === "ready" && m.chat === "preview") return { cls: "ready", label: "Preview" };
   if (m.status === "ready" && m.chat === "engine-oracle") return { cls: "demo", label: "Engine demo" };
   if (m.status === "download") return { cls: "download", label: "Download" };

@@ -2,7 +2,7 @@
 
 Static page that links to the GitHub Releases DMG:
 
-**https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg**
+**https://github.com/cliclye/Windhover/releases/latest/download/Windhover-macOS-arm64.dmg**
 
 Open locally:
 

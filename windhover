@@ -305,9 +305,12 @@ try:
     import chat_text as _chat_text  # type: ignore
     import app_update as _app_update  # type: ignore
     import ollama_client as _ollama_client  # type: ignore
+    import ram_profile as _ram_profile  # type: ignore
+    import engine_session as _engine_session  # type: ignore
 except ImportError as _tools_imp_err:
     raise SystemExit(
-        f"windhover: missing tools modules (chat_text/app_update/ollama_client): {_tools_imp_err}"
+        f"windhover: missing tools modules (chat_text/app_update/ollama_client/"
+        f"ram_profile/engine_session): {_tools_imp_err}"
     ) from _tools_imp_err
 _LAST_STATS: dict = {
     "rss_mb": 0.0,
@@ -1175,7 +1178,6 @@ def _engine_chat(
     on_delta=None,
     timeout_s: float | None = None,
 ) -> tuple[str, dict]:
-    import threading
     import time
 
     if not ENGINE_BIN.is_file():
@@ -1207,10 +1209,10 @@ def _engine_chat(
     env["QUIET"] = "1"
     env["DRAFT"] = "0"
     env["WH_JSON_STATS"] = "1"
-    env.setdefault("MLOCK", "1")
-    env.setdefault("WH_SPARSE", "25")
     env.setdefault("IDOT", "1")
-    # Leave RAM_GB unset → AU off → entire FFN treated hot; MLOCK pins it in RAM.
+    if _engine_session.serve_enabled():
+        env.setdefault("CTX", "4096")
+    profile = _ram_profile.resolve()
 
     # Wall-clock budget: cold KPK load + prefill can be slow on CPU; still fail closed.
     if timeout_s is None:
@@ -1222,105 +1224,58 @@ def _engine_chat(
         timeout_s = 30.0
 
     wh_stats: dict = {}
-
-    def _dec(b: bytes) -> str:
-        return (b or b"").decode("utf-8", errors="replace").strip()
+    raw_out = b""
+    err = ""
+    rc = 1
+    warm = False
 
     try:
-        if on_delta is None:
+        if _engine_session.serve_enabled():
             try:
-                p = subprocess.run(
-                    [str(ENGINE_BIN), "64", "4", "4"],
-                    cwd=str(_engine_cwd()),
+                text_raw, wh_stats, err, rc = _engine_session.SESSION.generate(
+                    engine_bin=ENGINE_BIN,
+                    cwd=_engine_cwd(),
                     env=env,
-                    capture_output=True,
-                    timeout=timeout_s,
+                    prompt=formatted,
+                    ngen=ngen,
+                    timeout_s=timeout_s,
+                    on_delta=on_delta,
+                    log=sys.stderr,
                 )
-            except subprocess.TimeoutExpired as e:
+                raw_out = text_raw.encode("utf-8", errors="replace")
+                warm = True
+            except TimeoutError as e:
                 raise EngineInactiveError(
                     f"Windhover engine timed out after {int(timeout_s)}s while generating. "
                     "Try a shorter prompt, fewer max tokens, or wait for a cold model load to finish once.",
                     detail=f"timeout={timeout_s}s; bin={ENGINE_BIN}",
                 ) from e
-            raw_out, err, rc = p.stdout, _dec(p.stderr), p.returncode
-        else:
-            # stream stdout bytes to the client as they arrive
-            proc = subprocess.Popen(
-                [str(ENGINE_BIN), "64", "4", "4"],
-                cwd=str(_engine_cwd()),
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            # Drain stderr concurrently — otherwise a full pipe deadlocks the engine.
-            err_buf: list[bytes] = []
-
-            def _drain_err() -> None:
-                try:
-                    if proc.stderr is not None:
-                        err_buf.append(proc.stderr.read() or b"")
-                except Exception:
-                    pass
-
-            err_thread = threading.Thread(target=_drain_err, daemon=True)
-            err_thread.start()
-            chunks: list[bytes] = []
-            pending = b""
-            timed_out = False
-            try:
-                while True:
-                    if time.perf_counter() - t0 > timeout_s:
-                        timed_out = True
-                        proc.kill()
-                        break
-                    if proc.stdout is None:
-                        break
-                    b = proc.stdout.read(64)
-                    if not b:
-                        break
-                    chunks.append(b)
-                    pending += b
-                    # hold back a partial UTF-8 tail and anything after the stats marker
-                    if b"@@WH_STATS@@" in pending:
-                        emit, _, _ = pending.partition(b"@@WH_STATS@@")
-                        pending = b""
-                    else:
-                        emit, pending = pending, b""
-                        for back in range(1, min(4, len(emit)) + 1):
-                            if emit[-back] & 0xC0 == 0xC0:  # UTF-8 lead byte in the tail
-                                pending = emit[-back:]
-                                emit = emit[:-back]
-                                break
-                    if emit:
-                        try:
-                            # Stream raw decode; UI/final path cleans the full buffer so
-                            # turn markers spanning chunk boundaries still cut junk.
-                            on_delta(emit.decode("utf-8", errors="replace"))
-                        except Exception:
-                            proc.kill()
-                            raise
-            finally:
-                try:
-                    proc.wait(timeout=5)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-                    try:
-                        proc.wait(timeout=2)
-                    except Exception:
-                        pass
-                err_thread.join(timeout=2)
-            raw_out = b"".join(chunks)
-            err = _dec(b"".join(err_buf))
-            rc = proc.returncode if proc.returncode is not None else -1
-            if timed_out:
-                raise EngineInactiveError(
-                    f"Windhover engine timed out after {int(timeout_s)}s while generating. "
-                    "Try a shorter prompt or wait for a cold model load to finish once.",
-                    detail=f"timeout={timeout_s}s; stderr={err[:500]}",
+            except RuntimeError:
+                # SERVE handshake failed — fall back to spawn-per-turn.
+                sys.stderr.write(
+                    "[windhover] warm engine unavailable — one-shot fallback\n"
                 )
+                raw_out, err, rc = _engine_session.SESSION.oneshot(
+                    engine_bin=ENGINE_BIN,
+                    cwd=_engine_cwd(),
+                    env=env,
+                    timeout_s=timeout_s,
+                    on_delta=on_delta,
+                )
+        else:
+            raw_out, err, rc = _engine_session.SESSION.oneshot(
+                engine_bin=ENGINE_BIN,
+                cwd=_engine_cwd(),
+                env=env,
+                timeout_s=timeout_s,
+                on_delta=on_delta,
+            )
+    except TimeoutError as e:
+        raise EngineInactiveError(
+            f"Windhover engine timed out after {int(timeout_s)}s while generating. "
+            "Try a shorter prompt or wait for a cold model load to finish once.",
+            detail=f"timeout={timeout_s}s; bin={ENGINE_BIN}",
+        ) from e
     except FileNotFoundError as e:
         raise EngineInactiveError(
             "Windhover engine is not active — could not start windhover-engine.",
@@ -1332,8 +1287,11 @@ def _engine_chat(
             detail=f"{e}; bin={ENGINE_BIN}; cwd={_engine_cwd()}",
         ) from e
 
-    text = _dec(raw_out)
-    if "@@WH_STATS@@" in text:
+    if isinstance(raw_out, str):
+        text = raw_out
+    else:
+        text = (raw_out or b"").decode("utf-8", errors="replace")
+    if not wh_stats and "@@WH_STATS@@" in text:
         text, _, tail = text.partition("@@WH_STATS@@")
         try:
             wh_stats = json.loads(tail.strip().splitlines()[0])
@@ -1376,10 +1334,14 @@ def _engine_chat(
         "completion_tokens": ntok,
         "backend": "windhover-engine",
         "engine_active": True,
+        "engine_warm": warm or _engine_session.SESSION.is_warm(),
         "selected_model": meta.get("id") or snap.name,
         "preview_model": None,
         "family": meta.get("family"),
         "engine": str(ENGINE_BIN),
+        "ram_profile": profile.get("name"),
+        "ram_gb": profile.get("ram_gb"),
+        "mlock": profile.get("mlock"),
     }
     if wh_stats:
         stats["windhover"] = {
@@ -1800,13 +1762,11 @@ def _engine_env(model: Path, ram: float | None) -> dict[str, str]:
     env = os.environ.copy()
     env["SNAP"] = str(_engine_snap(model))
     env.pop("TF", None)
+    profile = _ram_profile.resolve()
+    _ram_profile.apply_to_env(env, profile)
     if ram:
         env["RAM_GB"] = str(ram)
         env["COLI_HARD_CAP"] = "1"
-    # Prefer keeping weights wired in RAM (Mac compressor + Windows working set).
-    env.setdefault("MLOCK", "1")
-    # Mild CATS sparsity: large tok/s win on Phi/Qwen; set WH_SPARSE=0 for exact FFN.
-    env.setdefault("WH_SPARSE", "25")
     env.setdefault("IDOT", "1")
     # libgomp / libomp read OMP_* before/at process start. Tune on Windows and
     # macOS so Phi/Qwen/KPK decode isn't stuck on 1 thread / passive wait.
@@ -2617,7 +2577,9 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                         "engine_present": present,
                         "engine_on": present,
                         "engine_active": bool(present) if last_active is None else bool(last_active and present),
+                        "engine_warm": _engine_session.SESSION.is_warm(),
                         "rss_mb": round(_rss_mb(), 1),
+                        "ram_profile": _ram_profile.public_payload(),
                         "stats": _LAST_STATS,
                         "ollama": {
                             "host": OLLAMA_HOST,
@@ -2666,15 +2628,19 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                         "rss_mb": round(_rss_mb(), 1),
                         "engine": str(ENGINE_BIN),
                         "engine_present": ENGINE_BIN.is_file(),
+                        "engine_warm": _engine_session.SESSION.is_warm(),
                         "models_dir": str(MODELS_DIR),
                         "installed": len(_list_installed()),
                         "last": _LAST_STATS,
+                        "ram_profile": _ram_profile.public_payload(),
                         "chat_preview": PREVIEW_REPO,
                         "ollama_host": OLLAMA_HOST,
                         "ollama_reachable": bool(ollama_models) or _ollama_reachable(),
                         "ollama_models": len(ollama_models),
                     },
                 )
+            if path in ("/api/ram-profile", "/v1/ram-profile"):
+                return self._json(200, {"ok": True, **_ram_profile.public_payload()})
             if path in ("/api/jobs", "/api/pull/status"):
                 job_id = (qs.get("id") or qs.get("job_id") or [None])[0]
                 if not job_id:
@@ -2857,9 +2823,18 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                         "size_gb": entry.get("size_gb"),
                     },
                 )
+            if path in ("/api/ram-profile", "/v1/ram-profile"):
+                name = body.get("profile") or body.get("name") or body.get("ram_profile")
+                try:
+                    _ram_profile.set_active_name(str(name or ""))
+                except ValueError as e:
+                    return self._json(400, {"ok": False, "error": str(e)})
+                _engine_session.SESSION.unload("ram-profile")
+                return self._json(200, {"ok": True, **_ram_profile.public_payload()})
             if path in ("/api/uninstall", "/api/delete"):
                 mid = body.get("id") or body.get("model_id") or ""
                 path_hint = body.get("path")
+                _engine_session.SESSION.unload("uninstall")
                 if path_hint:
                     # Prefer explicit path when UI knows the install folder
                     try:

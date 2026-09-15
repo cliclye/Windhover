@@ -32,6 +32,8 @@ datas = [
     (str(REPO / "tools" / "chat_text.py"), "tools"),
     (str(REPO / "tools" / "app_update.py"), "tools"),
     (str(REPO / "tools" / "ollama_client.py"), "tools"),
+    (str(REPO / "tools" / "ram_profile.py"), "tools"),
+    (str(REPO / "tools" / "engine_session.py"), "tools"),
     # In-process KPK convert (numpy, no torch) for Phi/Gemma after Library install.
     (str(REPO / "tools" / "kestrel_pack.py"), "tools"),
     (str(REPO / "tools" / "wmir"), "tools/wmir"),
@@ -44,6 +46,8 @@ hiddenimports = [
     "chat_text",
     "app_update",
     "ollama_client",
+    "ram_profile",
+    "engine_session",
     "kestrel_pack",
     "wmir",
     "wmir.lower",

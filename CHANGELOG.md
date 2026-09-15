@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Performance
+- **Warm `windhover-engine`:** Chat and Agent keep one SERVE process per loaded pack (KPK + dense). Tokens still stream; the process unloads on model switch, RAM-profile change, uninstall, or idle (~10 min). Cold mmap+init no longer runs every message.
+- **Fast / Balanced / Low-RAM profiles** actually set `RAM_GB` (AU on when capped), `MLOCK`, and `WH_SPARSE`. Default **Balanced** on advertised ≤16 GB machines, including 16 GiB Macs (`bytes/1024**3`, not `bytes/1e9`). Chat shows the cap and a profile picker.
+
 ## [0.4.3] — 2026-07-24
 
 ### Fixed — macOS parity with Windows

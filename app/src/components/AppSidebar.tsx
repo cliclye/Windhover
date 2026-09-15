@@ -1,6 +1,6 @@
 import type { Tab } from "./RailIcon";
 import { FAMILIES, isOllamaModel, type Installed } from "../modelMeta";
-import type { ChatStats, EngineState } from "../types";
+import type { ChatStats, EngineState, RamProfileInfo } from "../types";
 import { PlusIcon } from "./Icons";
 
 export function AppSidebar({
@@ -13,6 +13,7 @@ export function AppSidebar({
   engineState,
   lastStats,
   rssMb,
+  ramProfile,
   workspace,
   onWorkspaceChange,
   workspaceReady,
@@ -39,6 +40,7 @@ export function AppSidebar({
   engineState: EngineState;
   lastStats: ChatStats | null;
   rssMb: number;
+  ramProfile?: RamProfileInfo | null;
   workspace: string;
   onWorkspaceChange: (value: string) => void;
   workspaceReady: boolean;
@@ -90,7 +92,12 @@ export function AppSidebar({
               <p className="side-copy">Install a model from Library to start.</p>
             )}
           </div>
-          <SessionMeta engineTitle={engineTitle} lastStats={lastStats} rssMb={rssMb} />
+          <SessionMeta
+            engineTitle={engineTitle}
+            lastStats={lastStats}
+            rssMb={rssMb}
+            ramProfile={ramProfile}
+          />
         </>
       ) : null}
 
@@ -216,7 +223,12 @@ export function AppSidebar({
               </button>
             ))}
           </nav>
-          <SessionMeta engineTitle={engineTitle} lastStats={lastStats} rssMb={rssMb} />
+          <SessionMeta
+            engineTitle={engineTitle}
+            lastStats={lastStats}
+            rssMb={rssMb}
+            ramProfile={ramProfile}
+          />
         </>
       ) : null}
     </aside>
@@ -234,11 +246,19 @@ function SessionMeta({
   engineTitle,
   lastStats,
   rssMb,
+  ramProfile,
 }: {
   engineTitle: string;
   lastStats: ChatStats | null;
   rssMb: number;
+  ramProfile?: RamProfileInfo | null;
 }) {
+  const cap =
+    ramProfile?.ram_gb != null
+      ? `${Number(ramProfile.ram_gb).toFixed(1)} GB`
+      : ramProfile
+        ? "off"
+        : "—";
   return (
     <div className="side-meta">
       <div className="side-label">Status</div>
@@ -247,6 +267,10 @@ function SessionMeta({
         <div>
           <dt>RAM</dt>
           <dd>{rssMb ? `${rssMb.toFixed(0)} MB` : "—"}</dd>
+        </div>
+        <div>
+          <dt>Cap</dt>
+          <dd title={ramProfile?.blurb || "Engine RAM ceiling"}>{cap}</dd>
         </div>
         <div>
           <dt>Last</dt>

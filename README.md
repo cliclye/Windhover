@@ -10,13 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg"><strong>Download for macOS</strong></a>
+  <a href="https://github.com/cliclye/Windhover/releases/latest/download/Windhover-macOS-arm64.dmg"><strong>Download for macOS</strong></a>
   ·
-  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-x64.exe"><strong>Windows x64</strong></a>
+  <a href="https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-x64.exe"><strong>Windows x64</strong></a>
   ·
-  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-arm64.exe"><strong>Windows ARM64</strong></a>
+  <a href="https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-arm64.exe"><strong>Windows ARM64</strong></a>
   ·
-  <a href="https://github.com/cliclye/Kestrel/releases/latest">Releases</a>
+  <a href="https://github.com/cliclye/Windhover/releases/latest">Releases</a>
   ·
   <a href="docs/DOWNLOAD.md">Install notes</a>
   ·
@@ -28,13 +28,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg">
+  <a href="https://github.com/cliclye/Windhover/releases/latest/download/Windhover-macOS-arm64.dmg">
     <img src="https://img.shields.io/badge/Download-macOS%20DMG%20(Apple%20Silicon)-d4a574?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" />
   </a>
-  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-x64.exe">
+  <a href="https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-x64.exe">
     <img src="https://img.shields.io/badge/Download-Windows%20x64-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows x64" />
   </a>
-  <a href="https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-arm64.exe">
+  <a href="https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-arm64.exe">
     <img src="https://img.shields.io/badge/Download-Windows%20ARM64-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows ARM64" />
   </a>
 </p>
@@ -51,7 +51,7 @@ On a 16 GB Mac, a stock 7B chat model in fp16 is rough:
 
 **Windhover** keeps a sparse working set in RAM (mmap’d KPK packs + activation-unit budgeting) so real models stay usable under a hard ceiling.
 
-The ship binary is **`windhover-engine`**. The Mac app wraps Library · Chat · Agent · Advanced.
+The ship binary is **`windhover-engine`**. The desktop app wraps Library · Chat · Agent · Advanced.
 
 > All headline numbers below were measured **locally on a MacBook Air M4 · 16 GB RAM** (2026-07-22), with a **≤ 9 GB** process budget and swap-abort enabled. Not projected. Not cloud.
 
@@ -178,10 +178,10 @@ Quantization helps, but a naive load still wants a large contiguous working set.
 ## How it works
 
 ```text
-┌─────────────┐     ┌──────────────┐     ┌───────────────────┐
-│  Mac app /  │────▶│  ./windhover │────▶│  windhover-engine │
-│  Library UI │     │  app :8000   │     │  SNAP = model dir │
-└─────────────┘     └──────────────┘     └───────────────────┘
+┌──────────────┐     ┌──────────────┐     ┌───────────────────┐
+│  Desktop app │────▶│  ./windhover │────▶│  windhover-engine │
+│  Library UI  │     │  app :8000   │     │  SNAP = model dir │
+└──────────────┘     └──────────────┘     └───────────────────┘
                            │
                            ├─ Library  /v1/catalog · pull · uninstall
                            ├─ Chat     /v1/chat/...
@@ -245,13 +245,13 @@ Live engine telemetry — RSS, tok/s, Windhover decode stats.
 
 ### Easiest — download the app
 
-- **macOS (Apple Silicon):** [Windhover-macOS-arm64.dmg](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-macOS-arm64.dmg)
-- **Windows 11 x64:** [Windhover-Windows-x64.exe](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-x64.exe)
-- **Windows 11 ARM64:** [Windhover-Windows-arm64.exe](https://github.com/cliclye/Kestrel/releases/latest/download/Windhover-Windows-arm64.exe)
+- **macOS (Apple Silicon):** [Windhover-macOS-arm64.dmg](https://github.com/cliclye/Windhover/releases/latest/download/Windhover-macOS-arm64.dmg)
+- **Windows 11 x64:** [Windhover-Windows-x64.exe](https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-x64.exe)
+- **Windows 11 ARM64:** [Windhover-Windows-arm64.exe](https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-arm64.exe)
 
 See [docs/DOWNLOAD.md](docs/DOWNLOAD.md) for Gatekeeper / SmartScreen notes on unsigned builds.
 
-> GitHub repo may still be named `Kestrel`; the product is **Windhover**.
+> GitHub repo is **Windhover** (`cliclye/Kestrel` redirects here).
 
 ### From source
 

@@ -1324,7 +1324,7 @@ def _engine_chat(
     if text and bad > max(3, len(text) // 3):
         text = (
             "windhover-engine ran this pack, but the output is not readable text. "
-            "Install a real Hugging Face Mac 16GB model from Library, or re-download weights."
+            "Install a real Hugging Face 16GB-laptop model from Library, or re-download weights."
         )
     ntok = int(wh_stats.get("tokens") or max(1, len((text or "").split())))
     stats = {
@@ -2572,6 +2572,7 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                     200,
                     {
                         "ok": True,
+                        "app": "windhover",
                         "version": _app_version(),
                         "engine": str(ENGINE_BIN),
                         "engine_present": present,
@@ -2917,7 +2918,7 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                             {
                                 "ok": False,
                                 "error": (
-                                    "Model not installed. Install a Mac 16GB Hugging Face model "
+                                    "Model not installed. Install a 16GB-laptop Hugging Face model "
                                     "from Library, or select an Ollama model (ollama/…)."
                                 ),
                             },
@@ -3082,12 +3083,12 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                         {
                             "error": (
                                 f"Model {requested!r} is not installed. "
-                                "Install a **Mac 16GB** Hugging Face model from Library, "
+                                "Install a **16GB laptop** Hugging Face model from Library, "
                                 "download full weights, or pick an **Ollama** model "
                                 "(shown when `ollama serve` is running)."
                                 if requested and requested not in ("kestrel", "default", "auto", None)
                                 else "No model loaded. Install a Hugging Face model from Library "
-                                "(Mac 16GB filter), or start Ollama."
+                                "(16GB laptop filter), or start Ollama."
                             ),
                             "requested": requested,
                         },
@@ -3102,7 +3103,7 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                             {
                                 "error": (
                                     f"{mid} is incomplete — model weights never finished downloading. "
-                                    "Uninstall it in Library, then Install again (Mac 16GB) to get real weights."
+                                    "Uninstall it in Library, then Install again (16GB laptop) to get real weights."
                                 ),
                                 "incomplete": True,
                                 "id": mid,
@@ -3113,7 +3114,7 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                         {
                             "error": (
                                 f"{mid} can’t chat (missing weights or fake stub). "
-                                "Uninstall it, then install a real Hugging Face Mac 16GB model from Library."
+                                "Uninstall it, then install a real Hugging Face 16GB-laptop model from Library."
                             ),
                             "impostor": _is_impostor_pack(snap),
                             "id": mid,
@@ -3596,7 +3597,7 @@ def main() -> int:
     p.add_argument(
         "--weights",
         action="store_true",
-        help="download full HF weights (required for frontier MoEs; auto for Mac 16GB / hf_small)",
+        help="download full HF weights (required for frontier MoEs; auto for 16GB laptop / hf_small)",
     )
 
     p = sp.add_parser("uninstall", help="remove an installed model")

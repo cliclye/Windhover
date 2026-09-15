@@ -10,6 +10,9 @@ export function LibraryView({
   filteredOllama,
   installed,
   busy,
+  chatReady,
+  onInstallLaptop,
+  onOpenChatTab,
   onOpenInfo,
   onPull,
   onUninstall,
@@ -23,6 +26,9 @@ export function LibraryView({
   filteredOllama: Installed[];
   installed: Installed[];
   busy: string | null;
+  chatReady: boolean;
+  onInstallLaptop: () => void;
+  onOpenChatTab: () => void;
   onOpenInfo: (m: CatalogModel) => void;
   onPull: (m: CatalogModel, weights?: boolean) => void;
   onUninstall: (id: string, name?: string, path?: string) => void;
@@ -33,7 +39,15 @@ export function LibraryView({
     <div className="library-scroll">
       <header className="page-head">
         <h1>Library</h1>
-        <p>{status || "Install a model. Chat and Agent stay on this machine."}</p>
+        <p>{status || "Install a 16GB laptop pack first. Huge MoEs need a lot of disk."}</p>
+        <div className="page-actions">
+          <button type="button" className="btn primary" onClick={onInstallLaptop} disabled={!!progress}>
+            Install a 16GB laptop model
+          </button>
+          <button type="button" className="btn ghost" onClick={onOpenChatTab} disabled={!chatReady}>
+            Open chat
+          </button>
+        </div>
       </header>
 
       {progress ? (

@@ -94,6 +94,29 @@
       ]
     },
     {
+      "id": "Qwen/Qwen2.5-1.5B-Instruct",
+      "name": "Qwen2.5 1.5B Instruct",
+      "description": "Compact Qwen2.5 chat (~3.1GB). Engine chat immediately after download (dense qwen2, no convert).",
+      "size_gb": 3.1,
+      "license": "Apache-2.0",
+      "source": "hf_small",
+      "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct",
+      "preview_repo": "Qwen/Qwen2.5-1.5B-Instruct",
+      "chat": "engine",
+      "family": "qwen",
+      "tier": "mac16",
+      "status": "ready",
+      "engine": "windhover-engine",
+      "ram_gb": 4,
+      "engine_path": "dense",
+      "tags": [
+        "mac16",
+        "small",
+        "ready",
+        "immediate"
+      ]
+    },
+    {
       "id": "Qwen/Qwen3-1.7B",
       "name": "Qwen3 1.7B",
       "description": "Compact Qwen3 (~3.5GB). Engine chat immediately after download (dense qwen3).",
@@ -140,9 +163,32 @@
       ]
     },
     {
+      "id": "Qwen/Qwen2.5-3B-Instruct",
+      "name": "Qwen2.5 3B Instruct",
+      "description": "Sweet-spot Qwen2.5 (~6.2GB) for 16GB laptops. Engine chat immediately after download (dense qwen2, no convert).",
+      "size_gb": 6.2,
+      "license": "Apache-2.0",
+      "source": "hf_small",
+      "hf_repo": "Qwen/Qwen2.5-3B-Instruct",
+      "preview_repo": "Qwen/Qwen2.5-3B-Instruct",
+      "chat": "engine",
+      "family": "qwen",
+      "tier": "mac16",
+      "status": "ready",
+      "engine": "windhover-engine",
+      "ram_gb": 8,
+      "engine_path": "dense",
+      "tags": [
+        "mac16",
+        "small",
+        "ready",
+        "immediate"
+      ]
+    },
+    {
       "id": "microsoft/Phi-4-mini-instruct",
       "name": "Phi-4 Mini Instruct",
-      "description": "Phi-4 mini (~7.2GB). Install finishes with a one-time engine convert (KPK), then chat works on Mac and Windows \u2014 no torch needed.",
+      "description": "Phi-4 mini (~7.2GB). Install finishes with a one-time engine convert (KPK), then chat works on Mac and Windows — no torch needed.",
       "size_gb": 7.2,
       "license": "MIT",
       "source": "hf_small",
@@ -187,7 +233,7 @@
     },
     {
       "id": "Qwen/Qwen3-8B",
-      "name": "Qwen3 8B \u00b7 engine Q4",
+      "name": "Qwen3 8B · engine Q4",
       "description": "Dense Qwen3 ~8B (~16.5GB HF). Engine chat immediately after download (dense qwen3); optional KPK convert for smaller footprint.",
       "size_gb": 16.5,
       "license": "Apache-2.0",
@@ -354,7 +400,7 @@
     },
     {
       "id": "Qwen/Qwen3.5-9B",
-      "name": "Qwen3.5 9B \u00b7 engine Q4",
+      "name": "Qwen3.5 9B · engine Q4",
       "description": "Official Qwen3.5-9B (hybrid GDN + gated GQA). Install converts to Windhover int4/KPK (text-only), then chat on Mac and Windows.",
       "size_gb": 19.0,
       "license": "Apache-2.0",

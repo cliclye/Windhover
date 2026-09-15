@@ -89,7 +89,7 @@ export function AppSidebar({
                 ))}
               </ul>
             ) : (
-              <p className="side-copy">Install a model from Library to start.</p>
+              <p className="side-copy">Install a 16GB laptop pack from Library to start.</p>
             )}
           </div>
           <SessionMeta
@@ -113,7 +113,7 @@ export function AppSidebar({
               <input
                 value={workspace}
                 onChange={(e) => onWorkspaceChange(e.target.value)}
-                placeholder="/path/to/project"
+                placeholder="Path to a project folder"
                 disabled={agentBusy || pickingFolder}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {

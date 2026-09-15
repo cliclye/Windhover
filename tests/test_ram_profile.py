@@ -20,10 +20,23 @@ class RamProfileTests(unittest.TestCase):
         self.assertEqual(ram_profile.default_name(16.0), "balanced")
         self.assertEqual(ram_profile.default_name(8.0), "balanced")
         self.assertEqual(ram_profile.default_name(0.0), "balanced")
+        self.assertEqual(ram_profile.default_name(16.5), "balanced")
+
+    def test_default_balanced_on_16gib_mac(self):
+        sixteen_gib = 16 * 1024**3
+        self.assertAlmostEqual(ram_profile.gib_from_bytes(sixteen_gib), 16.0)
+        self.assertEqual(ram_profile.default_name(ram_profile.gib_from_bytes(sixteen_gib)), "balanced")
+        # 0.4.3-style bytes/1e9 for a 16 GiB Mac (~17.18) must not win Fast.
+        decimal_gb = sixteen_gib / 1e9
+        self.assertGreater(decimal_gb, 16.5)
+        self.assertEqual(ram_profile.default_name(decimal_gb), "balanced")
 
     def test_default_fast_on_large_machines(self):
         self.assertEqual(ram_profile.default_name(32.0), "fast")
         self.assertEqual(ram_profile.default_name(24.0), "fast")
+        self.assertEqual(ram_profile.default_name(18.0), "fast")
+        eighteen_gib_as_decimal_gb = (18 * 1024**3) / 1e9
+        self.assertEqual(ram_profile.default_name(eighteen_gib_as_decimal_gb), "fast")
 
     def test_cap_fractions(self):
         self.assertIsNone(ram_profile.cap_gb("fast", 16.0))

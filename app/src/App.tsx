@@ -1,98 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiUrl } from "./api";
-import {
-  agentVisibleReply,
-  toolActivityGroup,
-  toolActivityLabel,
-  type AgentToolResult,
-} from "./agentUi";
 import { cleanChatText, extractSSE } from "./chatText";
-import { MarkdownBody } from "./components/MarkdownBody";
+import { AdvancedView } from "./components/AdvancedView";
+import { AgentView } from "./components/AgentView";
+import { AppSidebar } from "./components/AppSidebar";
+import { ChatView } from "./components/ChatView";
+import { LibraryView } from "./components/LibraryView";
 import { RailIcon, type Tab } from "./components/RailIcon";
 import {
-  FAMILIES,
   formatCount,
   formatParams,
   isMacSmall,
   isOllamaModel,
   matchInstalled,
   modelPickerLabel,
-  statusBadge,
   type CatalogModel,
   type Installed,
 } from "./modelMeta";
-
-
-type HfModelInfo = {
-  ok?: boolean;
-  id?: string;
-  error?: string;
-  downloads?: number;
-  likes?: number;
-  pipeline_tag?: string;
-  library_name?: string;
-  license?: string;
-  created_at?: string;
-  last_modified?: string;
-  tags?: string[];
-  parameters?: number;
-  card_summary?: string | null;
-  benchmarks?: Array<{
-    task?: string;
-    dataset?: string;
-    metric?: string;
-    value?: number | string;
-  }>;
-  html_url?: string;
-};
-
-type Msg = {
-  role: "user" | "assistant";
-  content: string;
-  stats?: ChatStats;
-};
-
-type WindhoverStats = {
-  decode_tok_s?: number;
-  prefill_tok_s?: number;
-  footprint_gb?: number;
-  sparsity_pct?: number;
-  bytes_per_tok?: number;
-  au_hit_pct?: number;
-  forwards?: number;
-};
-
-type ChatStats = {
-  rss_mb?: number;
-  latency_ms?: number;
-  tokens_per_sec?: number;
-  completion_tokens?: number;
-  backend?: string;
-  selected_model?: string;
-  preview_model?: string;
-  family?: string;
-  windhover?: WindhoverStats;
-  engine_active?: boolean;
-  engine_error?: string;
-  fallback_from?: string;
-};
-
-type PullProgress = {
-  id: string;
-  pct: number;
-  message: string;
-  bytes?: number;
-};
-
-type AgentStep = {
-  step: number;
-  assistant?: string;
-  tool_calls?: Array<Record<string, unknown>>;
-  tool_results?: Array<Record<string, unknown>>;
-  stats?: ChatStats;
-  done?: boolean;
-};
+import type { AgentStep, ChatStats, EngineState, HfModelInfo, Msg, PullProgress } from "./types";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("agent");
@@ -864,7 +790,7 @@ export function App() {
           : engineOk
             ? "Windhover API online · windhover-engine ready"
             : "Checking…";
-  const engineState =
+  const engineState: EngineState =
     engineOk === false
       ? "off"
       : enginePresent === false || lastStats?.engine_active === false
@@ -884,6 +810,7 @@ export function App() {
 
   const modelSelect = (
     <select
+      className="model-select"
       value={activeModel}
       onChange={(e) => {
         setActiveModel(e.target.value);
@@ -904,7 +831,7 @@ export function App() {
   );
 
   return (
-    <div className={`shell${tab === "agent" ? " has-side" : ""}`}>
+    <div className="shell">
       {confirmUninstall && typeof document !== "undefined"
         ? createPortal(
             <div className="modal-backdrop" role="dialog" aria-modal="true">
@@ -940,10 +867,7 @@ export function App() {
               aria-modal="true"
               onClick={() => setModelInfoOpen(null)}
             >
-              <div
-                className="modal modal-wide"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
                 <h2>{modelInfoOpen.name}</h2>
                 <p className="muted mono">{modelInfoOpen.hf_repo || modelInfoOpen.id}</p>
                 {modelInfoBusy ? <p className="muted">Loading Hugging Face data…</p> : null}
@@ -1010,10 +934,7 @@ export function App() {
                         </table>
                       </div>
                     ) : (
-                      <p className="muted">
-                        No published model-index benchmarks on this card yet — open Hugging Face for
-                        community evals.
-                      </p>
+                      <p className="muted">No published model-index benchmarks on this card yet.</p>
                     )}
                     {modelInfo.tags && modelInfo.tags.length ? (
                       <div className="tag-row">
@@ -1040,7 +961,7 @@ export function App() {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Open on Hugging Face
+                      Hugging Face
                     </a>
                   ) : null}
                 </div>
@@ -1050,71 +971,41 @@ export function App() {
           )
         : null}
 
-      <div className="shell-chrome">
-        <header className="titlebar slim">
-          <div className="traffic-spacer" aria-hidden />
-          <span className="titlebar-label">Windhover</span>
-          <div className="titlebar-end">
-            {updateInfo?.available ? (
-              <button
-                type="button"
-                className="btn update-btn"
-                disabled={updateBusy}
-                onClick={() => void applyUpdate()}
-                title={`Update to ${updateInfo.latest}`}
-              >
-                {updateBusy ? "Updating…" : `Update to ${updateInfo.latest}`}
-              </button>
-            ) : null}
-            <div className={`engine-pill compact ${engineState}`} title={engineTitle}>
-              <i className="dot" aria-hidden />
-              <strong>
-                {engineOk === false
-                  ? "Off"
-                  : enginePresent === false
-                    ? "No binary"
-                    : engineOk
-                      ? "Engine"
-                      : "…"}
-              </strong>
-            </div>
-          </div>
-        </header>
-
-        {updateInfo?.available ? (
-          <div className="update-banner" role="status">
-            <strong>Update available</strong>
-            <span>
-              Windhover {updateInfo.latest} is ready
-              {updateInfo.current ? ` (you have ${updateInfo.current})` : ""}. One click installs and
-              restarts — no uninstall.
-            </span>
+      <header className="titlebar">
+        <div className="traffic-spacer" aria-hidden />
+        <span className="titlebar-label">Windhover</span>
+        <div className="titlebar-end">
+          {updateInfo?.available ? (
             <button
               type="button"
-              className="btn primary"
+              className="btn update-btn"
               disabled={updateBusy}
               onClick={() => void applyUpdate()}
+              title={`Update to ${updateInfo.latest}`}
             >
-              {updateBusy ? "Updating…" : "Update now"}
+              {updateBusy ? "Updating…" : `Update to ${updateInfo.latest}`}
             </button>
-            {updateInfo.html_url ? (
-              <a className="btn ghost" href={updateInfo.html_url} target="_blank" rel="noreferrer">
-                Release notes
-              </a>
-            ) : null}
-            {updateMsg ? <span className="update-msg">{updateMsg}</span> : null}
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+          <span className={`status-dot ${engineState}`} title={engineTitle} />
+        </div>
+      </header>
+
+      {updateInfo?.available ? (
+        <div className="update-banner" role="status">
+          <span>
+            Windhover {updateInfo.latest} is ready
+            {updateInfo.current ? ` · you have ${updateInfo.current}` : ""}.
+          </span>
+          <button type="button" className="btn primary" disabled={updateBusy} onClick={() => void applyUpdate()}>
+            {updateBusy ? "Updating…" : "Update"}
+          </button>
+          {updateMsg ? <span className="update-msg">{updateMsg}</span> : null}
+        </div>
+      ) : null}
 
       <div className="app-frame">
         <nav className="rail" aria-label="Primary">
-          <button
-            type="button"
-            className="rail-brand"
-            title="Windhover"
-            onClick={() => setTab("agent")}
-          >
+          <button type="button" className="rail-brand" title="Windhover" onClick={() => setTab("agent")}>
             <img src="./windhover-icon.png" alt="" width={28} height={28} />
           </button>
           {(
@@ -1122,7 +1013,7 @@ export function App() {
               { id: "agent" as Tab, label: "Agent" },
               { id: "chat" as Tab, label: "Chat" },
               { id: "library" as Tab, label: "Library" },
-              { id: "advanced" as Tab, label: "Advanced" },
+              { id: "advanced" as Tab, label: "Settings" },
             ] as const
           ).map((item) => (
             <button
@@ -1143,777 +1034,119 @@ export function App() {
           </div>
         </nav>
 
-        {tab === "agent" ? (
-          <aside className="side-panel" aria-label="Workspace">
-            <div className="side-head">
-              <strong>Workspace</strong>
-              <span className="muted">{workspaceReady ? "Ready" : "Pick a folder"}</span>
-            </div>
-            <div className="side-workspace">
-              <label className="workspace-field">
-                <span>Folder</span>
-                <input
-                  value={workspace}
-                  onChange={(e) => {
-                    setWorkspace(e.target.value);
-                    setWorkspaceReady(false);
-                  }}
-                  placeholder="/path/to/project"
-                  disabled={agentBusy || pickingFolder}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void applyWorkspace();
-                    }
-                  }}
-                />
-              </label>
-              <div className="side-actions">
-                <button
-                  type="button"
-                  className="btn ghost"
-                  disabled={agentBusy || pickingFolder}
-                  onClick={() => void browseWorkspace()}
-                >
-                  {pickingFolder ? "…" : "Browse"}
-                </button>
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={agentBusy || pickingFolder}
-                  onClick={() => void applyWorkspace()}
-                >
-                  Use
-                </button>
-              </div>
-            </div>
-            {agentStatus ? <p className="side-status">{agentStatus}</p> : null}
-            <div className="side-tree" aria-label="Workspace files">
-              <strong>Files</strong>
-              {!workspaceReady ? (
-                <p className="muted">Browse or enter a path, then Use</p>
-              ) : tree.length === 0 ? (
-                <p className="muted">Folder is empty</p>
-              ) : (
-                <ul>
-                  {tree.map((e) => (
-                    <li key={e.path} className={e.type === "dir" ? "dir" : "file"}>
-                      {e.type === "dir" ? "▸ " : ""}
-                      {e.name}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </aside>
-        ) : null}
+        <AppSidebar
+          tab={tab}
+          chatCapable={chatCapable}
+          activeModel={activeModel}
+          onSelectModel={(id) => {
+            setActiveModel(id);
+            if (tab === "chat") setMessages([]);
+          }}
+          onNewChat={() => {
+            setMessages([]);
+            setInput("");
+          }}
+          engineTitle={engineTitle}
+          engineState={engineState}
+          lastStats={lastStats}
+          rssMb={Number(stats?.rss_mb ?? lastStats?.rss_mb ?? 0)}
+          workspace={workspace}
+          onWorkspaceChange={(value) => {
+            setWorkspace(value);
+            setWorkspaceReady(false);
+          }}
+          workspaceReady={workspaceReady}
+          agentBusy={agentBusy}
+          pickingFolder={pickingFolder}
+          onBrowseWorkspace={() => void browseWorkspace()}
+          onApplyWorkspace={() => void applyWorkspace()}
+          agentStatus={agentStatus}
+          tree={tree}
+          query={query}
+          onQueryChange={setQuery}
+          family={family}
+          onFamilyChange={setFamily}
+          catalogCount={filtered.length}
+          ollamaCount={filteredOllama.length}
+          appVersion={appVersion || updateInfo?.current || ""}
+        />
 
         <main className={`work-main tab-${tab}`}>
-        {tab === "library" ? (
-          <div className="library-scroll">
-            <section className="library-intro">
-              <h1>Library</h1>
-              <p className="lead">
-                Install real Hugging Face models. Chat and Agent stay on your machine — no fake stand-ins.
-              </p>
-              <div className="hero-cta">
-                <button
-                  type="button"
-                  className="btn primary"
-                  onClick={() => {
-                    const small = catalog.find((m) => isMacSmall(m));
-                    if (small) void pull(small);
-                    else setFamily("mac");
-                  }}
-                >
-                  Install a Mac 16GB model
-                </button>
-                <button
-                  type="button"
-                  className="btn ghost"
-                  onClick={() => setTab("chat")}
-                  disabled={!chatCapable.length}
-                >
-                  Open chat
-                </button>
-              </div>
-            </section>
+          {tab === "library" ? (
+            <LibraryView
+              status={status}
+              progress={progress}
+              family={family}
+              filtered={filtered}
+              filteredOllama={filteredOllama}
+              installed={installed}
+              busy={busy}
+              onOpenInfo={(m) => void openModelInfo(m)}
+              onPull={(m, weights) => void pull(m, weights)}
+              onUninstall={(id, name, path) => void uninstall(id, name, path)}
+              onOpenChat={(id) => void openChat(id)}
+              onUseInAgent={(id) => {
+                setActiveModel(id);
+                setTab("agent");
+              }}
+            />
+          ) : null}
 
-            <section className="library">
-              <div className="toolbar">
-                <div className="families" role="tablist" aria-label="Model families">
-                  {FAMILIES.map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={family === f.id}
-                      className={family === f.id ? "active" : ""}
-                      onClick={() => setFamily(f.id)}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-                <label className="search">
-                  <span className="sr">Search</span>
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search Qwen, Kimi, GLM…"
-                  />
-                </label>
-              </div>
+          {tab === "chat" ? (
+            <ChatView
+              messages={messages}
+              sending={sending}
+              input={input}
+              onInput={setInput}
+              onSend={() => void send()}
+              onStop={stopChat}
+              chatCapable={chatCapable.length > 0}
+              modelSelect={modelSelect}
+              threadRef={threadRef}
+              emptyHint={
+                activeMeta
+                  ? `${activeMeta.name || activeMeta.id}${isOllamaModel(activeMeta) ? " · Ollama" : ""}`
+                  : "Install a model from Library, or start Ollama."
+              }
+              banner={messages.length || sending ? engineInactiveBanner : null}
+            />
+          ) : null}
 
-              {status ? (
-                <p className="status">{status}</p>
-              ) : (
-                <p className="status muted">
-                  {family === "ollama"
-                    ? `${filteredOllama.length} Ollama model${filteredOllama.length === 1 ? "" : "s"}`
-                    : `${filtered.length} catalog · ${filteredOllama.length} Ollama`}
-                </p>
-              )}
-              {progress ? (
-                <div className="progress global-progress" aria-live="polite">
-                  <div className="progress-track">
-                    <div className="progress-fill" style={{ width: `${Math.max(2, Math.min(100, progress.pct))}%` }} />
-                  </div>
-                  <div className="progress-meta">
-                    <span>{Math.round(progress.pct)}%</span>
-                    <span>{progress.message}</span>
-                  </div>
-                </div>
-              ) : null}
+          {tab === "agent" ? (
+            <AgentView
+              agentSteps={agentSteps}
+              agentBusy={agentBusy}
+              agentPrompt={agentPrompt}
+              agentInput={agentInput}
+              onInput={setAgentInput}
+              onRun={() => void runAgent()}
+              chatCapable={chatCapable.length > 0}
+              modelSelect={modelSelect}
+              workspaceReady={workspaceReady}
+              agentPhase={agentPhase}
+              agentStatus={agentStatus}
+              agentSummary={agentSummary}
+            />
+          ) : null}
 
-              {filteredOllama.length ? (
-                <div className="ollama-block">
-                  <div className="ollama-head">
-                    <h2 className="ollama-title">Ollama (already on this machine)</h2>
-                    <p className="ollama-note">
-                      These run through your local Ollama server — not windhover-engine. No re-download.
-                    </p>
-                  </div>
-                  <ul className="model-list">
-                    {filteredOllama.map((m, idx) => (
-                      <li
-                        key={m.id}
-                        className="model-row status-ollama"
-                        style={{ animationDelay: `${Math.min(idx, 12) * 40}ms` }}
-                      >
-                        <div className="model-main">
-                          <div className="model-title">
-                            <h2>{(m.name || m.id).replace(/^ollama\//, "")}</h2>
-                            <span className="badge ollama">Ollama</span>
-                          </div>
-                          <p>{m.description || "Preinstalled via Ollama"}</p>
-                          <div className="meta">
-                            <span>OLLAMA</span>
-                            {m.size_bytes ? <span>{(m.size_bytes / 1e9).toFixed(1)} GB</span> : null}
-                            <span>chat ready</span>
-                          </div>
-                        </div>
-                        <div className="model-actions">
-                          <button
-                            type="button"
-                            className="btn primary"
-                            onClick={() => {
-                              setActiveModel(m.id);
-                              setTab("chat");
-                            }}
-                          >
-                            Use in Chat
-                          </button>
-                          <button
-                            type="button"
-                            className="btn ghost"
-                            onClick={() => {
-                              setActiveModel(m.id);
-                              setTab("agent");
-                            }}
-                          >
-                            Use in Agent
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : family === "ollama" ? (
-                <p className="status muted">
-                  No Ollama models detected. Start Ollama (<code>ollama serve</code>) and pull a model
-                  (<code>ollama pull …</code>), then refresh.
-                </p>
-              ) : null}
-
-              {family !== "ollama" ? (
-              <ul className="model-list">
-                {filtered.map((m, idx) => {
-                  const got = !!matchInstalled(installed, m.id);
-                  const inst = matchInstalled(installed, m.id);
-                  const badge = statusBadge(m);
-                  const impostor = !!inst?.impostor && !inst?.incomplete;
-                  const incomplete = !!inst?.incomplete;
-                  const rowProgress = progress?.id === m.id ? progress : null;
-                  const isBusy = busy === m.id;
-                  const downloading = !!rowProgress || (isBusy && !!progress && progress.id === m.id);
-                  return (
-                    <li
-                      key={m.id}
-                      className={`model-row status-${badge.cls}${isBusy ? " is-busy" : ""}`}
-                      style={{ animationDelay: `${Math.min(idx, 12) * 40}ms` }}
-                    >
-                      <div className="model-main">
-                        <div className="model-title">
-                          <h2>{m.name}</h2>
-                          <span className={`badge ${badge.cls}`}>{badge.label}</span>
-                          {impostor ? <span className="badge bad">Fake stub — remove</span> : null}
-                          {incomplete && !downloading ? (
-                            <span className="badge bad">Incomplete — reinstall</span>
-                          ) : null}
-                          {got && inst?.needs_prepare && !downloading && !incomplete ? (
-                            <span className="badge download">Needs engine prepare</span>
-                          ) : null}
-                          {downloading ? <span className="badge ready">Downloading</span> : null}
-                        </div>
-                        <p>{m.description}</p>
-                        <div className="meta">
-                          <span>{(m.family || "other").toUpperCase()}</span>
-                          <span>~{m.size_gb} GB</span>
-                          {m.ram_gb ? <span>~{m.ram_gb}+ GB RAM</span> : null}
-                          {m.license ? <span>{m.license}</span> : null}
-                        </div>
-                        {rowProgress ? (
-                          <div className="progress" aria-live="polite">
-                            <div className="progress-track">
-                              <div
-                                className="progress-fill"
-                                style={{ width: `${Math.max(2, Math.min(100, rowProgress.pct))}%` }}
-                              />
-                            </div>
-                            <div className="progress-meta">
-                              <span>{Math.round(rowProgress.pct)}%</span>
-                              <span>{rowProgress.message}</span>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="model-actions">
-                        <button
-                          type="button"
-                          className="btn ghost"
-                          onClick={() => void openModelInfo(m)}
-                          title="Hugging Face details & benchmarks"
-                        >
-                          More info
-                        </button>
-                        {downloading ? (
-                          <button type="button" className="btn primary" disabled>
-                            {`Downloading… ${Math.round(rowProgress?.pct || 0)}%`}
-                          </button>
-                        ) : impostor ? (
-                          <button
-                            type="button"
-                            className="btn ghost danger"
-                            disabled={isBusy}
-                            onClick={() => void uninstall(m.id, m.name, inst?.path ?? undefined)}
-                          >
-                            {isBusy ? "Removing…" : "Remove fake"}
-                          </button>
-                        ) : incomplete || !got ? (
-                          <button
-                            type="button"
-                            className="btn primary"
-                            disabled={isBusy || !!progress || m.status === "soon" || m.chat === "blocked"}
-                            onClick={() => void pull(m, true)}
-                          >
-                            {m.status === "soon" || m.chat === "blocked"
-                              ? "Not supported yet"
-                              : incomplete
-                              ? `Reinstall (~${m.size_gb} GB)`
-                              : isMacSmall(m)
-                                ? `Install (~${m.size_gb} GB)`
-                                : m.status === "download"
-                                  ? "Download weights"
-                                  : "Install"}
-                          </button>
-                        ) : (
-                          <>
-                            {inst?.chat_ok ? (
-                              <button type="button" className="btn primary" onClick={() => void openChat(m.id)}>
-                                Chat
-                              </button>
-                            ) : (
-                              <button type="button" className="btn ghost" disabled>
-                                No chat yet
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="btn ghost danger"
-                              disabled={isBusy}
-                              onClick={() => void uninstall(m.id, m.name, inst?.path ?? undefined)}
-                            >
-                              {isBusy ? "Removing…" : "Uninstall"}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-              ) : null}
-            </section>
-          </div>
-        ) : null}
-
-        {tab === "chat" ? (
-          <section className="work-pane chat-work">
-            <header className="session-bar">
-              <div className="session-title">
-                <h1>Chat</h1>
-                <p>
-                  {activeMeta
-                    ? `${activeMeta.name || activeMeta.id}${
-                        isOllamaModel(activeMeta)
-                          ? " · Ollama"
-                          : activeMeta.chat_mode === "preview"
-                            ? " · transformers"
-                            : ""
-                      }`
-                    : "Install a model from Library, or start Ollama"}
-                </p>
-              </div>
-              <div className="live-stats" aria-live="polite" title="Live process + last reply">
-                <span className={`live-pill ${engineState || "idle"}`}>
-                  <i className="dot" aria-hidden />
-                  {engineOk === false
-                    ? "Offline"
-                    : enginePresent === false
-                      ? "No binary"
-                      : lastStats?.engine_active === false
-                        ? "Inactive"
-                        : engineOk
-                          ? "Engine"
-                          : "…"}
-                </span>
-                <span className="live-pill">
-                  <em>RAM</em>
-                  {Number(stats?.rss_mb ?? lastStats?.rss_mb ?? 0).toFixed(0)}
-                  <small>MB</small>
-                </span>
-                <span className="live-pill">
-                  <em>Last</em>
-                  {lastStats?.tokens_per_sec != null ? (
-                    <>
-                      {lastStats.tokens_per_sec}
-                      <small>tok/s</small>
-                    </>
-                  ) : (
-                    <>—</>
-                  )}
-                </span>
-                <span className="live-pill">
-                  <em>Latency</em>
-                  {lastStats?.latency_ms != null ? (
-                    <>
-                      {lastStats.latency_ms}
-                      <small>ms</small>
-                    </>
-                  ) : (
-                    <>—</>
-                  )}
-                </span>
-                {lastStats?.backend || sending ? (
-                  <span className="live-pill muted-pill">
-                    {sending ? "Generating…" : lastStats?.backend}
-                  </span>
-                ) : null}
-              </div>
-            </header>
-            {engineInactiveBanner && tab === "chat" ? (
-              <div className="engine-banner" role="alert">
-                <strong>Engine inactive</strong>
-                <span>{engineInactiveBanner}</span>
-              </div>
-            ) : null}
-            <div className="thread work-scroll" ref={threadRef}>
-              {messages.length === 0 && !sending ? (
-                <div className="empty">
-                  <strong>Ask locally.</strong>
-                  <span>
-                    Only real installs appear here. Large catalog models require a full download —
-                    they never silently use another model.
-                  </span>
-                </div>
-              ) : (
-                <>
-                  {messages.map((m, i) => (
-                    <div className={`bubble ${m.role}`} key={i}>
-                      {m.role === "assistant" ? (
-                        <div className="md">
-                          <MarkdownBody text={m.content} />
-                        </div>
-                      ) : (
-                        m.content
-                      )}
-                      {m.role === "assistant" && m.stats?.tokens_per_sec ? (
-                        <div className="bubble-meta">
-                          {m.stats.tokens_per_sec} tok/s · {m.stats.latency_ms} ms
-                          {m.stats.rss_mb ? ` · ${m.stats.rss_mb} MB RSS` : ""}
-                          {m.stats.backend ? ` · ${m.stats.backend}` : ""}
-                          {m.stats.preview_model ? ` · ${m.stats.preview_model}` : ""}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                  {sending && messages[messages.length - 1]?.role !== "assistant" ? (
-                    <div className="bubble assistant thinking" aria-live="polite">
-                      <span className="think-dots">
-                        <i />
-                        <i />
-                        <i />
-                      </span>
-                      {activeMeta?.name || activeMeta?.id || "Model"} is thinking…
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
-            <div className="composer-dock">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Message Windhover…"
-                rows={2}
-                disabled={sending}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-              />
-              <div className="composer-footer">
-                <label className="model-inline">
-                  <span className="sr">Model</span>
-                  {modelSelect}
-                </label>
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={!chatCapable.length || (!sending && !input.trim())}
-                  onClick={() => (sending ? stopChat() : void send())}
-                >
-                  {sending ? "Stop" : "Send"}
-                </button>
-              </div>
-            </div>
-          </section>
-        ) : null}
-
-        {tab === "agent" ? (
-          <section className="work-pane agent-work">
-            <header className="session-bar">
-              <div className="session-title">
-                <h1>Agent</h1>
-                <p>
-                  {workspaceReady
-                    ? workspace
-                    : "Local LLM edits a folder you pick — list / read / write under that root only"}
-                </p>
-              </div>
-            </header>
-
-            <div className="agent-thread work-scroll">
-              {agentSteps.length === 0 && !agentBusy && !agentPrompt ? (
-                <div className="empty">
-                  <strong>Ask the agent to change code.</strong>
-                  <span>
-                    Pick a folder in the sidebar and a capable model, then describe the edit.
-                    Replies stay on-device.
-                  </span>
-                </div>
-              ) : (
-                <div className="agent-transcript">
-                  {agentPrompt ? (
-                    <div className="agent-user">
-                      <span className="agent-role">You</span>
-                      <p>{agentPrompt}</p>
-                    </div>
-                  ) : null}
-
-                  {agentSteps.map((s) => {
-                    const results = (s.tool_results || []) as AgentToolResult[];
-                    const group = toolActivityGroup(results);
-                    const hasTools = results.length > 0 || (s.tool_calls || []).length > 0;
-                    const reply = agentVisibleReply(s.assistant || "", hasTools);
-                    return (
-                      <div className="agent-turn" key={s.step}>
-                        {results.length ? (
-                          <details className="agent-activity">
-                            <summary>
-                              {group || `${results.length} tool call${results.length === 1 ? "" : "s"}`}
-                            </summary>
-                            <ul>
-                              {results.map((tr, i) => (
-                                <li key={i} className={tr.ok === false ? "bad" : undefined}>
-                                  {toolActivityLabel(tr)}
-                                  {tr.ok === false && tr.error ? (
-                                    <span className="agent-activity-err"> — {String(tr.error)}</span>
-                                  ) : null}
-                                </li>
-                              ))}
-                            </ul>
-                          </details>
-                        ) : null}
-                        {reply ? (
-                          <div className="agent-reply md">
-                            <MarkdownBody text={reply} />
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-
-                  {agentBusy ? (
-                    <div className="agent-thinking" aria-live="polite">
-                      <span className="think-dots">
-                        <i />
-                        <i />
-                        <i />
-                      </span>
-                      <div className="agent-working">
-                        <strong>{agentPhase === "tool" ? "Working in your files" : "Working"}</strong>
-                        <span>{agentStatus || "Starting…"}</span>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {agentSummary && !agentBusy ? (
-                    <p className="agent-footer muted">{agentSummary}</p>
-                  ) : null}
-                </div>
-              )}
-            </div>
-
-            <div className="composer-dock">
-              <textarea
-                value={agentInput}
-                onChange={(e) => setAgentInput(e.target.value)}
-                placeholder="Ask the agent to explore or edit files…"
-                rows={3}
-                disabled={agentBusy}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void runAgent();
-                  }
-                }}
-              />
-              <div className="composer-footer">
-                <label className="model-inline">
-                  <span className="sr">Model</span>
-                  {modelSelect}
-                </label>
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={agentBusy || !chatCapable.length}
-                  onClick={() => void runAgent()}
-                >
-                  {agentBusy ? "…" : "Run"}
-                </button>
-              </div>
-            </div>
-          </section>
-        ) : null}
-
-        {tab === "advanced" ? (
-          <section className="advanced-pane library-scroll">
-            <header className="session-bar">
-              <div className="session-title">
-                <h1>Advanced</h1>
-                <p>Live telemetry — no fake model routing</p>
-              </div>
-              <div className="session-actions">
-                <button type="button" className="btn ghost" onClick={() => void refresh()}>
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  className="btn ghost"
-                  disabled={updateBusy}
-                  onClick={() => void checkForUpdate(true)}
-                >
-                  Check for updates
-                </button>
-              </div>
-            </header>
-
-            <div className="adv-block update-block">
-              <h2>App updates</h2>
-              <p className="muted">
-                Current version: <code>{appVersion || updateInfo?.current || "…"}</code>
-                {updateInfo?.latest ? (
-                  <>
-                    {" "}
-                    · Latest: <code>{updateInfo.latest}</code>
-                  </>
-                ) : null}
-              </p>
-              {updateInfo?.available ? (
-                <p>
-                  A newer build is available. Click Update now — Windhover downloads, installs
-                  silently, and restarts on the new version.
-                </p>
-              ) : (
-                <p className="muted">{updateMsg || "You're up to date (checked against GitHub Releases)."}</p>
-              )}
-              <div className="modal-actions" style={{ marginTop: "0.75rem" }}>
-                {updateInfo?.available ? (
-                  <button
-                    type="button"
-                    className="btn primary"
-                    disabled={updateBusy}
-                    onClick={() => void applyUpdate()}
-                  >
-                    {updateBusy ? "Updating…" : "Update now"}
-                  </button>
-                ) : null}
-                {updateInfo?.html_url ? (
-                  <a className="btn ghost" href={updateInfo.html_url} target="_blank" rel="noreferrer">
-                    Open releases
-                  </a>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="metrics-grid">
-              <div className={`metric engine-status-metric ${engineOk && enginePresent !== false ? "on" : "off"}`}>
-                <span className="metric-label">Windhover engine</span>
-                <strong className="metric-value">
-                  {engineOk === false ? "Off" : enginePresent === false ? "No binary" : engineOk ? "On" : "…"}
-                </strong>
-                <span className="metric-sub">
-                  {engineOk === false
-                    ? "API unreachable — run ./windhover app"
-                    : enginePresent === false
-                      ? "Build with ./windhover build"
-                      : "API + windhover-engine ready"}
-                </span>
-              </div>
-              <div className="metric">
-                <span className="metric-label">Process RSS</span>
-                <strong className="metric-value">
-                  {Number(lastStats?.rss_mb ?? stats?.rss_mb ?? 0).toFixed(1)}
-                  <small> MB</small>
-                </strong>
-              </div>
-              <div className="metric">
-                <span className="metric-label">Last latency</span>
-                <strong className="metric-value">
-                  {lastStats?.latency_ms ?? "—"}
-                  <small> ms</small>
-                </strong>
-              </div>
-              <div className="metric">
-                <span className="metric-label">Output speed</span>
-                <strong className="metric-value">
-                  {lastStats?.tokens_per_sec ?? "—"}
-                  <small> tok/s</small>
-                </strong>
-              </div>
-            </div>
-
-            <div className="adv-block">
-              <h2>Routing</h2>
-              <dl className="kv">
-                <div>
-                  <dt>Selected model</dt>
-                  <dd>{lastStats?.selected_model || activeModel || "—"}</dd>
-                </div>
-                <div>
-                  <dt>Backend</dt>
-                  <dd>{lastStats?.backend || "—"}</dd>
-                </div>
-                <div>
-                  <dt>Chat weights</dt>
-                  <dd>{lastStats?.preview_model || stats?.chat_preview || "windhover-engine SNAP"}</dd>
-                </div>
-                <div>
-                  <dt>Engine binary</dt>
-                  <dd className="mono">{stats?.engine || "—"}</dd>
-                </div>
-                <div>
-                  <dt>Chat-capable installs</dt>
-                  <dd>{chatCapable.length}</dd>
-                </div>
-              </dl>
-            </div>
-
-            {lastStats?.windhover ? (
-              <div className="adv-block">
-                <h2>Windhover</h2>
-                <dl className="kv">
-                  <div>
-                    <dt>Decode</dt>
-                    <dd>
-                      {lastStats.windhover.decode_tok_s != null
-                        ? `${lastStats.windhover.decode_tok_s} tok/s`
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Prefill</dt>
-                    <dd>
-                      {lastStats.windhover.prefill_tok_s != null
-                        ? `${lastStats.windhover.prefill_tok_s} tok/s`
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Working-set footprint</dt>
-                    <dd>
-                      {lastStats.windhover.footprint_gb != null
-                        ? `${lastStats.windhover.footprint_gb} GB`
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>FFN sparsity</dt>
-                    <dd>
-                      {lastStats.windhover.sparsity_pct != null
-                        ? `${lastStats.windhover.sparsity_pct}%`
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Bytes / token</dt>
-                    <dd>
-                      {lastStats.windhover.bytes_per_tok != null
-                        ? `${(lastStats.windhover.bytes_per_tok / 1e9).toFixed(2)} GB`
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>AU hot hit</dt>
-                    <dd>
-                      {lastStats.windhover.au_hit_pct != null
-                        ? `${lastStats.windhover.au_hit_pct}%`
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Forwards</dt>
-                    <dd>{lastStats.windhover.forwards ?? "—"}</dd>
-                  </div>
-                </dl>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
+          {tab === "advanced" ? (
+            <AdvancedView
+              appVersion={appVersion}
+              updateInfo={updateInfo}
+              updateMsg={updateMsg}
+              updateBusy={updateBusy}
+              onCheckUpdate={() => void checkForUpdate(true)}
+              onApplyUpdate={() => void applyUpdate()}
+              onRefresh={() => void refresh()}
+              engineOk={engineOk}
+              enginePresent={enginePresent}
+              engineState={engineState}
+              lastStats={lastStats}
+              stats={stats}
+              activeModel={activeModel}
+              chatCapableCount={chatCapable.length}
+            />
+          ) : null}
         </main>
       </div>
     </div>

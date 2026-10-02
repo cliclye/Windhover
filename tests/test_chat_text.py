@@ -54,6 +54,10 @@ class ChatTextTests(unittest.TestCase):
 
     def test_code_fence_after_greeting(self):
         raw = "Hello! How can I help you?\n\n```python\nprint(1)\n```"
+        self.assertEqual(clean_chat_text(raw), raw)
+
+    def test_smash_fence_after_greeting(self):
+        raw = "Hello! How can I help you?\n\n```\ni23ruehf903hf3nflsdkjf;laksjdf\n```"
         self.assertEqual(clean_chat_text(raw), "Hello! How can I help you?")
 
 

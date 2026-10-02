@@ -517,6 +517,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .page-actions {
   margin-left: auto;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
 }
 
@@ -661,6 +662,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .badge.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
+.badge.mac { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
 .status { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.85rem; }
 .status-err { color: var(--bad); }
 
@@ -694,6 +696,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .empty span { font-size: 0.88rem; line-height: 1.45; }
+
+.empty .btn {
+  margin-top: 0.75rem;
+  align-self: center;
+}
 
 .bubble {
   max-width: min(720px, 100%);

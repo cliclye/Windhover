@@ -22,6 +22,7 @@ export function AgentView({
   agentPhase,
   agentStatus,
   agentSummary,
+  onOpenLibrary,
 }: {
   agentSteps: AgentStep[];
   agentBusy: boolean;
@@ -35,6 +36,7 @@ export function AgentView({
   agentPhase: string;
   agentStatus: string;
   agentSummary: string;
+  onOpenLibrary: () => void;
 }) {
   return (
     <section className="work-pane agent-work">
@@ -43,10 +45,17 @@ export function AgentView({
           <div className="empty">
             <strong>What should we change?</strong>
             <span>
-              {workspaceReady
-                ? "Describe an edit. The model only touches the folder you picked."
-                : "Pick a workspace folder, then describe the edit."}
+              {!chatCapable
+                ? "Install a chat-capable model from Library first (or start Ollama), then pick a folder."
+                : workspaceReady
+                  ? "Describe an edit. The model only touches the folder you picked."
+                  : "Pick a workspace folder, then describe the edit."}
             </span>
+            {!chatCapable ? (
+              <button type="button" className="btn primary" onClick={onOpenLibrary}>
+                Open Library
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="agent-transcript">

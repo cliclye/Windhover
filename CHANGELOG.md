@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### App
+- **First run opens Library** (not Agent), remembers the last tab, and defaults the catalog filter to **16GB laptop**.
+- **Windows/Mac copy:** badges and errors say 16GB laptop / this computer / desktop app — not “Mac 16GB” on Windows.
+- First-launch status says **Starting Windhover…** while the sidecar boots instead of a false “engine offline.”
+- Chat/Agent empty states send you to Library when no model is installed; first-reply copy mentions cold model load.
+- Catalog: **Qwen2.5 1.5B Instruct** and **Qwen2.5 3B Instruct** (dense, chat after download).
+- Trailing-fence cleanup no longer deletes real markdown code after a sentence (smash-fences still cut).
+- Download links and the landing page point at `cliclye/Windhover` (old Kestrel URLs still redirect).
+
+### Desktop
+- Health probe requires Windhover’s `engine_present` field so an unrelated server on `:8000` is not reused.
+
 ### Performance
 - **Warm `windhover-engine`:** Chat and Agent keep one SERVE process per loaded pack (KPK + dense). Tokens still stream; the process unloads on model switch, RAM-profile change, uninstall, or idle (~10 min). Cold mmap+init no longer runs every message.
 - **Fast / Balanced / Low-RAM profiles** actually set `RAM_GB` (AU on when capped), `MLOCK`, and `WH_SPARSE`. Default **Balanced** on advertised ≤16 GB machines, including 16 GiB Macs (`bytes/1024**3`, not `bytes/1e9`). Chat shows the cap and a profile picker.

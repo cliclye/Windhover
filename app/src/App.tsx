@@ -28,8 +28,18 @@ import type {
   RamProfileInfo,
 } from "./types";
 
+function readStoredTab(): Tab {
+  try {
+    const v = localStorage.getItem("wh.tab");
+    if (v === "library" || v === "chat" || v === "agent" || v === "advanced") return v;
+  } catch {
+    /* private mode / file:// */
+  }
+  return "library";
+}
+
 export function App() {
-  const [tab, setTab] = useState<Tab>("agent");
+  const [tab, setTab] = useState<Tab>(readStoredTab);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [installed, setInstalled] = useState<Installed[]>([]);
   const [status, setStatus] = useState("");
@@ -39,7 +49,7 @@ export function App() {
   const [sending, setSending] = useState(false);
   const [engineOk, setEngineOk] = useState<boolean | null>(null);
   const [enginePresent, setEnginePresent] = useState<boolean | null>(null);
-  const [family, setFamily] = useState<string>("all");
+  const [family, setFamily] = useState<string>("mac");
   const [query, setQuery] = useState("");
   const [activeModel, setActiveModel] = useState<string>("");
   const [stats, setStats] = useState<{
@@ -88,6 +98,7 @@ export function App() {
   const busyRef = useRef<string | null>(null);
   const progressRef = useRef<PullProgress | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
+  const bootFailRef = useRef(0);
 
   useEffect(() => {
     busyRef.current = busy;
@@ -95,6 +106,13 @@ export function App() {
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("wh.tab", tab);
+    } catch {
+      /* ignore */
+    }
+  }, [tab]);
 
   const chatCapable = useMemo(
     () => installed.filter((m) => m.chat_ok && !m.impostor),
@@ -109,6 +127,7 @@ export function App() {
   async function refresh() {
     try {
       const health = await fetch(apiUrl("/health")).then((r) => r.json());
+      bootFailRef.current = 0;
       setEngineOk(!!health?.ok);
       if (health?.version) setAppVersion(String(health.version));
       setEnginePresent(
@@ -145,12 +164,22 @@ export function App() {
     } catch {
       setEngineOk(false);
       setEnginePresent(false);
+      bootFailRef.current += 1;
+      const starting = bootFailRef.current < 12;
       try {
         const c = await fetch("./catalog.json").then((r) => r.json());
         setCatalog(c.models || []);
-        setStatus("Engine offline — open the Mac app or run ./windhover app");
+        setStatus(
+          starting
+            ? "Starting Windhover…"
+            : "Could not reach the Windhover server. Start the desktop app, or run ./windhover app"
+        );
       } catch {
-        setStatus("Start Windhover: open the Mac app, or run ./windhover app");
+        setStatus(
+          starting
+            ? "Starting Windhover…"
+            : "Start Windhover: open the desktop app, or run ./windhover app"
+        );
       }
     }
   }
@@ -233,7 +262,7 @@ export function App() {
   }, [catalog, family, query]);
 
   const filteredOllama = useMemo(() => {
-    if (family !== "all" && family !== "ollama") return [];
+    if (family !== "all" && family !== "ollama" && family !== "mac") return [];
     const q = query.trim().toLowerCase();
     return ollamaInstalled.filter((m) => {
       if (!q) return true;
@@ -254,7 +283,7 @@ export function App() {
       const ok = confirm(
         `${m.name} is ~${m.size_gb} GB from Hugging Face.\n\n` +
           `Windhover will NOT install a fake stub. Continue with a real download?\n\n` +
-          `For Mac 16GB local chat under 20GB, use the Mac 16GB filter instead.`
+          `For local chat on a 16GB laptop, use the 16GB laptop filter instead.`
       );
       if (!ok) return;
       useWeights = true;
@@ -365,7 +394,7 @@ export function App() {
   async function openChat(id: string) {
     const inst = matchInstalled(installed, id);
     if (!inst?.chat_ok) {
-      setStatus("That pack can’t chat — install a Hugging Face model from Library (Mac 16GB), or start Ollama.");
+      setStatus("That pack can’t chat — install a Hugging Face model from Library (16GB laptop), or start Ollama.");
       return;
     }
     setActiveModel(id);
@@ -823,7 +852,7 @@ export function App() {
           : "";
   const engineInactiveBanner =
     engineOk === false
-      ? "Windhover API offline — open the Mac app or run ./windhover app"
+      ? "Windhover API offline — start the desktop app, or run ./windhover app"
       : enginePresent === false
         ? "Windhover engine is not active — binary missing. Run ./windhover build, then restart."
         : lastStats?.engine_active === false
@@ -879,8 +908,8 @@ export function App() {
               <div className="modal">
                 <h2>Uninstall model?</h2>
                 <p>
-                  Remove <strong>{confirmUninstall.name}</strong> from this Mac? This deletes local
-                  files under <code>~/.windhover/models</code>.
+                  Remove <strong>{confirmUninstall.name}</strong> from this computer? This deletes local
+                  files in the Windhover models folder (<code>~/.windhover/models</code>).
                 </p>
                 <div className="modal-actions">
                   <button type="button" className="btn ghost" onClick={() => setConfirmUninstall(null)}>
@@ -1046,14 +1075,19 @@ export function App() {
 
       <div className="app-frame">
         <nav className="rail" aria-label="Primary">
-          <button type="button" className="rail-brand" title="Windhover" onClick={() => setTab("agent")}>
+          <button
+            type="button"
+            className="rail-brand"
+            title="Windhover"
+            onClick={() => setTab(chatCapable.length ? "chat" : "library")}
+          >
             <img src="./windhover-icon.png" alt="" width={28} height={28} />
           </button>
           {(
             [
-              { id: "agent" as Tab, label: "Agent" },
-              { id: "chat" as Tab, label: "Chat" },
               { id: "library" as Tab, label: "Library" },
+              { id: "chat" as Tab, label: "Chat" },
+              { id: "agent" as Tab, label: "Agent" },
               { id: "advanced" as Tab, label: "Settings" },
             ] as const
           ).map((item) => (
@@ -1123,6 +1157,15 @@ export function App() {
               filteredOllama={filteredOllama}
               installed={installed}
               busy={busy}
+              chatReady={chatCapable.length > 0}
+              onInstallLaptop={() => {
+                const small =
+                  catalog.find((m) => m.id === "Qwen/Qwen2.5-3B-Instruct" && isMacSmall(m)) ||
+                  catalog.find((m) => isMacSmall(m));
+                if (small) void pull(small);
+                else setFamily("mac");
+              }}
+              onOpenChatTab={() => setTab("chat")}
               onOpenInfo={(m) => void openModelInfo(m)}
               onPull={(m, weights) => void pull(m, weights)}
               onUninstall={(id, name, path) => void uninstall(id, name, path)}
@@ -1146,10 +1189,13 @@ export function App() {
               modelSelect={modelSelect}
               threadRef={threadRef}
               emptyHint={
-                activeMeta
-                  ? `${activeMeta.name || activeMeta.id}${isOllamaModel(activeMeta) ? " · Ollama" : ""}`
-                  : "Install a model from Library, or start Ollama."
+                chatCapable.length
+                  ? activeMeta
+                    ? `${activeMeta.name || activeMeta.id}${isOllamaModel(activeMeta) ? " · Ollama" : ""}. First reply loads the model.`
+                    : "Ask locally."
+                  : "Install a 16GB laptop pack from Library, or start Ollama."
               }
+              onOpenLibrary={() => setTab("library")}
               banner={messages.length || sending ? engineInactiveBanner : null}
             />
           ) : null}
@@ -1168,6 +1214,7 @@ export function App() {
               agentPhase={agentPhase}
               agentStatus={agentStatus}
               agentSummary={agentSummary}
+              onOpenLibrary={() => setTab("library")}
             />
           ) : null}
 

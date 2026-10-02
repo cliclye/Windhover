@@ -14,6 +14,7 @@ export function ChatView({
   modelSelect,
   threadRef,
   emptyHint,
+  onOpenLibrary,
   banner,
 }: {
   messages: Msg[];
@@ -26,6 +27,7 @@ export function ChatView({
   modelSelect: ReactNode;
   threadRef: Ref<HTMLDivElement>;
   emptyHint: string;
+  onOpenLibrary: () => void;
   banner: string | null;
 }) {
   return (
@@ -38,8 +40,13 @@ export function ChatView({
       <div className="thread work-scroll" ref={threadRef}>
         {messages.length === 0 && !sending ? (
           <div className="empty">
-            <strong>Ask anything.</strong>
+            <strong>{chatCapable ? "Ask anything." : "Install a model to chat."}</strong>
             <span>{emptyHint}</span>
+            {!chatCapable ? (
+              <button type="button" className="btn primary" onClick={onOpenLibrary}>
+                Open Library
+              </button>
+            ) : null}
           </div>
         ) : (
           <>

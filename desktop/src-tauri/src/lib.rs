@@ -34,7 +34,7 @@ fn health_ok() -> bool {
     let mut buf = [0u8; 256];
     let n = stream.read(&mut buf).unwrap_or(0);
     let body = String::from_utf8_lossy(&buf[..n]);
-    body.contains("200") && body.contains("\"ok\"")
+    body.contains("200") && body.contains("engine_present")
 }
 
 /// Candidate dirs for packaged sidecars (Tauri externalBin lives next to the exe).

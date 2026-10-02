@@ -36,10 +36,13 @@ function isGibberishChunk(s: string): boolean {
 function cutGibberishTail(text: string): string {
   if (!text || text.length < 20) return text;
   let s = text;
-  const fence = s.match(/(?<=[.!?…"')\]])\s*```[\w+-]*\n[\s\S]*$/);
+  const fence = s.match(/(?<=[.!?…"')\]])\s*```[\w+-]*\n([\s\S]*)$/);
   if (fence && fence.index != null && fence.index > 8) {
-    const head = s.slice(0, fence.index).replace(/\s+$/, "");
-    if (/[.!?…"')\]]\s*$/.test(head)) return head;
+    const body = (fence[1] || "").replace(/```/g, "").trim();
+    if (body && isGibberishChunk(body)) {
+      const head = s.slice(0, fence.index).replace(/\s+$/, "");
+      if (/[.!?…"')\]]\s*$/.test(head)) return head;
+    }
   }
   const smash = s.match(
     /(?<=[.!?…"')\]])\s+([A-Za-z0-9;'\\/_+=@#$%^&*`~|-]{14,}|(?:[A-Za-z0-9;'\\/_+=@#$%^&*`~|-]{6,}\s+){2,}[A-Za-z0-9;'\\/_+=@#$%^&*`~|-]*)\s*$/

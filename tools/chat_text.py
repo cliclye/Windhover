@@ -91,15 +91,17 @@ def cut_gibberish_tail(text: str) -> str:
     if not text or len(text) < 20:
         return text
     s = text
-    # Code fence after a short finished reply
+    # Code fence after a short finished reply — only smash insides, not real code.
     m = re.search(
-        r'(?s)(?<=[.!?…"\'\)\]])\s*```[\w+-]*\n.*\Z',
+        r'(?s)(?<=[.!?…"\'\)\]])\s*```[\w+-]*\n(.*)\Z',
         s,
     )
     if m and m.start() > 8:
-        head = s[: m.start()].rstrip()
-        if re.search(r'[.!?…"\'\)\]]\s*$', head):
-            return head
+        body = (m.group(1) or "").replace("```", "").strip()
+        if body and _is_gibberish_chunk(body):
+            head = s[: m.start()].rstrip()
+            if re.search(r'[.!?…"\'\)\]]\s*$', head):
+                return head
     # Alphanumeric smash after sentence punctuation
     m = re.search(
         r'(?s)(?<=[.!?…"\'\)\]])\s+'

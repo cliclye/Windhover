@@ -224,6 +224,13 @@ def run_tool(root: Path, call: dict[str, Any]) -> dict[str, Any]:
         if name == "list_dir":
             return {"tool": name, **list_dir(root, call.get("path") or ".")}
         if name == "read_file":
+            if not (call.get("path") or "").strip():
+                return {"tool": name, "ok": False,
+                        "error": "read_file needs a path, e.g. TOOL read_file / path: calc.py / END"}
+            target = resolve_under(root, call.get("path") or "")
+            if target.is_dir():
+                return {"tool": name, "ok": False, "path": call.get("path"),
+                        "error": f"{call.get('path')} is a directory — use list_dir to see its files"}
             return {"tool": name, **read_file(root, call.get("path") or "")}
         if name == "write_file":
             return {
@@ -269,6 +276,9 @@ def parse_tool_calls(text: str) -> list[dict[str, Any]]:
         # key: value lines; content/old/new can be multiline until next key
         cur = None
         buf: list[str] = []
+        # Qwen3.5-style XML keys: "<path>calc.py", "<path>calc.py</path>",
+        # "<parameter=path>calc.py</parameter>" -> "path: calc.py".
+        body = _xml_keys_to_colon(body)
         for line in body.splitlines():
             km = re.match(r"^([A-Za-z_]+):\s*(.*)$", line)
             if km and km.group(1).lower() in (
@@ -299,6 +309,8 @@ def parse_tool_calls(text: str) -> list[dict[str, Any]]:
         if fields.get("name"):
             calls.append(fields)
 
+    calls.extend(_native_xml_calls(text or ""))
+
     for raw in blobs:
         try:
             obj = json.loads(raw)
@@ -320,6 +332,33 @@ def parse_tool_calls(text: str) -> list[dict[str, Any]]:
                     continue
             calls.append(obj)
     return calls
+
+
+_TOOL_KEYS = ("path", "old", "new", "old_string", "new_string", "content", "summary", "message")
+
+
+def _xml_keys_to_colon(body: str) -> str:
+    """Rewrite XML-ish argument lines into the 'key: value' form the TOOL parser reads."""
+    keys = "|".join(_TOOL_KEYS)
+    body = re.sub(rf"<parameter=({keys})>\s*", r"\n\1: ", body)
+    body = re.sub(rf"(?m)^\s*<({keys})>\s*", r"\1: ", body)
+    body = re.sub(rf"</(?:{keys}|parameter)>", "", body)
+    return body
+
+
+def _native_xml_calls(text: str) -> list[dict[str, Any]]:
+    """Qwen3.5 / Qwen3-Coder native format:
+    <tool_call><function=read_file><parameter=path>calc.py</parameter></function></tool_call>"""
+    out: list[dict[str, Any]] = []
+    for m in re.finditer(r"<function=(\w+)>(.*?)(?:</function>|\Z)", text, re.DOTALL):
+        call: dict[str, Any] = {"name": m.group(1)}
+        for pm in re.finditer(r"<parameter=(\w+)>\s*(.*?)\s*(?:</parameter>|(?=<parameter=)|\Z)",
+                              m.group(2), re.DOTALL):
+            key = pm.group(1).lower()
+            key = {"old_string": "old", "new_string": "new", "message": "summary"}.get(key, key)
+            call[key] = pm.group(2)
+        out.append(call)
+    return out
 
 
 def _loose_json_tool(raw: str) -> dict[str, Any] | None:

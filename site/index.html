@@ -153,6 +153,16 @@
       .links a:hover {
         color: var(--ink);
       }
+      .shot {
+        display: block;
+        width: 100%;
+        max-width: 980px;
+        height: auto;
+        margin: 2.5rem auto 0;
+        border-radius: 14px;
+        border: 1px solid rgba(212, 165, 116, 0.25);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+      }
     </style>
   </head>
   <body>
@@ -161,9 +171,11 @@
       <p class="tag">Local LLM · macOS &amp; Windows 11</p>
       <h1>Windhover</h1>
       <p class="lead">
-        Sparse working-set inference on your machine. Library, Chat, Agent, and Advanced telemetry —
-        with a hard RAM ceiling.
+        Fast local inference with a hard RAM ceiling. Chat, Models, a folder-scoped Agent and live
+        Performance telemetry — now with 2026 models (Qwen3.5, Granite 4.2, MiniCPM5), 4× faster prompts
+        and multi-turn prefix caching.
       </p>
+      <p class="tag">v0.5.0</p>
       <div class="cta-row">
         <a
           class="cta"
@@ -198,6 +210,10 @@
           >docs/DOWNLOAD.md</a
         >.
       </div>
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="./screenshot-chat-light.png" />
+        <img class="shot" src="./screenshot-chat-dark.png" alt="Windhover chat with Qwen3.5 2B" width="1440" height="900" />
+      </picture>
       <nav class="links">
         <a href="https://github.com/cliclye/Windhover">GitHub</a>
         <a href="https://github.com/cliclye/Windhover#install">Install</a>

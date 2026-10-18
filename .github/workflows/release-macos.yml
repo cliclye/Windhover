@@ -21,9 +21,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "GitHub Release tag to upload into (e.g. v0.4.3)"
+        description: "GitHub Release tag to upload into (e.g. v0.5.0)"
         required: true
-        default: "v0.4.3"
+        default: "v0.5.0"
 
 permissions:
   contents: write
@@ -166,6 +166,13 @@ jobs:
           name: Windhover-macOS-arm64
           path: dist/Windhover-macOS-arm64.dmg
 
+      - name: Release notes from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: python packaging/release_notes.py "$RELEASE_TAG" > release-notes.md
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
@@ -174,23 +181,6 @@ jobs:
           files: dist/Windhover-macOS-arm64.dmg
           fail_on_unmatched_files: true
           make_latest: true
-          generate_release_notes: true
-          body: |
-            ## Windhover
-
-            See [CHANGELOG.md](https://github.com/cliclye/Windhover/blob/main/CHANGELOG.md).
-
-            ## Download
-
-            ### macOS
-            **[Windhover-macOS-arm64.dmg](https://github.com/cliclye/Windhover/releases/latest/download/Windhover-macOS-arm64.dmg)** — Apple Silicon · macOS 12+
-
-            ### Windows 11
-            **[Windhover-Windows-x64.exe](https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-x64.exe)** — Intel/AMD 64-bit
-            **[Windhover-Windows-arm64.exe](https://github.com/cliclye/Windhover/releases/latest/download/Windhover-Windows-arm64.exe)** — Snapdragon / ARM64
-
-            ### First launch
-            - **macOS:** if Gatekeeper says the app is **“damaged”**, run `xattr -cr /Applications/Windhover.app` (not a corrupt download — see [docs/DOWNLOAD.md](https://github.com/cliclye/Windhover/docs/DOWNLOAD.md))
-            - **Windows:** unsigned — SmartScreen may require More info → Run anyway
+          body_path: release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -176,7 +176,17 @@ export function AgentView({
                     </div>
                   </div>
                 ) : null}
-                {agentSummaryText(agentSummary) && !agentBusy ? (
+                {agentSummaryText(agentSummary) &&
+                !agentBusy &&
+                !agentSteps.some(
+                  (st) =>
+                    agentVisibleReply(st.assistant || "", false).trim() === agentSummaryText(agentSummary)
+                ) &&
+                !agentSteps.some((st) =>
+                  (st.tool_results || []).some(
+                    (r) => String((r as AgentToolResult).summary || "").trim() === agentSummary.trim()
+                  )
+                ) ? (
                   <p className="agent-summary">{agentSummaryText(agentSummary)}</p>
                 ) : null}
               </div>

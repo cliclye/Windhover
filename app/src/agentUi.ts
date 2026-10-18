@@ -4,6 +4,7 @@ export type AgentToolResult = {
   error?: string;
   path?: string;
   summary?: string;
+  note?: string;
   entries?: unknown[];
 };
 
@@ -16,6 +17,10 @@ export function agentVisibleReply(text: string, hasTools: boolean): string {
   t = t.replace(/^\s*TOOL\b.*$/gim, "");
   t = t.replace(/^\s*(?:read_file|str_replace|write_file|list_dir|finish)\b.*$/gim, "");
   t = t.replace(/^\s*END\s*$/gim, "");
+  // Qwen-style XML tool syntax: <tool_call>…</tool_call>, <function=…>…, "<path>calc.py".
+  t = t.replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/gi, "");
+  t = t.replace(/<function=\w+>[\s\S]*?(?:<\/function>|$)/gi, "");
+  t = t.replace(/^\s*<(?:path|old|new|old_string|new_string|content|summary|parameter=\w+)>.*$/gim, "");
   // Echoed tool-result JSON.
   t = t.replace(/^\s*\{\s*"(?:tool|name)"\s*:[\s\S]*?\}\s*$/gim, "");
   t = t.replace(/```(?:tool|json)\s*\n[\s\S]*?```/gi, "\n");
@@ -32,6 +37,7 @@ export function agentVisibleReply(text: string, hasTools: boolean): string {
 export function toolActivityLabel(tr: AgentToolResult): string {
   const tool = String(tr.tool || "tool");
   const path = tr.path ? String(tr.path) : "";
+  if (tr.note) return `Skipped repeat${path ? ` · ${path}` : ""}`;
   if (tr.ok === false) return `${tool} failed${path ? ` · ${path}` : ""}`;
   if (tool.includes("read")) return path ? `Read ${path}` : "Read file";
   if (tool.includes("write") || tool.includes("edit") || tool.includes("create")) {
@@ -64,7 +70,7 @@ export function toolActivityGroup(results: AgentToolResult[]): string {
 
 /** Server summaries are sometimes raw tool JSON; only show prose. */
 export function agentSummaryText(summary: string): string {
-  const t = (summary || "").trim();
+  const t = agentVisibleReply(summary || "", true).trim();
   if (!t || t.startsWith("{") || t.startsWith("[")) return "";
   return t;
 }

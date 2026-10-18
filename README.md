@@ -59,7 +59,7 @@ The ship binary is **`windhover-engine`**. The desktop app wraps Library · Chat
 
 ## Benchmarks
 
-### October 2026 engine — this release vs v0.4.3
+### v0.5.0 (October 2026) vs v0.4.3
 
 Same MacBook Air **M4 · 16 GB**, same packs, binaries interleaved run-by-run, median of 3.
 Full method, raw JSON and re-run instructions: [`docs/bench/2026-10`](docs/bench/2026-10/README.md).
@@ -253,9 +253,12 @@ Numerics lineage is Apache-2.0; see [LICENSE](LICENSE).
 
 ### Chat
 
-Saved local conversations, model + memory-profile picker in the composer, per-reply speed / prefix-cache chips.
+Saved local conversations, model + memory-profile picker in the composer, and per-reply chips for decode speed, prefix-cache reuse, prefill time and RSS (Qwen3.5 2B on a MacBook Air M4).
 
-![Windhover Chat](docs/screenshots/ui-chat.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/ui-chat-light.png" />
+  <img src="docs/screenshots/ui-chat.png" alt="Windhover Chat" />
+</picture>
 
 ### Models
 
@@ -265,7 +268,7 @@ Recommended picks for this machine's RAM, 2026 models (Qwen3.5, Granite 4.2, Min
 
 ### Agent
 
-Pick a folder; the local model lists / reads / writes under that root only.
+Pick a folder; the local model lists / reads / writes under that root only. The tool trace shows every step.
 
 ![Windhover Agent](docs/screenshots/ui-agent.png)
 

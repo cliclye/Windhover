@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## [0.5.0] — 2026-10-18
+
+### Highlights
+- **Prompts 3.6–4.3× faster** on dense models; **multi-turn chat** time-to-first-token **6–40× lower** (prefix KV cache), ~190× on Qwen3.5-2B.
+- **2026 models:** Qwen3.5 (0.8B / 2B / 4B), Granite 4.2 (3B / 8B), MiniCPM5 2B, Qwen3.8 27B — Qwen3.5 is now correct and ~10× faster to generate.
+- **Redesigned app:** saved chats, Models with fit-for-this-Mac/PC hints, a live Performance view, light/dark themes.
+- Accuracy checked against Hugging Face `transformers` on every benchmarked model — equal or better than 0.4.3. Benchmarks: [`docs/bench/2026-10`](https://github.com/cliclye/Windhover/tree/main/docs/bench/2026-10).
 
 ### Engine — faster prefill, prefix cache, new architectures
 - **Tiled int8 prefill GEMM** (`engine/runtime/prefill_gemm.h`): 4 rows × 4 tokens SDOT micro-tiles with pairwise-add reductions; int4-g64 rows are unpacked once per block instead of once per token. Prompt processing is **3.6–4.3× faster** on dense models (Qwen3-1.7B ~700-token prompt: 33 → 138 tok/s on a throttling M4 Air; see `docs/bench/2026-10`).
@@ -25,8 +31,14 @@
 - Performance: live decode/prefill/TTFT/prefix-cache/RSS/bytes-per-token telemetry with per-turn history.
 - Light/dark/system theme, keyboard shortcuts (⌘1–5, ⌘N, ⌘B), system fonts (no Google Fonts fetch), responsive down to narrow windows.
 
+### Agent
+- Tool calls in Qwen's XML style (`<path>calc.py`, `<parameter=path>…`, native `<tool_call><function=…>`) are parsed — Qwen3.5 previously failed every `read_file`.
+- The agent keeps a bounded history of tool results instead of only the last one, skips read-only calls it already made, and asks for a final answer once it starts repeating; `read_file` on a directory points to `list_dir`. Qwen3.5-2B now answers "what does calc.py do?" in 6 steps instead of looping to the step limit.
+- Tool syntax and duplicate summaries are hidden from the agent transcript.
+
 ### Tools
 - `tools/engine_ab.py` (A/B speed + logit drift), `tools/serve_bench.py` (multi-turn prefix-cache bench), `tools/hf_parity.py` (accuracy vs `transformers`), `tools/bench_suite.py` (all of the above → `docs/bench/`).
+- Release notes are generated from this changelog (`packaging/release_notes.py`); the Windows release body no longer carries stale 0.3.12 text.
 
 ### App
 - **First run opens Library** (not Agent), remembers the last tab, and defaults the catalog filter to **16GB laptop**.

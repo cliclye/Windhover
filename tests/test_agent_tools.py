@@ -38,6 +38,29 @@ class ParseToolCalls(unittest.TestCase):
         self.assertEqual(calls, [{"name": "str_replace", "path": "a.py", "old": "x = 1", "new": "x = 2"}])
 
 
+    def test_same_line_fields_and_multiple_tools(self):
+        calls = parse_tool_calls("TOOL read_file path: src/calc.py\nTOOL read_file path: tests/test_calc.py")
+        self.assertEqual(calls[0], {"name": "read_file", "path": "src/calc.py"})
+        self.assertEqual(calls[1], {"name": "read_file", "path": "tests/test_calc.py"})
+
+    def test_bare_path_and_run_command(self):
+        self.assertEqual(parse_tool_calls("TOOL read_file calc.py"), [{"name": "read_file", "path": "calc.py"}])
+        self.assertEqual(parse_tool_calls("TOOL run command: python3 -m pytest -q"),
+                         [{"name": "run", "command": "python3 -m pytest -q"}])
+
+
+    def test_fenced_code_inside_tool_fields(self):
+        text = ("I'll add it.\n\nTOOL edit_file\npath: calc.py\nold:\n```python\nreturn a + b\n```\n"
+                "new:\n```python\nreturn a + b\n\ndef mul(a, b):\n    return a * b\n```\nEND")
+        self.assertEqual(parse_tool_calls(text), [{"name": "edit_file", "path": "calc.py", "old": "return a + b",
+                                                   "new": "return a + b\n\ndef mul(a, b):\n    return a * b"}])
+
+
+    def test_bare_json_after_tool_word(self):
+        self.assertEqual(parse_tool_calls('TOOL\n{"name": "read_file", "path": "calc.py"}'),
+                         [{"name": "read_file", "path": "calc.py"}])
+
+
 class RunTool(unittest.TestCase):
     def test_read_file_without_path_is_clear(self):
         with tempfile.TemporaryDirectory() as d:

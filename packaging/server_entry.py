@@ -241,6 +241,12 @@ def main() -> int:
             mod._agent_ws = _agent_ws
         except ImportError:
             pass
+        try:
+            import code_agent as _code_agent  # type: ignore
+
+            mod._code_agent = _code_agent
+        except ImportError:
+            pass
     return int(mod.main())
 
 

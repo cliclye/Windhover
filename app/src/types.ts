@@ -107,4 +107,4 @@ export type TelemetryPoint = {
   rssGb?: number;
 };
 
-export type Tab = "chat" | "library" | "agent" | "performance" | "settings";
+export type Tab = "chat" | "library" | "code" | "performance" | "settings";

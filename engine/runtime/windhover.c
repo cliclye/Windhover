@@ -18,7 +18,7 @@
  *
  * Env: SNAP PROMPT|COLI_PROMPT NGEN TEMP TOPK TOPP NUCLEUS SEED CTX QUIET
  *      RAM_GB WH_SPARSE(0|25|40) WH_SPEC(0|1) WH_STATS(1) MLOCK IDOT SERVE
- *      WH_PREFIX_CACHE(1) WH_PREFILL_TILED(1) WH_GDN_REF(0) WH_PROF(0)
+ *      WH_PREFIX_CACHE(1) WH_PREFILL_TILED(1) WH_GDN_REF(0) WH_PROF(0) WH_NO_GIBBERISH(0)
  *
  * SERVE=1: load once, then length-prefixed turns on stdin (see tools/engine_session.py).
  */
@@ -138,6 +138,10 @@ static int wh_chunk_is_gibberish(const char *s, int n) {
     if (spaces == 0 && solid >= 18) return 1;
     return 0;
 }
+
+/* Coding-agent turns emit punctuation-heavy code; the keyboard-smash early stop
+ * must not fire there. Set per request (SERVE header flag bit 0) or WH_NO_GIBBERISH=1. */
+static int g_no_gibberish = 0;
 
 static int wh_should_stop_gibberish(const char *hist, int hist_n,
                                     const char *piece, int piece_n) {
@@ -2534,7 +2538,7 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
         int nch = tok_decode(T, &next, 1, outbuf, (int)sizeof(outbuf) - 1);
         if (nch > 0) {
             outbuf[nch] = 0;
-            if (wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nch))
+            if (!g_no_gibberish && wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nch))
                 break;
             fputs(outbuf, stdout); fflush(stdout);
             wh_emit_hist_append(emit_hist, &emit_hist_n, outbuf, nch);
@@ -2564,7 +2568,7 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
                     int nc2 = tok_decode(T, &am, 1, outbuf, (int)sizeof(outbuf) - 1);
                     if (nc2 > 0) {
                         outbuf[nc2] = 0;
-                        if (wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nc2))
+                        if (!g_no_gibberish && wh_should_stop_gibberish(emit_hist, emit_hist_n, outbuf, nc2))
                             break;
                         fputs(outbuf, stdout); fflush(stdout);
                         wh_emit_hist_append(emit_hist, &emit_hist_n, outbuf, nc2);
@@ -2626,10 +2630,11 @@ static int wh_serve_loop(WModel *m, Tok *T, const int *stops, int nstop,
     fflush(stdout);
     while (fgets(hdr, (int)sizeof(hdr), stdin)) {
         if (!strncmp(hdr, "WHQUIT", 6)) break;
-        int ngen = 64, topk = 0, nbytes = 0, spec = 0;
+        int ngen = 64, topk = 0, nbytes = 0, spec = 0, flags = 0;
         float temp = 0.f, topp = 0.f;
-        if (sscanf(hdr, "WHGEN %d %f %d %f %d %d",
-                   &ngen, &temp, &topk, &topp, &nbytes, &spec) != 6) {
+        /* optional 7th field: flags (bit 0 = no gibberish early stop) */
+        if (sscanf(hdr, "WHGEN %d %f %d %f %d %d %d",
+                   &ngen, &temp, &topk, &topp, &nbytes, &spec, &flags) < 6) {
             fprintf(stderr, "[wh] serve: bad header\n");
             printf("\n@@WH_STATS@@{\"error\":\"bad_header\"}\n");
             wh_serve_end();
@@ -2672,6 +2677,7 @@ static int wh_serve_loop(WModel *m, Tok *T, const int *stops, int nstop,
             wh_serve_end();
             break;
         }
+        g_no_gibberish = (flags & 1) || (getenv("WH_NO_GIBBERISH") && atoi(getenv("WH_NO_GIBBERISH")));
         int rc = wh_generate(m, T, stops, nstop, ids, max_t, prompt, (int)got,
                              ngen, temp, topk, topp, spec, quiet, 1, 0);
         free(prompt);
@@ -2794,6 +2800,7 @@ int wh_run(int argc, char **argv) {
                 M.bytes_full / 1e9, M.load_s, footprint_gb());
 
     int json_stats = getenv("WH_JSON_STATS") ? 1 : 0;
+    g_no_gibberish = getenv("WH_NO_GIBBERISH") ? atoi(getenv("WH_NO_GIBBERISH")) : 0;
     int rc = wh_generate(&M, &T, stops, nstop, ids, max_t, prompt, (int)strlen(prompt),
                          ngen, temp, topk, topp, spec_on, quiet, json_stats, 1);
     free(ids);

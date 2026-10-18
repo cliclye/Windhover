@@ -15,7 +15,7 @@ import {
 const NAV: Array<{ id: Tab; label: string; icon: JSX.Element; kbd: string }> = [
   { id: "chat", label: "Chat", icon: <ChatIcon />, kbd: "1" },
   { id: "library", label: "Models", icon: <LibraryIcon />, kbd: "2" },
-  { id: "agent", label: "Agent", icon: <AgentIcon />, kbd: "3" },
+  { id: "code", label: "Code", icon: <AgentIcon />, kbd: "3" },
   { id: "performance", label: "Performance", icon: <GaugeIcon />, kbd: "4" },
   { id: "settings", label: "Settings", icon: <GearIcon />, kbd: "5" },
 ];

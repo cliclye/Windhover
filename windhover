@@ -302,6 +302,10 @@ try:
 except ImportError:
     _agent_ws = None  # type: ignore
 try:
+    import code_agent as _code_agent  # type: ignore
+except ImportError:
+    _code_agent = None  # type: ignore
+try:
     import chat_text as _chat_text  # type: ignore
     import app_update as _app_update  # type: ignore
     import ollama_client as _ollama_client  # type: ignore
@@ -1177,7 +1181,10 @@ def _engine_chat(
     messages: list | None = None,
     on_delta=None,
     timeout_s: float | None = None,
+    raw: bool = False,
 ) -> tuple[str, dict]:
+    """raw=True (coding agent): no chat-text cleanup and no gibberish early stop —
+    code is punctuation-heavy and must come back verbatim."""
     import time
 
     if not ENGINE_BIN.is_file():
@@ -1210,8 +1217,11 @@ def _engine_chat(
     env["DRAFT"] = "0"
     env["WH_JSON_STATS"] = "1"
     env.setdefault("IDOT", "1")
+    if raw:
+        env["WH_NO_GIBBERISH"] = "1"
     if _engine_session.serve_enabled():
-        env.setdefault("CTX", "4096")
+        # 8k context: coding-agent conversations carry file contents + tool results.
+        env.setdefault("CTX", os.environ.get("WINDHOVER_CTX") or "8192")
     profile = _ram_profile.resolve()
 
     # Wall-clock budget: cold KPK load + prefill can be slow on CPU; still fail closed.
@@ -1297,7 +1307,7 @@ def _engine_chat(
             wh_stats = json.loads(tail.strip().splitlines()[0])
         except Exception:
             wh_stats = {}
-    text = _clean_chat_text(text)
+    text = _strip_turn_markers(text) if raw else _clean_chat_text(text)
 
     elapsed = max(time.perf_counter() - t0, 1e-6)
     meta = _snap_meta(snap)
@@ -1358,7 +1368,62 @@ def _engine_chat(
             "prefill_s": wh_stats.get("prefill_s"),
         }
     _LAST_STATS.update(stats)
+    if raw:
+        return text, stats
     return _clean_chat_text(text) if text else text, stats
+
+
+_TURN_MARKERS = ("<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<end_of_turn>", "<|im_start|>",
+                 "<|end|>", "<|end_of_text|>", "<|start_header_id|>")
+
+
+def _strip_turn_markers(text: str) -> str:
+    """Minimal cleanup for verbatim (code) output: cut at the first turn marker."""
+    cut = len(text)
+    for mk in _TURN_MARKERS:
+        i = text.find(mk)
+        if 0 <= i < cut:
+            cut = i
+    return text[:cut].strip()
+
+
+def _code_generator(requested: str | None, fallback: Path | None):
+    """Build a generate(messages, max_tokens, temperature, on_delta) for Windhover Code.
+
+    Returns (generate, model_label, error_dict). Windhover packs run on the warm
+    windhover-engine (prefix KV cache makes each agent step cheap); ollama/… ids
+    go to the local Ollama server.
+    """
+    if _is_ollama_model_id(requested):
+        tag = _ollama_tag(str(requested))
+        if not _ollama_reachable():
+            return None, None, {"ok": False, "error": f"Ollama is not reachable at {OLLAMA_HOST}. Start `ollama serve`."}
+
+        def gen_ollama(messages, max_tokens, temperature, on_delta):
+            text, stats = _ollama_chat(messages, max_tokens, temperature, model_tag=tag)
+            if on_delta and text:
+                on_delta(text)
+            return text, stats
+
+        return gen_ollama, f"ollama/{tag}", None
+    snap = _resolve_model_dir(requested, fallback)
+    if snap is None or not snap.is_dir():
+        return None, None, {"ok": False, "error": "Model not installed — install one from Models first."}
+    mode = _chat_mode(snap)
+    if mode != "engine" or not _ensure_engine_pack(snap, blocking=False):
+        if _windhover_supported(snap) and _has_real_weights(snap):
+            job_id = _start_prepare_job(snap)
+            return None, None, {"ok": False, "code": "engine_preparing", "job_id": job_id,
+                                "error": "Preparing this model for windhover-engine (one-time convert). Try again when it finishes."}
+        return None, None, {"ok": False, "error": f"This model cannot run on windhover-engine (mode={mode})."}
+
+    def gen_engine(messages, max_tokens, temperature, on_delta):
+        flat = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+        return _engine_chat(snap, flat[-8000:], max_tokens, temperature,
+                            messages=messages, on_delta=on_delta, raw=True)
+
+    label = _snap_meta(snap).get("id") or snap.name.replace("__", "/")
+    return gen_engine, label, None
 
 
 def _agent_run(
@@ -2599,6 +2664,60 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                 # Client (e.g. flaky Invoke-WebRequest) dropped mid-response.
                 return
 
+        def _code_post(self, path: str, body: dict, default_model) -> None:
+            """Windhover Code: local coding agent sessions (see tools/code_agent.py)."""
+            if _code_agent is None or _agent_ws is None:
+                return self._json(500, {"ok": False, "error": "code agent module missing"})
+            store = _code_agent.STORE
+            if path == "/api/code/session":
+                root_s = (body.get("workspace") or _WORKSPACE.get("root") or "").strip()
+                if not root_s:
+                    return self._json(400, {"ok": False, "error": "choose a workspace folder first"})
+                try:
+                    info = _agent_ws.set_workspace(root_s)
+                except Exception as e:
+                    return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+                _WORKSPACE["root"] = info["root"]
+                gen, label, err = _code_generator(body.get("model"), default_model)
+                if err:
+                    return self._json(202 if err.get("code") == "engine_preparing" else 400, err)
+                sess = store.create(Path(info["root"]), label, gen)
+                sess.auto_run = bool(body.get("auto_run"))
+                return self._json(200, sess.snapshot())
+            sess = store.get(str(body.get("session_id") or ""))
+            if not sess:
+                return self._json(404, {"ok": False, "error": "unknown session — start a new one"})
+            if path == "/api/code/message":
+                text = (body.get("text") or "").strip()
+                if not text:
+                    return self._json(400, {"ok": False, "error": "empty message"})
+                if sess.busy:
+                    return self._json(409, {"ok": False, "error": "the agent is still working"})
+                if "auto_run" in body:
+                    sess.auto_run = bool(body.get("auto_run"))
+                if body.get("model") and body.get("model") != sess.model:
+                    gen, label, err = _code_generator(body.get("model"), default_model)
+                    if err:
+                        return self._json(400, err)
+                    sess.generate, sess.model = gen, label
+                max_tokens = int(body.get("max_tokens") or 768)
+                threading.Thread(target=sess.run_turn, args=(text,),
+                                 kwargs={"max_tokens": max_tokens}, daemon=True).start()
+                return self._json(200, {"ok": True, "session_id": sess.id})
+            if path == "/api/code/approve":
+                ok = sess.answer_approval(str(body.get("event_id") or ""), bool(body.get("approve")))
+                return self._json(200 if ok else 404, {"ok": ok})
+            if path == "/api/code/stop":
+                sess.stop()
+                return self._json(200, {"ok": True})
+            if path == "/api/code/undo":
+                return self._json(200, sess.undo(str(body.get("change_id") or "")))
+            if path == "/api/code/settings":
+                if "auto_run" in body:
+                    sess.auto_run = bool(body.get("auto_run"))
+                return self._json(200, sess.snapshot())
+            return self._json(404, {"ok": False, "error": f"unknown endpoint {path}"})
+
         def do_OPTIONS(self) -> None:
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -2718,6 +2837,11 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                     return self._json(200, _agent_ws.list_dir(Path(root_s), rel))
                 except Exception as e:
                     return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            if path == "/api/code/session":
+                sess = _code_agent.STORE.get((qs.get("id") or [""])[0]) if _code_agent else None
+                if not sess:
+                    return self._json(404, {"ok": False, "error": "unknown session"})
+                return self._json(200, sess.snapshot())
             if path == "/api/workspace/file":
                 root_s = _WORKSPACE.get("root")
                 if not root_s:
@@ -2927,6 +3051,20 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                     return self._json(200 if info.get("ok") or info.get("cancelled") else 400, info)
                 except Exception as e:
                     return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            if path == "/api/workspace/file":
+                root_s = _WORKSPACE.get("root")
+                if not root_s or _agent_ws is None:
+                    return self._json(400, {"ok": False, "error": "no workspace set"})
+                rel = (body.get("path") or "").strip()
+                content = body.get("content")
+                if not rel or not isinstance(content, str):
+                    return self._json(400, {"ok": False, "error": "path and content required"})
+                try:
+                    return self._json(200, _agent_ws.write_file(Path(root_s), rel, content))
+                except Exception as e:
+                    return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+            if path.startswith("/api/code/"):
+                return self._code_post(path, body, model)
             if path == "/api/agent":
                 if _agent_ws is None:
                     return self._json(500, {"ok": False, "error": "agent_workspace missing"})

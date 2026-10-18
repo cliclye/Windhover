@@ -148,7 +148,7 @@ function ModelCard({
               {inst?.chat_ok ? (
                 <>
                   <button type="button" className="btn ghost sm" onClick={() => onUseInAgent(m.id)}>
-                    Agent
+                    Code
                   </button>
                   <button type="button" className="btn primary sm" onClick={() => onOpenChat(m.id)}>
                     Chat
@@ -308,7 +308,7 @@ export function LibraryView({
                     <span className="fit good">{m.size_bytes ? `${(m.size_bytes / 1e9).toFixed(1)} GB` : "Ready"}</span>
                     <div className="mcard-actions">
                       <button type="button" className="btn ghost sm" onClick={() => onUseInAgent(m.id)}>
-                        Agent
+                        Code
                       </button>
                       <button type="button" className="btn primary sm" onClick={() => onOpenChat(m.id)}>
                         Chat

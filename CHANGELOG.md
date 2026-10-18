@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Code — a local coding agent
+- New **Code** section (replaces Agent): project explorer, tabbed editor with save, and an agent panel that reads, searches, edits and tests code using the model Windhover is running (or an Ollama model) — no API key.
+- Tools: `list_dir`, `read_file`, `search`, `edit_file`, `write_file`, `run`. Edits show diffs and can be undone; `run` asks for approval unless *Auto-run commands* is on (90 s timeout). File tools can't leave the folder.
+- Handles how small models actually write tool calls: ```` ```tool ```` JSON, `TOOL … END` blocks, Qwen XML `<tool_call>`, bare JSON. Edits that don't match exactly fall back to a whitespace-tolerant match, and a failed edit sends the current file back to the model. Wiping a file or deleting more than 3 lines with an empty replacement is refused. A model that only narrates its next step, or returns nothing, is asked to continue instead of ending the turn.
+- The system prompt is fixed for the session so the engine's prefix KV cache is reused between agent steps.
+- Engine: optional serve flag / `WH_NO_GIBBERISH=1` turns off the keyboard-smash early stop, so code output (lots of symbols) is never cut. The server's default context is now 8192 (`WINDHOVER_CTX`).
+- Evaluation (feature + test, question, bug fix, follow-up; results checked on disk): Qwen3.5 4B 8/8, Qwen3.5 2B 7/8.
+
 ## [0.5.0] — 2026-10-18
 
 ### Highlights

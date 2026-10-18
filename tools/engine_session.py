@@ -51,11 +51,14 @@ def encode_whgen(
     topk: int,
     topp: float,
     spec: int,
+    flags: int = 0,
 ) -> bytes:
     body = (prompt or "").encode("utf-8")
     if len(body) > MAX_PROMPT_BYTES:
         body = body[:MAX_PROMPT_BYTES]
-    header = f"WHGEN {int(ngen)} {float(temp):.4f} {int(topk)} {float(topp):.4f} {len(body)} {int(spec)}\n"
+    header = f"WHGEN {int(ngen)} {float(temp):.4f} {int(topk)} {float(topp):.4f} {len(body)} {int(spec)}"
+    # Optional flags field (bit 0: no gibberish early stop). Older engines ignore it.
+    header += f" {int(flags)}\n" if flags else "\n"
     return header.encode("ascii") + body
 
 
@@ -340,8 +343,9 @@ class EngineSession:
         except (TypeError, ValueError):
             topp = 0.0
         spec = 1 if (env.get("WH_SPEC") or "0") not in ("0", "false") and temp <= 0 else 0
+        flags = 1 if (env.get("WH_NO_GIBBERISH") or "0") not in ("0", "false", "") else 0
         blob = encode_whgen(
-            prompt, ngen=ngen, temp=temp, topk=topk, topp=topp, spec=spec
+            prompt, ngen=ngen, temp=temp, topk=topk, topp=topp, spec=spec, flags=flags
         )
         try:
             proc.stdin.write(blob)

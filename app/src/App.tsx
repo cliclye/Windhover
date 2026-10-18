@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "./api";
 import { cleanChatText, extractSSE } from "./chatText";
 import { loadConversations, newConversation, saveConversations, titleFrom } from "./conversations";
-import { AgentView } from "./components/AgentView";
+import { CodeView } from "./components/CodeView";
 import { ChatView } from "./components/ChatView";
 import { LibraryView } from "./components/LibraryView";
 import { PerformanceView } from "./components/PerformanceView";
@@ -22,7 +22,6 @@ import {
   type Installed,
 } from "./modelMeta";
 import type {
-  AgentStep,
   ChatStats,
   Conversation,
   EngineState,
@@ -54,7 +53,7 @@ function writeStored(key: string, value: string) {
   }
 }
 
-const TABS = ["chat", "library", "agent", "performance", "settings"] as const;
+const TABS = ["chat", "library", "code", "performance", "settings"] as const;
 
 function systemDark() {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
@@ -65,6 +64,12 @@ export function App() {
     // Deep link: #chat / #library / #agent / #performance / #settings
     const h = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
     if ((TABS as readonly string[]).includes(h)) return h as Tab;
+    if (h === "agent") return "code";
+    try {
+      if (localStorage.getItem("wh.tab") === "agent") return "code";
+    } catch {
+      /* ignore */
+    }
     return readStored("wh.tab", TABS, "chat");
   });
   const [themePref, setThemePref] = useState<ThemePref>(() =>
@@ -109,17 +114,6 @@ export function App() {
   const [history, setHistory] = useState<TelemetryPoint[]>([]);
   const [confirmUninstall, setConfirmUninstall] = useState<{ id: string; name: string; path?: string } | null>(null);
   const [progress, setProgress] = useState<PullProgress | null>(null);
-  const [workspace, setWorkspace] = useState("");
-  const [agentInput, setAgentInput] = useState("");
-  const [agentBusy, setAgentBusy] = useState(false);
-  const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
-  const [agentSummary, setAgentSummary] = useState("");
-  const [agentPrompt, setAgentPrompt] = useState("");
-  const [agentStatus, setAgentStatus] = useState("");
-  const [agentPhase, setAgentPhase] = useState("");
-  const [pickingFolder, setPickingFolder] = useState(false);
-  const [tree, setTree] = useState<Array<{ name: string; path: string; type: string; size?: number | null }>>([]);
-  const [workspaceReady, setWorkspaceReady] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const [updateInfo, setUpdateInfo] = useState<{
     available?: boolean;
@@ -771,166 +765,6 @@ export function App() {
     chatAbortRef.current?.abort();
   }
 
-  async function loadWorkspaceTree() {
-    try {
-      const treeR = await fetch(apiUrl("/api/workspace/tree?path=.")).then((x) => x.json());
-      if (treeR.ok) {
-        setTree(treeR.entries || []);
-        setWorkspaceReady(true);
-        return true;
-      }
-      setTree([]);
-      setAgentStatus(treeR.error || "Could not list folder");
-      return false;
-    } catch (e) {
-      setTree([]);
-      setAgentStatus(String(e));
-      return false;
-    }
-  }
-
-  async function applyWorkspace(path?: string) {
-    const root = (path ?? workspace).trim();
-    if (!root) {
-      await browseWorkspace();
-      return;
-    }
-    setAgentStatus("Setting workspace…");
-    try {
-      const r = await fetch(apiUrl("/api/workspace"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ root }),
-      });
-      const j = await r.json();
-      if (!j.ok) {
-        setWorkspaceReady(false);
-        setTree([]);
-        setAgentStatus(j.error || "Could not set workspace");
-        return;
-      }
-      setWorkspace(String(j.root));
-      setAgentStatus(`Using ${j.root}`);
-      await loadWorkspaceTree();
-    } catch (e) {
-      setWorkspaceReady(false);
-      setAgentStatus(String(e));
-    }
-  }
-
-  async function browseWorkspace() {
-    if (agentBusy || pickingFolder) return;
-    setPickingFolder(true);
-    setAgentStatus("Choose a folder…");
-    try {
-      const r = await fetch(apiUrl("/api/workspace/pick"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const j = await r.json();
-      if (j.cancelled) {
-        setAgentStatus("Folder picker cancelled");
-        return;
-      }
-      if (!j.ok || !j.root) {
-        setWorkspaceReady(false);
-        setTree([]);
-        setAgentStatus(j.error || "Could not pick folder");
-        return;
-      }
-      setWorkspace(String(j.root));
-      setAgentStatus(`Using ${j.root}`);
-      await loadWorkspaceTree();
-    } catch (e) {
-      setWorkspaceReady(false);
-      setAgentStatus(String(e));
-    } finally {
-      setPickingFolder(false);
-    }
-  }
-
-  async function runAgent() {
-    const text = agentInput.trim();
-    if (!text || agentBusy) return;
-    const modelId = activeModel || chatCapable[0]?.id;
-    if (!modelId) {
-      setStatus("Install a chat-capable model first");
-      setTab("library");
-      return;
-    }
-    if (!workspace.trim()) {
-      setAgentStatus("Choose a workspace folder first");
-      return;
-    }
-    setAgentBusy(true);
-    setAgentSteps([]);
-    setAgentSummary("");
-    setAgentPrompt(text);
-    setAgentInput("");
-    setAgentStatus("Starting…");
-    setAgentPhase("start");
-    try {
-      await applyWorkspace(workspace);
-      const r = await fetch(apiUrl("/api/agent"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: modelId,
-          workspace,
-          prompt: text,
-          max_steps: 8,
-          max_tokens: 384,
-          temperature: 0.15,
-          async: true,
-        }),
-      });
-      const j = await r.json();
-      if (!j.ok) {
-        setAgentSummary(String(j.error || "failed"));
-        setAgentStatus(String(j.error || "failed"));
-        return;
-      }
-      if (!j.async || !j.job_id) {
-        setAgentSteps((j.steps || []) as AgentStep[]);
-        setAgentSummary(String(j.summary || ""));
-        setAgentStatus("Done");
-        setAgentPhase("done");
-        return;
-      }
-      const jobId = String(j.job_id);
-      for (;;) {
-        await new Promise((res) => setTimeout(res, 400));
-        const st = await fetch(apiUrl(`/api/jobs?id=${encodeURIComponent(jobId)}`)).then((x) => x.json());
-        if (Array.isArray(st.steps)) setAgentSteps(st.steps as AgentStep[]);
-        if (st.message) setAgentStatus(String(st.message));
-        if (st.phase) setAgentPhase(String(st.phase));
-        if (st.status === "done") {
-          const result = st.result || {};
-          setAgentSteps((result.steps || st.steps || []) as AgentStep[]);
-          setAgentSummary(String(result.summary || st.summary || ""));
-          setAgentStatus("Done");
-          setAgentPhase("done");
-          break;
-        }
-        if (st.status === "error") {
-          setAgentSummary(String(st.error || st.message || "Agent failed"));
-          setAgentStatus(String(st.error || st.message || "failed"));
-          setAgentPhase("error");
-          break;
-        }
-      }
-      const treeR = await fetch(apiUrl("/api/workspace/tree?path=.")).then((x) => x.json());
-      if (treeR.ok) setTree(treeR.entries || []);
-    } catch (e) {
-      setAgentSummary(String(e));
-      setAgentStatus(String(e));
-      setAgentPhase("error");
-    } finally {
-      setAgentBusy(false);
-    }
-  }
-
   const engineTitle =
     engineOk === false
       ? "Windhover API unreachable"
@@ -976,7 +810,7 @@ export function App() {
         value={activeModel}
         items={modelItems}
         placeholder="No model installed"
-        disabled={sending || agentBusy}
+        disabled={sending}
         onChange={(id) => {
           setActiveModel(id);
         }}
@@ -984,7 +818,7 @@ export function App() {
       <Segmented
         label="Memory profile"
         value={stats?.ram_profile?.name || "balanced"}
-        disabled={sending || agentBusy}
+        disabled={sending}
         options={[
           { value: "fast", label: "Fast", title: "Pin the full FFN — fastest, most RAM" },
           { value: "balanced", label: "Balanced", title: "~55% RAM cap with SSD paging" },
@@ -998,7 +832,7 @@ export function App() {
   const titles: Record<Tab, string> = {
     chat: activeConv ? conversations.find((c) => c.id === activeConv)?.title || "Chat" : "New chat",
     library: "Models",
-    agent: "Agent",
+    code: "Code",
     performance: "Performance",
     settings: "Settings",
   };
@@ -1214,34 +1048,24 @@ export function App() {
             onOpenChat={openChat}
             onUseInAgent={(id) => {
               setActiveModel(id);
-              setTab("agent");
+              setTab("code");
             }}
           />
         ) : null}
 
-        {tab === "agent" ? (
-          <AgentView
-            agentSteps={agentSteps}
-            agentBusy={agentBusy}
-            agentPrompt={agentPrompt}
-            agentInput={agentInput}
-            onInput={setAgentInput}
-            onRun={() => void runAgent()}
+        {tab === "code" ? (
+          <CodeView
+            modelPicker={
+              <Picker
+                label="Model"
+                value={activeModel}
+                items={modelItems}
+                placeholder="No model installed"
+                onChange={(id) => setActiveModel(id)}
+              />
+            }
+            activeModel={activeModel}
             chatCapable={chatCapable.length > 0}
-            composerLeft={composerLeft}
-            workspace={workspace}
-            onWorkspaceChange={(v) => {
-              setWorkspace(v);
-              setWorkspaceReady(false);
-            }}
-            workspaceReady={workspaceReady}
-            pickingFolder={pickingFolder}
-            onBrowseWorkspace={() => void browseWorkspace()}
-            onApplyWorkspace={() => void applyWorkspace()}
-            tree={tree}
-            agentPhase={agentPhase}
-            agentStatus={agentStatus}
-            agentSummary={agentSummary}
             onOpenLibrary={() => setTab("library")}
           />
         ) : null}
@@ -1277,7 +1101,7 @@ export function App() {
             onRamProfile={(v) => void setRamProfile(v)}
             theme={themePref}
             onTheme={setThemePref}
-            busy={sending || agentBusy}
+            busy={sending}
           />
         ) : null}
       </main>

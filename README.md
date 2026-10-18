@@ -51,7 +51,7 @@ On a 16 GB Mac, a stock 7B chat model in fp16 is rough:
 
 **Windhover** keeps a sparse working set in RAM (mmap’d KPK packs + activation-unit budgeting) so real models stay usable under a hard ceiling.
 
-The ship binary is **`windhover-engine`**. The desktop app wraps Library · Chat · Agent · Advanced.
+The ship binary is **`windhover-engine`**. The desktop app wraps Models · Chat · Code · Performance.
 
 > All headline numbers below were measured **locally on a MacBook Air M4 · 16 GB RAM** (2026-07-22), with a **≤ 9 GB** process budget and swap-abort enabled. Not projected. Not cloud.
 
@@ -220,13 +220,13 @@ Quantization helps, but a naive load still wants a large contiguous working set.
                            │
                            ├─ Library  /v1/catalog · pull · uninstall
                            ├─ Chat     /v1/chat/...
-                           ├─ Agent    /api/workspace · /api/agent
+                           ├─ Code     /api/workspace · /api/code
                            └─ Advanced /api/stats
 ```
 
 1. **Install a pack** from Library (Mac 16 GB models download real HF weights; frontier MoEs are honest about size).
 2. **Convert** to KPK when needed (`./windhover convert …`).
-3. **Chat / Agent** talk to `windhover-engine` with a hard RAM ceiling.
+3. **Chat / Code** talk to `windhover-engine` with a hard RAM ceiling.
 4. **Advanced** shows live RSS, tok/s, footprint, sparsity, AU hit — no silent model swap.
 
 Numerics lineage is Apache-2.0; see [LICENSE](LICENSE).
@@ -242,7 +242,7 @@ Numerics lineage is Apache-2.0; see [LICENSE](LICENSE).
 | **Sparse AUs** | Dense FFN bundles + MoE experts under one working-set policy |
 | **Models** | Browse / install / uninstall packs, with fit-for-this-machine hints |
 | **Chat** | Markdown UI; Windhover packs + Ollama models when `ollama serve` is running |
-| **Agent** | Folder-scoped tools; same model picker (Windhover or Ollama) |
+| **Code** | A local coding agent (like Cursor / Claude Code, no API key): reads, edits and tests code in a project folder, with diffs, undo and run approval |
 | **Performance** | Live telemetry: decode/prefill tok/s, TTFT, prefix-cache reuse, RSS, sparsity, AU hit |
 | **Prefix KV cache** | Multi-turn chat only prefills the new tokens |
 | **Honest catalog** | No fake stubs for frontier MoEs |
@@ -266,11 +266,17 @@ Recommended picks for this machine's RAM, 2026 models (Qwen3.5, Granite 4.2, Min
 
 ![Windhover Models](docs/screenshots/ui-library.png)
 
-### Agent
+### Code
 
-Pick a folder; the local model lists / reads / writes under that root only. The tool trace shows every step.
+A coding agent that runs on the model Windhover is serving — nothing leaves your computer. Open a project folder and ask for a change: the agent lists, searches and reads files, edits them, and runs commands such as your tests, then reports back. Every step shows as a card in the agent panel.
 
-![Windhover Agent](docs/screenshots/ui-agent.png)
+- **Editor + explorer:** browse the project, open files in tabs, edit and save (⌘S / Ctrl+S). Files the agent changed are marked **M**.
+- **Diffs and undo:** each edit has a diff and a one-click **Undo**.
+- **Commands need approval** (Run / Deny) unless you turn on *Auto-run commands*. Commands run in the project folder with a 90 s timeout; file tools can't leave the folder.
+- **Follow-ups keep context**, and the engine's prefix cache reuses the shared prompt between steps (typically 75–90 % of prompt tokens cached).
+- Works with Windhover packs or Ollama models. On our coding tasks (add a feature + test, explain, fix a bug, follow-up), **Qwen3.5 4B passed 8/8** and **Qwen3.5 2B 7/8**; larger models do better on bigger changes.
+
+![Windhover Code](docs/screenshots/ui-code.png)
 
 ### Performance
 

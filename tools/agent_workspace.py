@@ -265,13 +265,24 @@ def parse_tool_calls(text: str) -> list[dict[str, Any]]:
         for m in rx.finditer(text or ""):
             blobs.append(m.group(1).strip())
     # Also catch TOOL name / key: value blocks
+    # "TOOL name" then fields on the following lines — or, as small models often
+    # write it, on the same line ("TOOL read_file path: calc.py"). A block ends at
+    # END, a fence, the next TOOL line, or end of text.
     for m in re.finditer(
-        r"(?:^|\n)TOOL\s+(\w+)\s*\n(.*?)(?:\nEND\b|\n```|\Z)",
+        # Code fences inside a field (new:/content: ```python … ```) belong to the
+        # value — only END, a ```tool/json fence or the next TOOL line end a block.
+        r"(?:^|\n)[ \t]*TOOL[ \t]+(\w+)[ \t]*(.*?)(?=\n[ \t]*END\b|\n```(?:tool|json)\b|\n[ \t]*TOOL[ \t]+\w|\Z)",
         text or "",
         re.DOTALL | re.IGNORECASE,
     ):
         name = m.group(1).strip()
         body = m.group(2)
+        if body and not body.startswith("\n"):
+            # same-line fields: "path: a.py" or a bare path ("TOOL read_file calc.py")
+            first, _, rest = body.partition("\n")
+            if not re.match(r"^\s*(?:<)?[A-Za-z_]+(?:>|:)", first) and first.strip():
+                first = "path: " + first.strip()
+            body = first + ("\n" + rest if rest else "")
         fields: dict[str, str] = {"name": name}
         # key: value lines; content/old/new can be multiline until next key
         cur = None
@@ -281,16 +292,7 @@ def parse_tool_calls(text: str) -> list[dict[str, Any]]:
         body = _xml_keys_to_colon(body)
         for line in body.splitlines():
             km = re.match(r"^([A-Za-z_]+):\s*(.*)$", line)
-            if km and km.group(1).lower() in (
-                "path",
-                "old",
-                "new",
-                "old_string",
-                "new_string",
-                "content",
-                "summary",
-                "message",
-            ):
+            if km and km.group(1).lower() in _TOOL_KEYS:
                 if cur:
                     fields[cur] = "\n".join(buf).rstrip("\n")
                 cur = km.group(1).lower()
@@ -306,10 +308,24 @@ def parse_tool_calls(text: str) -> list[dict[str, Any]]:
                     buf.append(line)
         if cur:
             fields[cur] = "\n".join(buf).rstrip("\n")
+        for k in ("content", "new", "old"):
+            if k in fields:
+                fields[k] = _strip_code_fence(fields[k])
         if fields.get("name"):
             calls.append(fields)
 
     calls.extend(_native_xml_calls(text or ""))
+    if not calls and not blobs:
+        # Bare JSON object without a fence ("TOOL\n{"name": ...}" or just the object).
+        dec = json.JSONDecoder()
+        for m in re.finditer(r'\{\s*"(?:name|tool)"\s*:', text or ""):
+            try:
+                obj, _ = dec.raw_decode(text[m.start():])
+            except json.JSONDecodeError:
+                obj = _loose_json_tool(text[m.start():])
+            if isinstance(obj, dict) and (obj.get("name") or obj.get("tool")):
+                blobs.append(json.dumps(obj))
+                break
 
     for raw in blobs:
         try:
@@ -334,7 +350,19 @@ def parse_tool_calls(text: str) -> list[dict[str, Any]]:
     return calls
 
 
-_TOOL_KEYS = ("path", "old", "new", "old_string", "new_string", "content", "summary", "message")
+def _strip_code_fence(value: str) -> str:
+    """'```python\\ncode\\n```' -> 'code' (models fence code inside TOOL fields)."""
+    v = value.strip("\n")
+    m = re.match(r"^\s*```[\w+.-]*[ \t]*\n(.*?)\n?```[ \t]*(?:\n.*)?$", v, re.DOTALL)
+    if m:
+        return m.group(1)
+    if v.rstrip().endswith("```") and "```" not in v.rstrip()[:-3]:
+        return v.rstrip()[:-3].rstrip("\n")
+    return value
+
+
+_TOOL_KEYS = ("path", "old", "new", "old_string", "new_string", "content", "summary", "message",
+              "command", "cmd", "query", "pattern")
 
 
 def _xml_keys_to_colon(body: str) -> str:

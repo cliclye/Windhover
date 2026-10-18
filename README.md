@@ -59,7 +59,42 @@ The ship binary is **`windhover-engine`**. The desktop app wraps Library · Chat
 
 ## Benchmarks
 
-### Qwen2.5-7B Instruct — with vs without Windhover
+### October 2026 engine — this release vs v0.4.3
+
+Same MacBook Air **M4 · 16 GB**, same packs, binaries interleaved run-by-run, median of 3.
+Full method, raw JSON and re-run instructions: [`docs/bench/2026-10`](docs/bench/2026-10/README.md).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/bench/2026-10/prefill-dark.svg" />
+  <img src="docs/bench/2026-10/prefill.svg" alt="Prefill tokens per second, v0.4.3 vs this release" />
+</picture>
+
+| Model | Prompt processing (tok/s) | Chat generation (tok/s) | 6th-turn time to first token | Accuracy vs HF (KL, top-1) |
+|---|---:|---:|---:|---|
+| **Qwen3.5 2B** *(new)* | 3 → **157** (54×) | 2.7 → **26.7** (10×) | 174 s → **0.91 s** | 0.0065 · 5/5 |
+| **Qwen3.5 0.8B** *(new)* | could not load → **304** | could not load → **50.7** | — → **0.61 s** | 0.021 · 5/5 |
+| **Granite 4.2 3B** *(new)* | 16.5 → **66** (4.0×) | 12.0 → **15.6** (1.3×) | 33.5 s → **2.03 s** | 0.0086 · 5/5 (was 0.0128) |
+| Qwen3 1.7B | 33 → **138** (4.2×) | 17.6 → **29.0** (1.6×) | 7.09 s → **1.15 s** | 0.031 · 5/5 (was 0.049 · 4/5) |
+| Qwen2.5 0.5B | 166 → **598** (3.6×) | 37 → **126** (3.4×) | 2.13 s → **0.05 s** | 0.16 · 4/5 (was 0.23) |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/bench/2026-10/ttft-dark.svg" />
+  <img src="docs/bench/2026-10/ttft.svg" alt="Time to first token per chat turn, v0.4.3 vs this release" />
+</picture>
+
+What changed (details in [CHANGELOG](CHANGELOG.md)):
+
+- **Tiled int8 prefill GEMM** + transposed hi/lo down-projection → prompts 3.6–4.3× faster on dense models.
+- **Prefix KV cache across chat turns** → each turn only prefills what is new; replies are byte-identical with the cache on or off.
+- **Gated DeltaNet rewrite** (Qwen3.5 family) → batched + parallel instead of scalar single-thread; plus norm / q-gate correctness fixes.
+- **Heap top-k sampling** → chat-temperature decoding no longer burns several ms per token on the 150k–250k vocab.
+- Accuracy is measured against Hugging Face `transformers` on every model (f32 reference ≤2B, bf16 above) and is equal or better than v0.4.3 everywhere it could run.
+
+> Absolute numbers are from a fanless laptop with normal apps open, so they drift ±10% between runs; the ratios are stable. Decode on dense int8 models is memory-bandwidth-bound (~65–75 GB/s on 4 P-cores), so its gains are modest (+5–20%); the big wins are prompt processing, multi-turn chat and the new architectures.
+
+### July 2026 — with vs without Windhover
+
+#### Qwen2.5-7B Instruct — with vs without Windhover
 
 Same model: [`Qwen/Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)  
 Same machine: **MacBook Air M4 · 16 GB** · budget **≤ 9 GB RSS**
@@ -205,39 +240,46 @@ Numerics lineage is Apache-2.0; see [LICENSE](LICENSE).
 | **Hard RAM ceiling** | Process stays inside a budget (`RAM_GB` / hard-cap ledger) |
 | **KPK + mmap** | Group-int4 packs; cold weights stay on SSD |
 | **Sparse AUs** | Dense FFN bundles + MoE experts under one working-set policy |
-| **Library** | Browse / install / uninstall local packs |
+| **Models** | Browse / install / uninstall packs, with fit-for-this-machine hints |
 | **Chat** | Markdown UI; Windhover packs + Ollama models when `ollama serve` is running |
 | **Agent** | Folder-scoped tools; same model picker (Windhover or Ollama) |
-| **Advanced** | Live telemetry: RSS, latency, tok/s, sparsity, AU hit |
+| **Performance** | Live telemetry: decode/prefill tok/s, TTFT, prefix-cache reuse, RSS, sparsity, AU hit |
+| **Prefix KV cache** | Multi-turn chat only prefills the new tokens |
 | **Honest catalog** | No fake stubs for frontier MoEs |
 
 ---
 
 ## Screenshots
 
-### Library
-
-Browse Mac-16 GB packs and larger models. Install what you actually have disk for.
-
-![Windhover Library](docs/screenshots/library.png)
-
 ### Chat
 
-Local replies with speed / RSS chips per message.
+Saved local conversations, model + memory-profile picker in the composer, per-reply speed / prefix-cache chips.
 
-![Windhover Chat](docs/screenshots/chat.png)
+![Windhover Chat](docs/screenshots/ui-chat.png)
+
+### Models
+
+Recommended picks for this machine's RAM, 2026 models (Qwen3.5, Granite 4.2, MiniCPM5), fit hints and one-click install.
+
+![Windhover Models](docs/screenshots/ui-library.png)
 
 ### Agent
 
-Pick a folder on your Mac. The local model lists / reads / writes under that root only — lightweight on-device coding agent.
+Pick a folder; the local model lists / reads / writes under that root only.
 
-![Windhover Agent](docs/screenshots/agent.png)
+![Windhover Agent](docs/screenshots/ui-agent.png)
 
-### Advanced
+### Performance
 
-Live engine telemetry — RSS, tok/s, Windhover decode stats.
+Live engine telemetry — decode / prefill tok/s, time to first token, prefix-cache reuse, RSS, bytes per token.
 
-![Windhover Advanced](docs/screenshots/advanced.png)
+![Windhover Performance](docs/screenshots/ui-performance.png)
+
+### Settings
+
+Memory profile (Fast / Balanced / Low-RAM), theme, updates and engine routing.
+
+![Windhover Settings](docs/screenshots/ui-settings.png)
 
 ---
 

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="334" viewBox="0 0 760 334" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Prompt processing (prefill), tokens / second">
+<rect width="760" height="334" fill="#1a1a19" rx="10"/>
+<text x="20" y="28" font-size="15" font-weight="600" fill="#f0efec">Prompt processing (prefill), tokens / second</text>
+<rect x="510" y="18" width="10" height="10" rx="2" fill="#6b6a64"/><text x="525" y="27" font-size="12" fill="#c3c2b7">v0.4.3 engine</text><rect x="620" y="18" width="10" height="10" rx="2" fill="#d95926"/><text x="635" y="27" font-size="12" fill="#c3c2b7">this release</text>
+<text x="20" y="46" font-size="11.5" fill="#c3c2b7">~700-token prompt · MacBook Air M4 16 GB · median of 3 · higher is better</text>
+<line x1="150.0" x2="150.0" y1="58" y2="308" stroke="#33322f" stroke-width="1"/>
+<text x="150.0" y="324" font-size="11" text-anchor="middle" fill="#c3c2b7">0</text>
+<line x1="285.0" x2="285.0" y1="58" y2="308" stroke="#33322f" stroke-width="1"/>
+<text x="285.0" y="324" font-size="11" text-anchor="middle" fill="#c3c2b7">200</text>
+<line x1="420.0" x2="420.0" y1="58" y2="308" stroke="#33322f" stroke-width="1"/>
+<text x="420.0" y="324" font-size="11" text-anchor="middle" fill="#c3c2b7">400</text>
+<line x1="555.0" x2="555.0" y1="58" y2="308" stroke="#33322f" stroke-width="1"/>
+<text x="555.0" y="324" font-size="11" text-anchor="middle" fill="#c3c2b7">600</text>
+<line x1="690.0" x2="690.0" y1="58" y2="308" stroke="#33322f" stroke-width="1"/>
+<text x="690.0" y="324" font-size="11" text-anchor="middle" fill="#c3c2b7">800</text>
+<text x="138" y="83.0" font-size="12.5" text-anchor="end" fill="#f0efec">Qwen2.5 0.5B</text>
+<rect x="150" y="64" width="111.8" height="14" rx="3" fill="#6b6a64"/>
+<text x="267.8" y="75" font-size="11.5" font-weight="400" fill="#c3c2b7">166 tok/s</text>
+<rect x="150" y="80" width="403.5" height="14" rx="3" fill="#d95926"/>
+<text x="559.5" y="91" font-size="11.5" font-weight="600" fill="#f0efec">598 tok/s</text>
+<text x="138" y="131.0" font-size="12.5" text-anchor="end" fill="#f0efec">Qwen3 1.7B</text>
+<rect x="150" y="112" width="22.4" height="14" rx="3" fill="#6b6a64"/>
+<text x="178.4" y="123" font-size="11.5" font-weight="400" fill="#c3c2b7">33 tok/s</text>
+<rect x="150" y="128" width="93.4" height="14" rx="3" fill="#d95926"/>
+<text x="249.4" y="139" font-size="11.5" font-weight="600" fill="#f0efec">138 tok/s</text>
+<text x="138" y="179.0" font-size="12.5" text-anchor="end" fill="#f0efec">Qwen3.5 0.8B</text>
+<text x="154" y="171" font-size="11.5" fill="#c3c2b7">cannot run this model</text>
+<rect x="150" y="176" width="205.1" height="14" rx="3" fill="#d95926"/>
+<text x="361.1" y="187" font-size="11.5" font-weight="600" fill="#f0efec">304 tok/s</text>
+<text x="138" y="227.0" font-size="12.5" text-anchor="end" fill="#f0efec">Qwen3.5 2B</text>
+<rect x="150" y="208" width="3.0" height="14" rx="3" fill="#6b6a64"/>
+<text x="159.0" y="219" font-size="11.5" font-weight="400" fill="#c3c2b7">2.9 tok/s</text>
+<rect x="150" y="224" width="105.9" height="14" rx="3" fill="#d95926"/>
+<text x="261.9" y="235" font-size="11.5" font-weight="600" fill="#f0efec">157 tok/s</text>
+<text x="138" y="275.0" font-size="12.5" text-anchor="end" fill="#f0efec">Granite 4.2 3B</text>
+<rect x="150" y="256" width="11.1" height="14" rx="3" fill="#6b6a64"/>
+<text x="167.1" y="267" font-size="11.5" font-weight="400" fill="#c3c2b7">16.5 tok/s</text>
+<rect x="150" y="272" width="44.9" height="14" rx="3" fill="#d95926"/>
+<text x="200.9" y="283" font-size="11.5" font-weight="600" fill="#f0efec">66 tok/s</text>
+</svg>

@@ -71,7 +71,8 @@ def _is_gibberish_chunk(s: str) -> bool:
         return False
     letters = sum(c.isalpha() for c in t)
     digits = sum(c.isdigit() for c in t)
-    punct = sum(c in ";'\\/_+=-@#$%^&*`~|" for c in t)
+    # Markdown/code chars (* _ # ` | -) and apostrophes are normal text.
+    punct = sum(c in ";\\/+=@$%^&~" for c in t)
     if digits / len(t) >= 0.22:
         return True
     if punct / len(t) >= 0.12 and digits + letters > 8:
@@ -215,9 +216,63 @@ def snap_model_type(snap: Path) -> str:
     return str(tc.get("model_type") or data.get("model_type") or "").lower()
 
 
-def fallback_chat_prompt(messages: list, model_type: str = "") -> str:
+def snap_template_style(snap: Path | None) -> tuple[str, str]:
+    """Detect the chat format from the pack's own template text.
+
+    Returns (style, no_think_suffix). model_type alone is not enough: MiniCPM5
+    and Granite 4.2 ship model_type "llama"/"granite" but speak ChatML.
+    """
+    if not snap:
+        return "", ""
+    tpl = ""
+    for base in (snap, snap / "kpk", snap.parent):
+        for name in ("chat_template.jinja", "tokenizer_config.json"):
+            f = base / name
+            if f.is_file():
+                try:
+                    raw = f.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if name.endswith(".json"):
+                    try:
+                        raw = str(json.loads(raw).get("chat_template") or "")
+                    except Exception:
+                        raw = ""
+                tpl += raw
+        if tpl:
+            break
+    if not tpl:
+        return "", ""
+    style = ""
+    if "<|im_start|>" in tpl:
+        style = "chatml"
+    elif "<|start_header_id|>" in tpl:
+        style = "llama3"
+    elif "<start_of_turn>" in tpl:
+        style = "gemma"
+    elif "<|user|>" in tpl:
+        style = "phi"
+    no_think = ""
+    if style == "chatml" and "enable_thinking" in tpl:
+        if "<think></think>" in tpl:
+            no_think = "<think></think>"
+        elif "<think>\\n\\n</think>" in tpl or "<think>\n\n</think>" in tpl:
+            no_think = "<think>\n\n</think>\n\n"
+    return style, no_think
+
+
+def fallback_chat_prompt(messages: list, model_type: str = "", snap: Path | None = None) -> str:
     """Family-aware chat formatting when transformers isn't available (packaged apps)."""
     mt = (model_type or "").lower()
+    style, no_think = snap_template_style(snap)
+    if style == "chatml":
+        mt = "chatml"
+    elif style == "llama3":
+        mt = "llama"
+    elif style == "gemma":
+        mt = "gemma"
+    elif style == "phi":
+        mt = "phi"
     turns = []
     for m in messages:
         role = (m.get("role") or "user").strip()
@@ -262,7 +317,7 @@ def fallback_chat_prompt(messages: list, model_type: str = "") -> str:
     parts = []
     for role, content in turns:
         parts.append(f"<|im_start|>{role}\n{content}<|im_end|>")
-    parts.append("<|im_start|>assistant\n")
+    parts.append("<|im_start|>assistant\n" + no_think)
     return "\n".join(parts)
 
 
@@ -288,7 +343,7 @@ def format_engine_prompt(snap: Path, messages: list | None, flat_prompt: str) ->
                     return tok.apply_chat_template(chat, **kwargs)
         except Exception as e:
             sys.stderr.write(f"[windhover] chat template fallback: {e}\n")
-        fb = fallback_chat_prompt(messages, model_type)
+        fb = fallback_chat_prompt(messages, model_type, snap)
         if fb:
             return fb
     return flat_prompt

@@ -12,6 +12,12 @@ export function agentVisibleReply(text: string, hasTools: boolean): string {
   let t = (text || "").trim();
   if (!t) return "";
   t = t.replace(/(?:^|\n)TOOL\s+\w+[\s\S]*?(?:\nEND\b)/gi, "\n");
+  // Single-line / malformed tool calls small models emit ("TOOL finish …", "list_dir . END").
+  t = t.replace(/^\s*TOOL\b.*$/gim, "");
+  t = t.replace(/^\s*(?:read_file|str_replace|write_file|list_dir|finish)\b.*$/gim, "");
+  t = t.replace(/^\s*END\s*$/gim, "");
+  // Echoed tool-result JSON.
+  t = t.replace(/^\s*\{\s*"(?:tool|name)"\s*:[\s\S]*?\}\s*$/gim, "");
   t = t.replace(/```(?:tool|json)\s*\n[\s\S]*?```/gi, "\n");
   t = t.replace(/<tool>[\s\S]*?<\/tool>/gi, "\n");
   t = t.replace(/\n{3,}/g, "\n\n").trim();
@@ -54,4 +60,11 @@ export function toolActivityGroup(results: AgentToolResult[]): string {
   const other = labels.length - explores - reads - edits;
   if (other > 0) parts.push(`${other} other`);
   return parts.join(", ");
+}
+
+/** Server summaries are sometimes raw tool JSON; only show prose. */
+export function agentSummaryText(summary: string): string {
+  const t = (summary || "").trim();
+  if (!t || t.startsWith("{") || t.startsWith("[")) return "";
+  return t;
 }

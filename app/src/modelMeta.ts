@@ -14,6 +14,11 @@ export type CatalogModel = {
   engine?: string;
   chat?: string;
   tier?: string;
+  released?: string;
+  recommended?: boolean;
+  legacy?: boolean;
+  params_b?: number;
+  engine_path?: string;
 };
 
 export type Installed = {
@@ -38,20 +43,39 @@ export type Installed = {
 };
 
 export const FAMILIES = [
+  { id: "mac", label: "Fits a laptop" },
+  { id: "new", label: "New in 2026" },
   { id: "all", label: "All" },
-  { id: "ollama", label: "Ollama" },
-  { id: "mac", label: "16GB laptop" },
-  { id: "windhover", label: "Windhover" },
-  { id: "gemma", label: "Gemma" },
-  { id: "phi", label: "Phi" },
   { id: "qwen", label: "Qwen" },
+  { id: "gemma", label: "Gemma" },
+  { id: "granite", label: "Granite" },
+  { id: "minicpm", label: "MiniCPM" },
+  { id: "phi", label: "Phi" },
   { id: "deepseek", label: "DeepSeek" },
-  { id: "minimax", label: "MiniMax" },
   { id: "llama", label: "Llama" },
   { id: "mistral", label: "Mistral" },
   { id: "glm", label: "GLM" },
   { id: "kimi", label: "Kimi" },
+  { id: "minimax", label: "MiniMax" },
+  { id: "windhover", label: "SmolLM" },
+  { id: "ollama", label: "Ollama" },
 ] as const;
+
+export function isNewModel(m: CatalogModel) {
+  return (m.tags || []).includes("new") || (m.released || "") >= "2026-01-01";
+}
+
+export function releasedLabel(m: CatalogModel) {
+  if (!m.released) return "";
+  const d = new Date(`${m.released}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return m.released;
+  return d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+}
+
+export function familyLabel(id?: string) {
+  const f = FAMILIES.find((x) => x.id === id);
+  return f ? f.label : id ? id.charAt(0).toUpperCase() + id.slice(1) : "Other";
+}
 
 export function matchInstalled(list: Installed[], id: string) {
   const key = id.replace("/", "__");
@@ -84,7 +108,7 @@ export function isMacSmall(m: CatalogModel) {
 }
 
 export function statusBadge(m: CatalogModel) {
-  if (isMacSmall(m)) return { cls: "mac", label: "16GB laptop" };
+  if (isMacSmall(m)) return { cls: "mac", label: "Laptop" };
   if (m.status === "ready" && m.chat === "preview") return { cls: "ready", label: "Preview" };
   if (m.status === "ready" && m.chat === "engine-oracle") return { cls: "demo", label: "Engine demo" };
   if (m.status === "download") return { cls: "download", label: "Download" };

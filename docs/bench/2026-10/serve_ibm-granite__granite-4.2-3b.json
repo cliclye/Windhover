@@ -1,0 +1,189 @@
+{
+  "pack": "/Users/changhyunglee/.kestrel/models/ibm-granite__granite-4.2-3b/kpk",
+  "cache_on": [
+    {
+      "turn": 1,
+      "prompt_tokens": 29,
+      "cached_tokens": 0,
+      "prefill_s": 0.327,
+      "decode_tok_s": 15.73,
+      "generated": 96,
+      "wall_s": 6.431,
+      "reply": "For a 3-day autumn trip to Kyoto, prioritize these must-see experiences based on seasonal appeal, cultural depth, and efficient pacing\u2014focusing on iconic sites, seasonal beauty, and balanced exploration:\n\n### \ud83d\udcc5 Key Priorities (Day-by-Day Flow)\n*(All times suggest morning visits to avoid crowds; adjust based on your arrival day.)*\n\n| Day | Morning (Priority 1)                     | Afternoon (Priority"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 140,
+      "cached_tokens": 27,
+      "prefill_s": 1.69,
+      "decode_tok_s": 17.59,
+      "generated": 96,
+      "wall_s": 7.148,
+      "reply": "For a 3-day Kyoto autumn trip, here\u2019s exactly which sites to visit **early in the morning** (before 9:00 AM) to avoid crowds\u2014based on real visitor patterns, seasonal beauty, and practical logistics. I\u2019ve prioritized the *most* crowd-free, iconic spots that still give you the full autumn experience, with clear timing, why they\u2019re best early, and quick tips.\n\n---\n\n### \u2705"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 248,
+      "cached_tokens": 138,
+      "prefill_s": 1.72,
+      "decode_tok_s": 16.96,
+      "generated": 96,
+      "wall_s": 7.38,
+      "reply": "Here\u2019s a simple, realistic Day 1 itinerary for your 3-day Kyoto autumn trip\u2014focused on **early morning visits to avoid crowds**, seasonal beauty, and efficient pacing. All times are approximate (adjust by 15\u201330 min based on your arrival time). I\u2019ve kept it minimal, practical, and centered on the *most* crowd-free, iconic autumn spots.\n\n---\n\n### \ud83d\uddd3\ufe0f Day 1 (Focus:"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 356,
+      "cached_tokens": 246,
+      "prefill_s": 1.797,
+      "decode_tok_s": 16.55,
+      "generated": 96,
+      "wall_s": 7.599,
+      "reply": "Here\u2019s a concise, practical answer focused on the *exact places* from your Day 1 itinerary (early morning visits to avoid crowds), with local foods you can easily try nearby\u2014no fluff, just what\u2019s authentic, seasonal, and convenient.\n\n---\n\n### \ud83d\uddd3\ufe0f Your Day 1 Itinerary (Early Morning, Crowd-Avoiding)  \n*(All times are approximate; aim to arrive 15\u201320 min before listed"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 470,
+      "cached_tokens": 354,
+      "prefill_s": 1.946,
+      "decode_tok_s": 16.24,
+      "generated": 96,
+      "wall_s": 7.857,
+      "reply": "Here\u2019s a clear, practical answer focused on your Day 1 itinerary (early morning, crowd-avoiding) and the Arashiyama area you\u2019ll visit. No extra steps\u2014just the cheapest, fastest way to get there from Kyoto Station, based on real local transit (no taxis, no walking long distances).\n\n### \u2705 Best cheap way from Kyoto Station to Arashiyama (Day 1 morning)\n- **Take the JR Sag"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 582,
+      "cached_tokens": 468,
+      "prefill_s": 2.029,
+      "decode_tok_s": 15.9,
+      "generated": 89,
+      "wall_s": 7.628,
+      "reply": "- Day 1: Start early (7:30\u20138:30\u202fam) at **Kiyomizu-dera Temple** (crowd-free before 9\u202fam, iconic autumn views); walk 15\u202fmin to nearby local caf\u00e9 for seasonal snacks (e.g., yuzu kosho-flavored mochi).  \n- Day 1: Mid\u2011morning (9:30"
+    }
+  ],
+  "cache_off": [
+    {
+      "turn": 1,
+      "prompt_tokens": 29,
+      "cached_tokens": 0,
+      "prefill_s": 0.39,
+      "decode_tok_s": 17.32,
+      "generated": 96,
+      "wall_s": 5.931,
+      "reply": "For a 3-day autumn trip to Kyoto, prioritize these must-see experiences based on seasonal appeal, cultural depth, and efficient pacing\u2014focusing on iconic sites, seasonal beauty, and balanced exploration:\n\n### \ud83d\udcc5 Key Priorities (Day-by-Day Flow)\n*(All times suggest morning visits to avoid crowds; adjust based on your arrival day.)*\n\n| Day | Morning (Priority 1)                     | Afternoon (Priority"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 140,
+      "cached_tokens": 0,
+      "prefill_s": 2.131,
+      "decode_tok_s": 17.26,
+      "generated": 96,
+      "wall_s": 7.694,
+      "reply": "For a 3-day Kyoto autumn trip, here\u2019s exactly which sites to visit **early in the morning** (before 9:00 AM) to avoid crowds\u2014based on real visitor patterns, seasonal beauty, and practical logistics. I\u2019ve prioritized the *most* crowd-free, iconic spots that still give you the full autumn experience, with clear timing, why they\u2019re best early, and quick tips.\n\n---\n\n### \u2705"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 248,
+      "cached_tokens": 0,
+      "prefill_s": 3.72,
+      "decode_tok_s": 16.8,
+      "generated": 96,
+      "wall_s": 9.434,
+      "reply": "Here\u2019s a simple, realistic Day 1 itinerary for your 3-day Kyoto autumn trip\u2014focused on **early morning visits to avoid crowds**, seasonal beauty, and efficient pacing. All times are approximate (adjust by 15\u201330 min based on your arrival time). I\u2019ve kept it minimal, practical, and centered on the *most* crowd-free, iconic autumn spots.\n\n---\n\n### \ud83d\uddd3\ufe0f Day 1 (Focus:"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 356,
+      "cached_tokens": 0,
+      "prefill_s": 5.364,
+      "decode_tok_s": 16.22,
+      "generated": 96,
+      "wall_s": 11.282,
+      "reply": "Here\u2019s a concise, practical answer focused on the *exact places* from your Day 1 itinerary (early morning visits to avoid crowds), with local foods you can easily try nearby\u2014no fluff, just what\u2019s authentic, seasonal, and convenient.\n\n---\n\n### \ud83d\uddd3\ufe0f Your Day 1 Itinerary (Early Morning, Crowd-Avoiding)  \n*(All times are approximate; aim to arrive 15\u201320 min before listed"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 470,
+      "cached_tokens": 0,
+      "prefill_s": 7.34,
+      "decode_tok_s": 15.9,
+      "generated": 96,
+      "wall_s": 13.38,
+      "reply": "Here\u2019s a clear, practical answer focused on your Day 1 itinerary (early morning, crowd-avoiding) and the Arashiyama area you\u2019ll visit. No extra steps\u2014just the cheapest, fastest way to get there from Kyoto Station, based on real local transit (no taxis, no walking long distances).\n\n### \u2705 Best cheap way from Kyoto Station to Arashiyama (Day 1 morning)\n- **Take the JR Sag"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 582,
+      "cached_tokens": 0,
+      "prefill_s": 9.122,
+      "decode_tok_s": 15.83,
+      "generated": 89,
+      "wall_s": 14.745,
+      "reply": "- Day 1: Start early (7:30\u20138:30\u202fam) at **Kiyomizu-dera Temple** (crowd-free before 9\u202fam, iconic autumn views); walk 15\u202fmin to nearby local caf\u00e9 for seasonal snacks (e.g., yuzu kosho-flavored mochi).  \n- Day 1: Mid\u2011morning (9:30"
+    }
+  ],
+  "baseline": [
+    {
+      "turn": 1,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 1.5699650484444634,
+      "decode_tok_s": 14.27,
+      "generated": 96,
+      "wall_s": 8.297,
+      "reply": "For a 3-day autumn trip to Kyoto, prioritize experiences that showcase the season\u2019s beauty, cultural depth, and seasonal highlights\u2014avoiding overcrowding and focusing on balance. Here\u2019s a concise, practical prioritization based on typical autumn (late September\u2013early November) conditions, visitor flow, and what makes Kyoto special:\n\n### \u2705 Top Priorities (What to Do First & Why)\n1. **Kinkaku-ji (Golden"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 8.637799389457303,
+      "decode_tok_s": 14.31,
+      "generated": 96,
+      "wall_s": 15.346,
+      "reply": "For a 3-day autumn trip to Kyoto, prioritizing **early morning visits** (before 9:00 AM) at key sites helps you avoid crowds, enjoy cooler, quieter light, and experience the most serene seasonal atmosphere. Here\u2019s exactly which of the top recommendations are best for early mornings\u2014based on typical visitor patterns, site layout, and seasonal flow:\n\n### \u2705 Best Early-Morning Sites (Arrive by 8:30\u20139"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 15.609450027860444,
+      "decode_tok_s": 14.5,
+      "generated": 85,
+      "wall_s": 21.472,
+      "reply": "Here\u2019s a simple, realistic Day 1 itinerary for your 3-day Kyoto autumn trip\u2014focused on early-morning quiet, seasonal beauty, and minimal stress. All times are approximate (based on typical visitor flow; arrive 15\u201330 mins early). Total daily time \u2248 6\u20137 hours of walking/exploring, leaving room for meals and transit.  \n\n> **Key principles"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 21.535432755866893,
+      "decode_tok_s": 14.86,
+      "generated": 75,
+      "wall_s": 26.583,
+      "reply": "Here\u2019s a simple, practical answer focused on what to eat *near the early-morning sites* you\u2019ll visit on Day 1 (based on your itinerary below). I\u2019ll keep it concise\u2014no jargon, just what\u2019s easy to find, seasonal, and locally loved.\n\n### \ud83c\udf42 Day 1 Early-Morning"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 26.583446102615287,
+      "decode_tok_s": 13.51,
+      "generated": 96,
+      "wall_s": 33.689,
+      "reply": "Here\u2019s the clearest, most practical way to get from Kyoto Station to Arashiyama cheaply (and safely) for your autumn trip\u2014based on real-world timing, cost, and local convenience:\n\n### \u2705 Best Option: JR Sagano Line (Most Affordable & Reliable)\n- **How to get there**:  \n  Take the **JR Sagano Line** from Kyoto Station \u2192 *Saga\u014d* station (about 15 minutes)."
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 33.45592902670297,
+      "decode_tok_s": 13.93,
+      "generated": 96,
+      "wall_s": 40.348,
+      "reply": "- Day 1: Start early (7:30\u20138:30\u202fam) at Kinkaku-ji \u2192 Arashiyama Bamboo Grove \u2192 Tenry\u016b-ji (quiet, golden-hour light); eat local snacks near Arashiyama (e.g., yaki-imo, matcha sweets).  \n- Day 1 morning transport: Take JR Sagano Line from Kyoto Station to Saga\u014d station (\u224815\u202fmin"
+    }
+  ]
+}

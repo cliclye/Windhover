@@ -5,20 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Windhover</title>
     <link rel="icon" type="image/png" href="./windhover-icon.png" />
-    <meta name="description" content="Windhover — local LLM runtime" />
+    <meta name="description" content="Windhover — fast local LLM runtime" />
     <meta name="apple-mobile-web-app-title" content="Windhover" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <meta name="color-scheme" content="light dark" />
     <style>
-      html, body, #root { height: 100%; margin: 0; background: #f6f5f2; color: #1c1c19; }
-      @media (prefers-color-scheme: dark) {
-        html, body, #root { background: #191918; color: #ecece8; }
-      }
+      /* Background only (avoids a white flash); text colour comes from styles.css tokens. */
+      html, body, #root { height: 100%; margin: 0; }
+      html { background: #f6f5f1; }
+      @media (prefers-color-scheme: dark) { html:not([data-theme="light"]) { background: #131312; } }
+      html[data-theme="dark"] { background: #131312; }
     </style>
+    <script>
+      try {
+        var t = localStorage.getItem("wh.theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

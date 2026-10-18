@@ -226,6 +226,8 @@ static void wmir_desc_from_model(jval *model, WhDesc *d) {
     d->final_softcap = wmir_jf(model, "final_softcap", 0.f);
     d->embed_scale = wmir_jf(model, "embed_scale", 0.f);
     d->query_scale = wmir_jf(model, "query_scale", 0.f);
+    d->residual_scale = wmir_jf(model, "residual_scale", 0.f);
+    d->logit_scale = wmir_jf(model, "logit_scale", 0.f);
     d->partial_rotary = wmir_jf(model, "partial_rotary", 1.f);
     d->rope_attn_scale = wmir_jf(model, "rope_attn_scale", 1.f);
     d->attn_output_gate = wmir_ji(model, "attn_output_gate", 0);

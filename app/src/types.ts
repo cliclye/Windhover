@@ -35,6 +35,10 @@ export type WindhoverStats = {
   bytes_per_tok?: number;
   au_hit_pct?: number;
   forwards?: number;
+  rss_gb?: number;
+  prompt_tokens?: number;
+  cached_tokens?: number;
+  prefill_s?: number;
 };
 
 export type RamProfileInfo = {
@@ -82,3 +86,25 @@ export type AgentStep = {
 };
 
 export type EngineState = "on" | "off" | "warn" | "";
+
+export type Conversation = {
+  id: string;
+  title: string;
+  model: string;
+  messages: Msg[];
+  updated: number;
+};
+
+export type TelemetryPoint = {
+  t: number;
+  model: string;
+  decode?: number;
+  prefill?: number;
+  prompt?: number;
+  cached?: number;
+  prefillS?: number;
+  latencyMs?: number;
+  rssGb?: number;
+};
+
+export type Tab = "chat" | "library" | "agent" | "performance" | "settings";

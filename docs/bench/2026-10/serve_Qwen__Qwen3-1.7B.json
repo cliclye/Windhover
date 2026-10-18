@@ -1,0 +1,189 @@
+{
+  "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3-1.7B/kpk",
+  "cache_on": [
+    {
+      "turn": 1,
+      "prompt_tokens": 31,
+      "cached_tokens": 0,
+      "prefill_s": 0.148,
+      "decode_tok_s": 28.21,
+      "generated": 96,
+      "wall_s": 3.551,
+      "reply": "Planning a 3-day trip to **Kyoto in autumn** is a fantastic idea, and it\u2019s a perfect time to experience the city\u2019s beauty, culture, and seasonal charm. Here\u2019s a prioritised plan to make the most of your trip:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning: Arrival and Orientation**\n- **Arrive in Kyoto** and check into your hotel.\n- **Explore the city center** \u2013 start with"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 150,
+      "cached_tokens": 27,
+      "prefill_s": 0.851,
+      "decode_tok_s": 27.78,
+      "generated": 96,
+      "wall_s": 4.307,
+      "reply": "That\u2019s a great question! If you're planning a **3-day trip to Kyoto in autumn**, **early in the morning** is often the best time to avoid crowds, especially if you're heading to **popular attractions** like the **Kinkaku-ji (Golden Pavilion)**, **Gion** (the historic district), or **Fushimi Inari** (the famous torii gates).\n\nHere\u2019s a prioritised plan with **early morning recommendations** to help"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 267,
+      "cached_tokens": 146,
+      "prefill_s": 0.894,
+      "decode_tok_s": 27.3,
+      "generated": 96,
+      "wall_s": 4.411,
+      "reply": "Absolutely! Here's a **simple and efficient 3-day itinerary** for your **Kyoto autumn trip**, with **early morning recommendations** to avoid crowds and make the most of your time:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning (7:00\u20139:00 AM):**  \n**Arrival and Hotel Check-In**  \n- Arrive at Kyoto Station or Kyoto Airport.  \n- Check into a hotel in"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 383,
+      "cached_tokens": 263,
+      "prefill_s": 0.92,
+      "decode_tok_s": 28.5,
+      "generated": 96,
+      "wall_s": 4.288,
+      "reply": "That\u2019s a fantastic follow-up question! Trying **local foods** is a must when visiting Kyoto in autumn, and it\u2019s a great way to experience the city\u2019s culture and flavor. Here\u2019s a **simple and delicious food guide** for your **Day 1** itinerary:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning (7:00\u20139:00 AM):**  \n**Arrival and Hotel Check-In**"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 503,
+      "cached_tokens": 379,
+      "prefill_s": 1.038,
+      "decode_tok_s": 27.93,
+      "generated": 96,
+      "wall_s": 4.475,
+      "reply": "That\u2019s a great question! If you're staying in **Arashiyama** (or near it), you can get from **Kyoto Station** to **Arashiyama** **cheaply and efficiently** using the following options:\n\n---\n\n### \u2705 **Best Ways to Get from Kyoto Station to Arashiyama (Cheap & Efficient):**\n\n#### 1. **Kyoto Metro (JR Pass or Monthly Pass)**  \n- **Cost:** ~\u00a51,"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 620,
+      "cached_tokens": 499,
+      "prefill_s": 1.152,
+      "decode_tok_s": 22.32,
+      "generated": 96,
+      "wall_s": 5.453,
+      "reply": "Here\u2019s a **concise summary** of your **3-day Kyoto autumn trip** plan in **five bullet points**:\n\n---\n\n### \u2705 **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n- **Morning:** Arrive at Kyoto Station or Airport, check into a hotel near Arashiyama.  \n- **Afternoon:** Explore **Arashiyama** (Golden Pavilion, Arashiyama Park, Arashiyama Castle).  \n- **"
+    }
+  ],
+  "cache_off": [
+    {
+      "turn": 1,
+      "prompt_tokens": 31,
+      "cached_tokens": 0,
+      "prefill_s": 0.241,
+      "decode_tok_s": 26.44,
+      "generated": 96,
+      "wall_s": 3.871,
+      "reply": "Planning a 3-day trip to **Kyoto in autumn** is a fantastic idea, and it\u2019s a perfect time to experience the city\u2019s beauty, culture, and seasonal charm. Here\u2019s a prioritised plan to make the most of your trip:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning: Arrival and Orientation**\n- **Arrive in Kyoto** and check into your hotel.\n- **Explore the city center** \u2013 start with"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 150,
+      "cached_tokens": 0,
+      "prefill_s": 1.146,
+      "decode_tok_s": 26.07,
+      "generated": 96,
+      "wall_s": 4.828,
+      "reply": "That\u2019s a great question! If you're planning a **3-day trip to Kyoto in autumn**, **early in the morning** is often the best time to avoid crowds, especially if you're heading to **popular attractions** like the **Kinkaku-ji (Golden Pavilion)**, **Gion** (the historic district), or **Fushimi Inari** (the famous torii gates).\n\nHere\u2019s a prioritised plan with **early morning recommendations** to help"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 267,
+      "cached_tokens": 0,
+      "prefill_s": 1.962,
+      "decode_tok_s": 26.22,
+      "generated": 96,
+      "wall_s": 5.624,
+      "reply": "Absolutely! Here's a **simple and efficient 3-day itinerary** for your **Kyoto autumn trip**, with **early morning recommendations** to avoid crowds and make the most of your time:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning (7:00\u20139:00 AM):**  \n**Arrival and Hotel Check-In**  \n- Arrive at Kyoto Station or Kyoto Airport.  \n- Check into a hotel in"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 383,
+      "cached_tokens": 0,
+      "prefill_s": 2.792,
+      "decode_tok_s": 25.74,
+      "generated": 96,
+      "wall_s": 6.522,
+      "reply": "That\u2019s a fantastic follow-up question! Trying **local foods** is a must when visiting Kyoto in autumn, and it\u2019s a great way to experience the city\u2019s culture and flavor. Here\u2019s a **simple and delicious food guide** for your **Day 1** itinerary:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning (7:00\u20139:00 AM):**  \n**Arrival and Hotel Check-In**"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 503,
+      "cached_tokens": 0,
+      "prefill_s": 3.766,
+      "decode_tok_s": 25.28,
+      "generated": 96,
+      "wall_s": 7.563,
+      "reply": "That\u2019s a great question! If you're staying in **Arashiyama** (or near it), you can get from **Kyoto Station** to **Arashiyama** **cheaply and efficiently** using the following options:\n\n---\n\n### \u2705 **Best Ways to Get from Kyoto Station to Arashiyama (Cheap & Efficient):**\n\n#### 1. **Kyoto Metro (JR Pass or Monthly Pass)**  \n- **Cost:** ~\u00a51,"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 620,
+      "cached_tokens": 0,
+      "prefill_s": 4.645,
+      "decode_tok_s": 24.83,
+      "generated": 96,
+      "wall_s": 8.511,
+      "reply": "Here\u2019s a **concise summary** of your **3-day Kyoto autumn trip** plan in **five bullet points**:\n\n---\n\n### \u2705 **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n- **Morning:** Arrive at Kyoto Station or Airport, check into a hotel near Arashiyama.  \n- **Afternoon:** Explore **Arashiyama** (Golden Pavilion, Arashiyama Park, Arashiyama Castle).  \n- **"
+    }
+  ],
+  "baseline": [
+    {
+      "turn": 1,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 0.829537375634458,
+      "decode_tok_s": 23.8,
+      "generated": 54,
+      "wall_s": 3.098,
+      "reply": "Planning a 3-day trip to **Kyoto in autumn** is a fantastic idea, and it\u2019s a perfect time to experience the city\u2019s beauty, culture, and seasonal charm. Here's a prioritised plan to make the most of your trip:\n\n---\n\n###"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 3.142080979362282,
+      "decode_tok_s": 28.51,
+      "generated": 14,
+      "wall_s": 3.633,
+      "reply": "That\u2019s a great question! In **Kyoto in autumn**,"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 4.129127939032099,
+      "decode_tok_s": 25.71,
+      "generated": 14,
+      "wall_s": 4.674,
+      "reply": "That\u2019s a great question! In **Kyoto in autumn**,"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 4.965311938086472,
+      "decode_tok_s": 28.32,
+      "generated": 16,
+      "wall_s": 5.53,
+      "reply": "That\u2019s a fantastic follow-up question! In **Kyoto in autumn**,"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 6.149827616358045,
+      "decode_tok_s": 27.62,
+      "generated": 13,
+      "wall_s": 6.621,
+      "reply": "That\u2019s a great question! If you're staying in **"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 7.08855857036376,
+      "decode_tok_s": 23.82,
+      "generated": 77,
+      "wall_s": 10.321,
+      "reply": "- **Day 1**: Start at **Kyoto Station**, take the **JR Shinkansen** to **Arashiyama** (about 1 hour), visit **Arashiyama Castle** and **Arashiyama Garden**, then enjoy a **ramen** or **soba** at a local spot.  \n- **Day 2**: Take the"
+    }
+  ]
+}

@@ -127,6 +127,18 @@ def _lower_classic(cfg: dict[str, Any], family: str) -> dict[str, Any]:
         model["fused_gate_up"] = True
     elif family == "llama":
         model["act"] = "silu"
+    elif family == "granite":
+        # Granite = llama layout + scalar multipliers (embedding / attention /
+        # residual / logits). attention_multiplier replaces 1/sqrt(head_dim).
+        model["act"] = "silu"
+        em = float(tc.get("embedding_multiplier") or 1.0)
+        model["embed_scale"] = em if abs(em - 1.0) > 1e-6 else 0.0
+        model["query_scale"] = float(tc.get("attention_multiplier") or 0.0)
+        model["residual_scale"] = float(tc.get("residual_multiplier") or 1.0)
+        model["logit_scale"] = float(tc.get("logits_scaling") or 1.0)
+        rp = tc.get("rope_parameters") if isinstance(tc.get("rope_parameters"), dict) else {}
+        if rp.get("rope_theta") is not None:
+            model["rope_theta"] = float(rp["rope_theta"])
     layers = synthesize_dense_layers(model)
     req = ["attn_gqa", "mlp_gelu" if model["act"] in ("gelu_tanh", "gelu") else "mlp_swiglu"]
     if model.get("final_softcap"):
@@ -160,6 +172,10 @@ def lower_gemma3(cfg: dict[str, Any]) -> dict[str, Any]:
 
 def lower_phi3(cfg: dict[str, Any]) -> dict[str, Any]:
     return _lower_classic(cfg, "phi3")
+
+
+def lower_granite(cfg: dict[str, Any]) -> dict[str, Any]:
+    return _lower_classic(cfg, "granite")
 
 
 # ---- Gemma 4 ---------------------------------------------------------------
@@ -218,6 +234,7 @@ def lower_qwen35(cfg: dict[str, Any]) -> dict[str, Any]:
     ) else "qwen3_5"
     model = _base_model(tc, family=family)
     model["qk_norm"] = True
+    model["norm"] = "rmsnorm_gemma"   # Qwen3_5RMSNorm: x * (1 + w)
     rp = tc.get("rope_parameters") if isinstance(tc.get("rope_parameters"), dict) else {}
     if not rp and isinstance(cfg.get("rope_parameters"), dict):
         rp = cfg["rope_parameters"]
@@ -481,6 +498,7 @@ FAMILY_LOWERERS: dict[str, LowerFn] = {
     "gemma2": lower_gemma2,
     "gemma3": lower_gemma3,
     "phi3": lower_phi3,
+    "granite": lower_granite,
     "gemma4": lower_gemma4,
     "gemma4_text": lower_gemma4,
     "gemma4_unified": lower_gemma4,

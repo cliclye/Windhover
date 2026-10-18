@@ -1,0 +1,2528 @@
+{
+  "started": "2026-10-17 22:24:02",
+  "host": {
+    "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+    "python": "3.14.6",
+    "machdep.cpu.brand_string": "Apple M4",
+    "hw.memsize": "17179869184",
+    "hw.perflevel0.physicalcpu": "4",
+    "hw.perflevel1.physicalcpu": "6"
+  },
+  "baseline": "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.baseline",
+  "engine": "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.new",
+  "models": {
+    "Qwen__Qwen2.5-0.5B-Instruct": {
+      "ab": {
+        "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-0.5B-Instruct/kpk",
+        "modes": {
+          "greedy": {
+            "summary": {
+              "a_decode": 113.74,
+              "b_decode": 128.27,
+              "a_prefill": 227.6,
+              "b_prefill": 722.0,
+              "a_rss": 0.66,
+              "b_rss": 0.66,
+              "text_match": "0/3",
+              "top1_match": "2/3",
+              "top10_overlap": 0.8666666666666667,
+              "max_kl": 0.13707749343067702,
+              "max_abs_dlogit": 2.784557342529297,
+              "decode_speedup": 1.127747494285212,
+              "prefill_speedup": 3.172231985940246
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  110.26,
+                  113.74,
+                  113.02,
+                  110.49,
+                  114.43,
+                  111.68,
+                  117.53,
+                  118.46,
+                  115.6
+                ],
+                "prefill": [
+                  210.7,
+                  255.8,
+                  259.2,
+                  224.5,
+                  231.6,
+                  191.4,
+                  230.8,
+                  227.6,
+                  222.0
+                ],
+                "rss": [
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66
+                ]
+              },
+              "b": {
+                "decode": [
+                  129.67,
+                  131.24,
+                  127.7,
+                  123.19,
+                  132.57,
+                  123.95,
+                  126.54,
+                  128.57,
+                  128.27
+                ],
+                "prefill": [
+                  841.1,
+                  815.1,
+                  798.2,
+                  629.4,
+                  755.2,
+                  722.0,
+                  402.4,
+                  588.8,
+                  670.2
+                ],
+                "rss": [
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66
+                ]
+              },
+              "text_match": [
+                false,
+                false,
+                false
+              ],
+              "logits": [
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 2.2190723419189453,
+                  "kl": 0.0662380898264156
+                },
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 2.784557342529297,
+                  "kl": 0.13707749343067702
+                },
+                {
+                  "top1_match": false,
+                  "top10_overlap": 0.8,
+                  "max_abs_dlogit": 1.7333979606628418,
+                  "kl": 0.06015884220349114
+                }
+              ]
+            }
+          },
+          "chat": {
+            "summary": {
+              "a_decode": 37.11,
+              "b_decode": 126.44,
+              "a_prefill": 226.4,
+              "b_prefill": 741.8,
+              "a_rss": 0.66,
+              "b_rss": 0.66,
+              "text_match": null,
+              "decode_speedup": 3.407167879277823,
+              "prefill_speedup": 3.276501766784452
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  37.74,
+                  37.22,
+                  36.55,
+                  37.04,
+                  36.93,
+                  37.11,
+                  37.58,
+                  36.57,
+                  37.22
+                ],
+                "prefill": [
+                  223.0,
+                  226.4,
+                  227.9,
+                  227.8,
+                  225.5,
+                  228.7,
+                  228.4,
+                  212.3,
+                  220.3
+                ],
+                "rss": [
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66
+                ]
+              },
+              "b": {
+                "decode": [
+                  116.23,
+                  127.0,
+                  126.44,
+                  122.1,
+                  125.18,
+                  127.66,
+                  127.31,
+                  126.76,
+                  122.74
+                ],
+                "prefill": [
+                  792.4,
+                  752.8,
+                  794.7,
+                  741.9,
+                  721.6,
+                  741.8,
+                  680.6,
+                  584.6,
+                  688.4
+                ],
+                "rss": [
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66,
+                  0.66
+                ]
+              },
+              "text_match": [],
+              "logits": []
+            }
+          },
+          "long": {
+            "summary": {
+              "a_decode": 109.53,
+              "b_decode": 123.0,
+              "a_prefill": 165.6,
+              "b_prefill": 597.8,
+              "a_rss": 0.69,
+              "b_rss": 0.69,
+              "text_match": "0/1",
+              "top1_match": "1/1",
+              "top10_overlap": 0.9,
+              "max_kl": 0.010075129891767816,
+              "max_abs_dlogit": 1.8967154026031494,
+              "decode_speedup": 1.1229800054779513,
+              "prefill_speedup": 3.609903381642512
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  106.59,
+                  109.53,
+                  109.68
+                ],
+                "prefill": [
+                  165.6,
+                  161.0,
+                  167.3
+                ],
+                "rss": [
+                  0.69,
+                  0.69,
+                  0.69
+                ]
+              },
+              "b": {
+                "decode": [
+                  126.43,
+                  121.36,
+                  123.0
+                ],
+                "prefill": [
+                  635.9,
+                  597.8,
+                  537.3
+                ],
+                "rss": [
+                  0.69,
+                  0.69,
+                  0.69
+                ]
+              },
+              "text_match": [
+                false
+              ],
+              "logits": [
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 1.8967154026031494,
+                  "kl": 0.010075129891767816
+                }
+              ]
+            }
+          }
+        }
+      },
+      "serve": {
+        "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-0.5B-Instruct/kpk",
+        "cache_on": [
+          {
+            "turn": 1,
+            "prompt_tokens": 27,
+            "cached_tokens": 0,
+            "prefill_s": 0.04,
+            "decode_tok_s": 127.17,
+            "generated": 96,
+            "wall_s": 0.795,
+            "reply": "When planning a 3-day trip to Kyoto in autumn, you should consider the following priorities:\n\n1. **Visit the famous temples and shrines**:\n   - Start your trip with a visit to the famous temples and shrines, such as the Kinkaku-ji (Golden Pavilion) and the Kiyomizu-ji (Golden Pagoda). These are the most iconic landmarks in Kyoto and are a must-see for any Kyoto trip.\n\n2. **Explore the"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 146,
+            "cached_tokens": 122,
+            "prefill_s": 0.038,
+            "decode_tok_s": 126.13,
+            "generated": 96,
+            "wall_s": 0.799,
+            "reply": "When planning your trip to Kyoto in autumn, it's best to visit the temples and shrines early in the morning to avoid the crowds. Here are some reasons why:\n\n1. **Early Morning Visits**:\n   - **Kinkaku-ji (Golden Pavilion)**: This is a popular spot for early morning visits. The pavilion is open from 6:00 AM to 10:00 AM, making it ideal for early morning visitors."
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 262,
+            "cached_tokens": 240,
+            "prefill_s": 0.04,
+            "decode_tok_s": 123.79,
+            "generated": 96,
+            "wall_s": 0.816,
+            "reply": "Certainly! Here's a simple 1-day itinerary with some suggested times for each activity:\n\n**Day 1:**\n- **Morning:**\n  - **Visit Kinkaku-ji (Golden Pavilion)**: 6:00 AM - 10:00 AM\n  - **Visit Kiyomizu-ji (Golden Pagoda)**: 10:00 AM - 1:00 PM\n  - **Visit the Kiy"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 378,
+            "cached_tokens": 357,
+            "prefill_s": 0.042,
+            "decode_tok_s": 122.91,
+            "generated": 96,
+            "wall_s": 0.824,
+            "reply": "When exploring Kyoto in autumn, you can't go wrong with local foods. Here are some must-try dishes near the famous temples and shrines:\n\n1. **Kiyomizu-ji (Golden Pagoda)**:\n   - **Kiyomizu Sushi** (located in the Kiyomizu-ji): A traditional sushi restaurant that offers a variety of sushi rolls, including the famous \"Kiyomizu Sushi\" which is a classic.\n   -"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 499,
+            "cached_tokens": 473,
+            "prefill_s": 0.054,
+            "decode_tok_s": 120.58,
+            "generated": 96,
+            "wall_s": 0.851,
+            "reply": "Getting from Kyoto Station to Arashiyama is relatively easy and affordable. Here are some options:\n\n1. **Train**:\n   - **Kyoto Station to Arashiyama**: You can take a train from Kyoto Station to Arashiyama. The train journey takes about 2 hours and costs around 1000 yen (approximately $10). You can purchase a ticket at the station or use a ticket vending machine.\n   - **Train to Ar"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 616,
+            "cached_tokens": 594,
+            "prefill_s": 0.051,
+            "decode_tok_s": 113.28,
+            "generated": 96,
+            "wall_s": 0.898,
+            "reply": "Certainly! Here is a summary of your 3-day Kyoto trip plan:\n\n**Day 1:**\n- **Morning:**\n  - **Visit Kinkaku-ji (Golden Pavilion)**: 6:00 AM - 10:00 AM\n  - **Visit Kiyomizu-ji (Golden Pagoda)**: 10:00 AM - 1:00 PM\n  - **Visit the Kiyomizu-"
+          }
+        ],
+        "cache_off": [
+          {
+            "turn": 1,
+            "prompt_tokens": 27,
+            "cached_tokens": 0,
+            "prefill_s": 0.04,
+            "decode_tok_s": 122.35,
+            "generated": 96,
+            "wall_s": 0.825,
+            "reply": "When planning a 3-day trip to Kyoto in autumn, you should consider the following priorities:\n\n1. **Visit the famous temples and shrines**:\n   - Start your trip with a visit to the famous temples and shrines, such as the Kinkaku-ji (Golden Pavilion) and the Kiyomizu-ji (Golden Pagoda). These are the most iconic landmarks in Kyoto and are a must-see for any Kyoto trip.\n\n2. **Explore the"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 146,
+            "cached_tokens": 0,
+            "prefill_s": 0.223,
+            "decode_tok_s": 116.62,
+            "generated": 96,
+            "wall_s": 1.046,
+            "reply": "When planning your trip to Kyoto in autumn, you should consider the best time to visit the temples and shrines, as they are often crowded. Here are some tips to help you plan your visit early in the morning:\n\n1. **Visit the temples and shrines early in the morning**:\n   - The best time to visit the temples and shrines is usually early in the morning, around 6:00 AM. This is when the crowds are generally smaller and the"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 263,
+            "cached_tokens": 0,
+            "prefill_s": 0.428,
+            "decode_tok_s": 112.49,
+            "generated": 96,
+            "wall_s": 1.282,
+            "reply": "Certainly! Here\u2019s a simple 1-day itinerary with suggested times for each activity:\n\n**Day 1:**\n- **Morning:**\n  - Start your day with a visit to the Kinkaku-ji (Golden Pavilion) at 6:00 AM.\n  - Alternatively, you can visit the Kiyomizu-ji (Golden Pagoda) at 6:30 AM.\n\n- **Afternoon:**\n  - Explore the Kiyomizu"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 379,
+            "cached_tokens": 0,
+            "prefill_s": 0.607,
+            "decode_tok_s": 114.19,
+            "generated": 96,
+            "wall_s": 1.448,
+            "reply": "Certainly! Here are some local foods you should try near the temples and shrines in Kyoto:\n\n1. **Kiyomizu-ji (Golden Pagoda)**\n   - **Kaiseki (High-Cuisine)**: Enjoy a traditional kaiseki meal, which combines several types of food and drink, such as sushi, sashimi, and sake.\n   - **Sushi**: Try some popular kaiseki-style sushi, such as the \"Kiyom"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 500,
+            "cached_tokens": 0,
+            "prefill_s": 0.925,
+            "decode_tok_s": 111.94,
+            "generated": 96,
+            "wall_s": 1.783,
+            "reply": "To get from Kyoto Station to Arashiyama, you can use the following methods:\n\n1. **Taxis**:\n   - Taxis are a convenient option for short distances. You can use a taxi service from Kyoto Station to Arashiyama. The cost is typically around 100-200 yen (about $1-2 USD) per person. You can book a taxi through a taxi app or call a taxi directly from Kyoto Station.\n\n2"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 617,
+            "cached_tokens": 0,
+            "prefill_s": 1.085,
+            "decode_tok_s": 110.74,
+            "generated": 96,
+            "wall_s": 1.952,
+            "reply": "Sure, here is a summary of your 1-day itinerary with suggested times for each activity:\n\n**Day 1:**\n- **Morning:**\n  - Visit the Kinkaku-ji (Golden Pavilion) at 6:00 AM.\n  - Alternatively, visit the Kiyomizu-ji (Golden Pagoda) at 6:30 AM.\n- **Afternoon:**\n  - Explore the Kiyomizu-ji (Golden Pagoda"
+          }
+        ],
+        "baseline": [
+          {
+            "turn": 1,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 0.12095148642121806,
+            "decode_tok_s": 106.89,
+            "generated": 40,
+            "wall_s": 0.495,
+            "reply": "When planning a 3-day trip to Kyoto in autumn, you should focus on exploring the city's unique and vibrant atmosphere. Here are some key points to consider:\n\n1. **Visit the Kyoto"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 0.5385006849491796,
+            "decode_tok_s": 91.11,
+            "generated": 42,
+            "wall_s": 0.999,
+            "reply": "When planning your trip to Kyoto in autumn, you should aim to visit the city early in the morning to avoid the crowds. Here are some of the best times to visit Kyoto:\n\n1. **Early Morning"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 0.9399146628307764,
+            "decode_tok_s": 102.57,
+            "generated": 37,
+            "wall_s": 1.301,
+            "reply": "Certainly! Here's a simple 1-day itinerary in Kyoto that includes early morning visits:\n\n**Day 1: Kyoto Early Morning**\n\n- **Morning: Kyoto**\n  - **"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 1.2718089144282574,
+            "decode_tok_s": 103.63,
+            "generated": 45,
+            "wall_s": 1.706,
+            "reply": "In Kyoto, you can explore the city's culinary delights near the places you've chosen for your early morning visit. Here are some local foods you might want to try:\n\n1. **Kaiseki**\n   - **"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 1.7372958902034539,
+            "decode_tok_s": 99.05,
+            "generated": 34,
+            "wall_s": 2.081,
+            "reply": "To get from Kyoto Station to Arashiyama in Kyoto, you can use the Kyoto Metro. Here are some options:\n\n1. **Metro Line 1**"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 2.1325366405265243,
+            "decode_tok_s": 97.68,
+            "generated": 61,
+            "wall_s": 2.757,
+            "reply": "**Day 1: Kyoto Early Morning**\n- Visit the city's unique and vibrant atmosphere.\n- Explore the city's unique and vibrant atmosphere.\n- Visit the Kyoto Station.\n- Use the Kyoto Metro to get to Arashiyama.\n- Enjoy a Kaiseki meal near the Kyoto Station."
+          }
+        ]
+      },
+      "parity": {
+        "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-0.5B-Instruct",
+        "reference_dtype": "float32",
+        "engines": {
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.new": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "4/5",
+              "top10_mean": 0.8800000000000001,
+              "kl_mean": 0.16048411917483865,
+              "kl_max": 0.4375071396505766
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.13198748272453836
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.020154097299581925
+              },
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.06360407438294742
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.14916780181654898
+              },
+              {
+                "top1": false,
+                "top10": 0.8,
+                "kl": 0.4375071396505766
+              }
+            ]
+          },
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.baseline": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "4/5",
+              "top10_mean": 0.8400000000000001,
+              "kl_mean": 0.23098949874187516,
+              "kl_max": 0.5527132192478049
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.30093717216468446
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.098383028590179
+              },
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.08146288761907401
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.12145118608763344
+              },
+              {
+                "top1": false,
+                "top10": 0.7,
+                "kl": 0.5527132192478049
+              }
+            ]
+          }
+        }
+      }
+    },
+    "Qwen__Qwen3-1.7B": {
+      "ab": {
+        "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3-1.7B/kpk",
+        "modes": {
+          "greedy": {
+            "summary": {
+              "a_decode": 30.41,
+              "b_decode": 31.7,
+              "a_prefill": 43.0,
+              "b_prefill": 162.5,
+              "a_rss": 2.01,
+              "b_rss": 2.02,
+              "text_match": "0/3",
+              "top1_match": "2/3",
+              "top10_overlap": 0.9,
+              "max_kl": 0.19563081629363552,
+              "max_abs_dlogit": 4.8575029373168945,
+              "decode_speedup": 1.0424202564945741,
+              "prefill_speedup": 3.7790697674418605
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  37.63,
+                  32.55,
+                  30.41,
+                  31.44,
+                  29.7,
+                  31.76,
+                  30.09,
+                  28.51,
+                  29.75
+                ],
+                "prefill": [
+                  58.2,
+                  49.3,
+                  43.0,
+                  41.0,
+                  39.2,
+                  43.2,
+                  44.0,
+                  38.6,
+                  38.4
+                ],
+                "rss": [
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.01,
+                  2.01,
+                  2.01,
+                  2.01,
+                  2.01,
+                  2.01
+                ]
+              },
+              "b": {
+                "decode": [
+                  38.72,
+                  38.3,
+                  32.62,
+                  31.7,
+                  31.26,
+                  30.1,
+                  30.7,
+                  30.79,
+                  31.94
+                ],
+                "prefill": [
+                  214.9,
+                  206.4,
+                  190.3,
+                  175.0,
+                  162.5,
+                  146.7,
+                  152.9,
+                  142.1,
+                  150.6
+                ],
+                "rss": [
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02
+                ]
+              },
+              "text_match": [
+                false,
+                false,
+                false
+              ],
+              "logits": [
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 4.424218773841858,
+                  "kl": 0.07994706175691509
+                },
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 4.8575029373168945,
+                  "kl": 0.19563081629363552
+                },
+                {
+                  "top1_match": false,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 2.8877890408039093,
+                  "kl": 0.07284500839129127
+                }
+              ]
+            }
+          },
+          "chat": {
+            "summary": {
+              "a_decode": 17.63,
+              "b_decode": 28.96,
+              "a_prefill": 39.0,
+              "b_prefill": 158.4,
+              "a_rss": 2.01,
+              "b_rss": 2.02,
+              "text_match": null,
+              "decode_speedup": 1.6426545660805447,
+              "prefill_speedup": 4.061538461538461
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  16.78,
+                  17.61,
+                  17.63,
+                  17.89,
+                  17.42,
+                  18.39,
+                  17.68,
+                  17.29,
+                  18.77
+                ],
+                "prefill": [
+                  38.7,
+                  36.9,
+                  41.1,
+                  38.7,
+                  39.0,
+                  42.4,
+                  35.9,
+                  39.0,
+                  43.5
+                ],
+                "rss": [
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.01,
+                  2.01,
+                  2.01,
+                  2.01,
+                  2.01,
+                  2.01
+                ]
+              },
+              "b": {
+                "decode": [
+                  28.96,
+                  28.34,
+                  31.25,
+                  31.66,
+                  32.24,
+                  28.56,
+                  26.77,
+                  26.16,
+                  31.78
+                ],
+                "prefill": [
+                  139.5,
+                  156.7,
+                  179.4,
+                  170.8,
+                  158.4,
+                  175.8,
+                  143.2,
+                  136.3,
+                  170.7
+                ],
+                "rss": [
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02,
+                  2.02
+                ]
+              },
+              "text_match": [],
+              "logits": []
+            }
+          },
+          "long": {
+            "summary": {
+              "a_decode": 29.34,
+              "b_decode": 33.57,
+              "a_prefill": 33.2,
+              "b_prefill": 138.4,
+              "a_rss": 2.08,
+              "b_rss": 2.08,
+              "text_match": "1/1",
+              "top1_match": "1/1",
+              "top10_overlap": 0.9,
+              "max_kl": 9.092354391228574e-06,
+              "max_abs_dlogit": 3.9988197088241577,
+              "decode_speedup": 1.1441717791411044,
+              "prefill_speedup": 4.16867469879518
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  29.34,
+                  22.01,
+                  30.83
+                ],
+                "prefill": [
+                  32.1,
+                  35.4,
+                  33.2
+                ],
+                "rss": [
+                  2.08,
+                  2.08,
+                  2.08
+                ]
+              },
+              "b": {
+                "decode": [
+                  33.57,
+                  34.28,
+                  28.64
+                ],
+                "prefill": [
+                  138.4,
+                  153.7,
+                  135.6
+                ],
+                "rss": [
+                  2.08,
+                  2.08,
+                  2.08
+                ]
+              },
+              "text_match": [
+                true
+              ],
+              "logits": [
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 3.9988197088241577,
+                  "kl": 9.092354391228574e-06
+                }
+              ]
+            }
+          }
+        }
+      },
+      "serve": {
+        "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3-1.7B/kpk",
+        "cache_on": [
+          {
+            "turn": 1,
+            "prompt_tokens": 31,
+            "cached_tokens": 0,
+            "prefill_s": 0.148,
+            "decode_tok_s": 28.21,
+            "generated": 96,
+            "wall_s": 3.551,
+            "reply": "Planning a 3-day trip to **Kyoto in autumn** is a fantastic idea, and it\u2019s a perfect time to experience the city\u2019s beauty, culture, and seasonal charm. Here\u2019s a prioritised plan to make the most of your trip:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning: Arrival and Orientation**\n- **Arrive in Kyoto** and check into your hotel.\n- **Explore the city center** \u2013 start with"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 150,
+            "cached_tokens": 27,
+            "prefill_s": 0.851,
+            "decode_tok_s": 27.78,
+            "generated": 96,
+            "wall_s": 4.307,
+            "reply": "That\u2019s a great question! If you're planning a **3-day trip to Kyoto in autumn**, **early in the morning** is often the best time to avoid crowds, especially if you're heading to **popular attractions** like the **Kinkaku-ji (Golden Pavilion)**, **Gion** (the historic district), or **Fushimi Inari** (the famous torii gates).\n\nHere\u2019s a prioritised plan with **early morning recommendations** to help"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 267,
+            "cached_tokens": 146,
+            "prefill_s": 0.894,
+            "decode_tok_s": 27.3,
+            "generated": 96,
+            "wall_s": 4.411,
+            "reply": "Absolutely! Here's a **simple and efficient 3-day itinerary** for your **Kyoto autumn trip**, with **early morning recommendations** to avoid crowds and make the most of your time:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning (7:00\u20139:00 AM):**  \n**Arrival and Hotel Check-In**  \n- Arrive at Kyoto Station or Kyoto Airport.  \n- Check into a hotel in"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 383,
+            "cached_tokens": 263,
+            "prefill_s": 0.92,
+            "decode_tok_s": 28.5,
+            "generated": 96,
+            "wall_s": 4.288,
+            "reply": "That\u2019s a fantastic follow-up question! Trying **local foods** is a must when visiting Kyoto in autumn, and it\u2019s a great way to experience the city\u2019s culture and flavor. Here\u2019s a **simple and delicious food guide** for your **Day 1** itinerary:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning (7:00\u20139:00 AM):**  \n**Arrival and Hotel Check-In**"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 503,
+            "cached_tokens": 379,
+            "prefill_s": 1.038,
+            "decode_tok_s": 27.93,
+            "generated": 96,
+            "wall_s": 4.475,
+            "reply": "That\u2019s a great question! If you're staying in **Arashiyama** (or near it), you can get from **Kyoto Station** to **Arashiyama** **cheaply and efficiently** using the following options:\n\n---\n\n### \u2705 **Best Ways to Get from Kyoto Station to Arashiyama (Cheap & Efficient):**\n\n#### 1. **Kyoto Metro (JR Pass or Monthly Pass)**  \n- **Cost:** ~\u00a51,"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 620,
+            "cached_tokens": 499,
+            "prefill_s": 1.152,
+            "decode_tok_s": 22.32,
+            "generated": 96,
+            "wall_s": 5.453,
+            "reply": "Here\u2019s a **concise summary** of your **3-day Kyoto autumn trip** plan in **five bullet points**:\n\n---\n\n### \u2705 **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n- **Morning:** Arrive at Kyoto Station or Airport, check into a hotel near Arashiyama.  \n- **Afternoon:** Explore **Arashiyama** (Golden Pavilion, Arashiyama Park, Arashiyama Castle).  \n- **"
+          }
+        ],
+        "cache_off": [
+          {
+            "turn": 1,
+            "prompt_tokens": 31,
+            "cached_tokens": 0,
+            "prefill_s": 0.241,
+            "decode_tok_s": 26.44,
+            "generated": 96,
+            "wall_s": 3.871,
+            "reply": "Planning a 3-day trip to **Kyoto in autumn** is a fantastic idea, and it\u2019s a perfect time to experience the city\u2019s beauty, culture, and seasonal charm. Here\u2019s a prioritised plan to make the most of your trip:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning: Arrival and Orientation**\n- **Arrive in Kyoto** and check into your hotel.\n- **Explore the city center** \u2013 start with"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 150,
+            "cached_tokens": 0,
+            "prefill_s": 1.146,
+            "decode_tok_s": 26.07,
+            "generated": 96,
+            "wall_s": 4.828,
+            "reply": "That\u2019s a great question! If you're planning a **3-day trip to Kyoto in autumn**, **early in the morning** is often the best time to avoid crowds, especially if you're heading to **popular attractions** like the **Kinkaku-ji (Golden Pavilion)**, **Gion** (the historic district), or **Fushimi Inari** (the famous torii gates).\n\nHere\u2019s a prioritised plan with **early morning recommendations** to help"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 267,
+            "cached_tokens": 0,
+            "prefill_s": 1.962,
+            "decode_tok_s": 26.22,
+            "generated": 96,
+            "wall_s": 5.624,
+            "reply": "Absolutely! Here's a **simple and efficient 3-day itinerary** for your **Kyoto autumn trip**, with **early morning recommendations** to avoid crowds and make the most of your time:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning (7:00\u20139:00 AM):**  \n**Arrival and Hotel Check-In**  \n- Arrive at Kyoto Station or Kyoto Airport.  \n- Check into a hotel in"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 383,
+            "cached_tokens": 0,
+            "prefill_s": 2.792,
+            "decode_tok_s": 25.74,
+            "generated": 96,
+            "wall_s": 6.522,
+            "reply": "That\u2019s a fantastic follow-up question! Trying **local foods** is a must when visiting Kyoto in autumn, and it\u2019s a great way to experience the city\u2019s culture and flavor. Here\u2019s a **simple and delicious food guide** for your **Day 1** itinerary:\n\n---\n\n### **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n**Morning (7:00\u20139:00 AM):**  \n**Arrival and Hotel Check-In**"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 503,
+            "cached_tokens": 0,
+            "prefill_s": 3.766,
+            "decode_tok_s": 25.28,
+            "generated": 96,
+            "wall_s": 7.563,
+            "reply": "That\u2019s a great question! If you're staying in **Arashiyama** (or near it), you can get from **Kyoto Station** to **Arashiyama** **cheaply and efficiently** using the following options:\n\n---\n\n### \u2705 **Best Ways to Get from Kyoto Station to Arashiyama (Cheap & Efficient):**\n\n#### 1. **Kyoto Metro (JR Pass or Monthly Pass)**  \n- **Cost:** ~\u00a51,"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 620,
+            "cached_tokens": 0,
+            "prefill_s": 4.645,
+            "decode_tok_s": 24.83,
+            "generated": 96,
+            "wall_s": 8.511,
+            "reply": "Here\u2019s a **concise summary** of your **3-day Kyoto autumn trip** plan in **five bullet points**:\n\n---\n\n### \u2705 **Day 1: Arrival and Exploration of Kyoto\u2019s Heart**\n\n- **Morning:** Arrive at Kyoto Station or Airport, check into a hotel near Arashiyama.  \n- **Afternoon:** Explore **Arashiyama** (Golden Pavilion, Arashiyama Park, Arashiyama Castle).  \n- **"
+          }
+        ],
+        "baseline": [
+          {
+            "turn": 1,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 0.829537375634458,
+            "decode_tok_s": 23.8,
+            "generated": 54,
+            "wall_s": 3.098,
+            "reply": "Planning a 3-day trip to **Kyoto in autumn** is a fantastic idea, and it\u2019s a perfect time to experience the city\u2019s beauty, culture, and seasonal charm. Here's a prioritised plan to make the most of your trip:\n\n---\n\n###"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 3.142080979362282,
+            "decode_tok_s": 28.51,
+            "generated": 14,
+            "wall_s": 3.633,
+            "reply": "That\u2019s a great question! In **Kyoto in autumn**,"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 4.129127939032099,
+            "decode_tok_s": 25.71,
+            "generated": 14,
+            "wall_s": 4.674,
+            "reply": "That\u2019s a great question! In **Kyoto in autumn**,"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 4.965311938086472,
+            "decode_tok_s": 28.32,
+            "generated": 16,
+            "wall_s": 5.53,
+            "reply": "That\u2019s a fantastic follow-up question! In **Kyoto in autumn**,"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 6.149827616358045,
+            "decode_tok_s": 27.62,
+            "generated": 13,
+            "wall_s": 6.621,
+            "reply": "That\u2019s a great question! If you're staying in **"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 7.08855857036376,
+            "decode_tok_s": 23.82,
+            "generated": 77,
+            "wall_s": 10.321,
+            "reply": "- **Day 1**: Start at **Kyoto Station**, take the **JR Shinkansen** to **Arashiyama** (about 1 hour), visit **Arashiyama Castle** and **Arashiyama Garden**, then enjoy a **ramen** or **soba** at a local spot.  \n- **Day 2**: Take the"
+          }
+        ]
+      },
+      "parity": {
+        "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3-1.7B",
+        "reference_dtype": "float32",
+        "engines": {
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.new": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "5/5",
+              "top10_mean": 0.82,
+              "kl_mean": 0.03107849642589699,
+              "kl_max": 0.09474376852741068
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.09474376852741068
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.008745050546093437
+              },
+              {
+                "top1": true,
+                "top10": 0.7,
+                "kl": 4.9469828286277986e-09
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.045818188042600315
+              },
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.0060854700663977015
+              }
+            ]
+          },
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.baseline": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "4/5",
+              "top10_mean": 0.86,
+              "kl_mean": 0.049250176990611606,
+              "kl_max": 0.1814208621662194
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.03160040570505713
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.1814208621662194
+              },
+              {
+                "top1": true,
+                "top10": 0.7,
+                "kl": 5.778864423751828e-08
+              },
+              {
+                "top1": false,
+                "top10": 0.9,
+                "kl": 0.03296296856990769
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.00026659072322958194
+              }
+            ]
+          }
+        }
+      }
+    },
+    "Qwen__Qwen3.5-0.8B": {
+      "ab": {
+        "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-0.8B/kpk",
+        "modes": {
+          "greedy": {
+            "summary": {
+              "a_decode": null,
+              "b_decode": 59.77,
+              "a_prefill": null,
+              "b_prefill": 293.9,
+              "a_rss": null,
+              "b_rss": 1.09,
+              "text_match": null,
+              "decode_speedup": null,
+              "prefill_speedup": null
+            },
+            "raw": {
+              "a": {
+                "decode": [],
+                "prefill": [],
+                "rss": []
+              },
+              "b": {
+                "decode": [
+                  67.26,
+                  46.94,
+                  49.55,
+                  63.0,
+                  54.82,
+                  64.85,
+                  59.77,
+                  55.09,
+                  60.89
+                ],
+                "prefill": [
+                  82.2,
+                  281.0,
+                  293.9,
+                  301.3,
+                  242.5,
+                  426.3,
+                  372.8,
+                  222.9,
+                  368.6
+                ],
+                "rss": [
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09
+                ]
+              },
+              "text_match": [],
+              "logits": []
+            }
+          },
+          "chat": {
+            "summary": {
+              "a_decode": null,
+              "b_decode": 50.7,
+              "a_prefill": null,
+              "b_prefill": 272.1,
+              "a_rss": null,
+              "b_rss": 1.09,
+              "text_match": null,
+              "decode_speedup": null,
+              "prefill_speedup": null
+            },
+            "raw": {
+              "a": {
+                "decode": [],
+                "prefill": [],
+                "rss": []
+              },
+              "b": {
+                "decode": [
+                  55.47,
+                  55.78,
+                  24.44,
+                  42.56,
+                  35.27,
+                  59.57,
+                  50.7,
+                  52.8,
+                  48.07
+                ],
+                "prefill": [
+                  329.4,
+                  300.2,
+                  436.8,
+                  182.0,
+                  214.7,
+                  213.3,
+                  267.9,
+                  272.1,
+                  320.5
+                ],
+                "rss": [
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09,
+                  1.09
+                ]
+              },
+              "text_match": [],
+              "logits": []
+            }
+          },
+          "long": {
+            "summary": {
+              "a_decode": null,
+              "b_decode": 57.17,
+              "a_prefill": null,
+              "b_prefill": 303.8,
+              "a_rss": null,
+              "b_rss": 1.12,
+              "text_match": null,
+              "decode_speedup": null,
+              "prefill_speedup": null
+            },
+            "raw": {
+              "a": {
+                "decode": [],
+                "prefill": [],
+                "rss": []
+              },
+              "b": {
+                "decode": [
+                  57.17,
+                  56.11,
+                  63.31
+                ],
+                "prefill": [
+                  280.6,
+                  303.8,
+                  305.1
+                ],
+                "rss": [
+                  1.12,
+                  1.12,
+                  1.12
+                ]
+              },
+              "text_match": [],
+              "logits": []
+            }
+          }
+        }
+      },
+      "serve": {
+        "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-0.8B/kpk",
+        "cache_on": [
+          {
+            "turn": 1,
+            "prompt_tokens": 31,
+            "cached_tokens": 0,
+            "prefill_s": 0.132,
+            "decode_tok_s": 54.41,
+            "generated": 96,
+            "wall_s": 1.902,
+            "reply": "Planning a 3-day trip to Kyoto in autumn (September to November) is an excellent choice because the city transforms into a vibrant, colorful, and culturally rich destination. The weather is generally pleasant, and the city is less crowded than in spring or summer.\n\nHere is a prioritized guide to your itinerary, focusing on the most impactful experiences:\n\n### 1. The Core Experience: The Imperial Palace (Kyoto Castle)\n**Priority: #1**\nThis"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 150,
+            "cached_tokens": 24,
+            "prefill_s": 0.387,
+            "decode_tok_s": 47.97,
+            "generated": 96,
+            "wall_s": 2.39,
+            "reply": "For a 3-day trip in autumn, avoiding crowds in the early morning is crucial because the city is still relatively quiet, and the temperature is often cooler and more comfortable.\n\nHere are the best early-morning options to prioritize, ranked by their impact on your experience:\n\n### 1. The Imperial Palace (Kyoto Castle)\n**Best for:** The main attraction and the most iconic view.\n*   **Why:** This is the heart of Kyoto. Arr"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 267,
+            "cached_tokens": 143,
+            "prefill_s": 0.662,
+            "decode_tok_s": 55.85,
+            "generated": 74,
+            "wall_s": 1.99,
+            "reply": "Here is a simple, efficient 3-day itinerary designed specifically for an autumn trip to Kyoto.\n\n### **Day 1: Arrival & The Imperial Palace**\n*Focus: Settling in, exploring the main sights, and enjoying the autumn colors.*\n\n| Time | Activity |\n| :--- | :--- |\n| **06:00"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 360,
+            "cached_tokens": 260,
+            "prefill_s": 0.53,
+            "decode_tok_s": 35.41,
+            "generated": 96,
+            "wall_s": 3.244,
+            "reply": "For a 3-day autumn trip, the best local foods to try near the Imperial Palace (Kyoto Castle) are **Miso Soup**, **Nigiri**, **Sushi**, and **Miso Tofu**.\n\nHere is why these are the top recommendations and how to get them:\n\n### 1. Miso Soup (The City's Favorite Drink)\n*   **Why:** It is the most popular food in Kyoto, often served in small bowls"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 481,
+            "cached_tokens": 353,
+            "prefill_s": 0.581,
+            "decode_tok_s": 40.16,
+            "generated": 96,
+            "wall_s": 2.973,
+            "reply": "Getting from **Kyoto Station** to **Arashiyama** is a classic \"train + bus\" route, but the cost depends heavily on your travel method. Here is the breakdown of the cheapest options:\n\n### Option 1: The Train + Bus Combo (Most Affordable)\nThis is the standard, cheapest way to get there. You take a train to the station, then a bus to the destination.\n\n*   **Train:** Take the **Kyoto"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 598,
+            "cached_tokens": 474,
+            "prefill_s": 0.611,
+            "decode_tok_s": 50.19,
+            "generated": 96,
+            "wall_s": 2.527,
+            "reply": "Here is a concise summary of the 3-day autumn Kyoto itinerary:\n\n*   **Day 1:** Arrive at Kyoto Station, explore the Imperial Palace (Kyoto Castle) for iconic views, and enjoy a traditional Miso Soup meal.\n*   **Day 2:** Visit the Arashiyama Bamboo Grove for a peaceful walk, visit the Kinkaku-ji (Golden Pavilion) for a sunrise view, and try local seasonal snacks like Miso T"
+          }
+        ],
+        "cache_off": [
+          {
+            "turn": 1,
+            "prompt_tokens": 31,
+            "cached_tokens": 0,
+            "prefill_s": 0.09,
+            "decode_tok_s": 62.45,
+            "generated": 96,
+            "wall_s": 1.629,
+            "reply": "Planning a 3-day trip to Kyoto in autumn (September to November) is an excellent choice because the city transforms into a vibrant, colorful, and culturally rich destination. The weather is generally pleasant, and the city is less crowded than in spring or summer.\n\nHere is a prioritized guide to your itinerary, focusing on the most impactful experiences:\n\n### 1. The Core Experience: The Imperial Palace (Kyoto Castle)\n**Priority: #1**\nThis"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 150,
+            "cached_tokens": 0,
+            "prefill_s": 0.51,
+            "decode_tok_s": 60.52,
+            "generated": 96,
+            "wall_s": 2.097,
+            "reply": "For a 3-day trip in autumn, avoiding crowds in the early morning is crucial because the city is still relatively quiet, and the temperature is often cooler and more comfortable.\n\nHere are the best early-morning options to prioritize, ranked by their impact on your experience:\n\n### 1. The Imperial Palace (Kyoto Castle)\n**Best for:** The main attraction and the most iconic view.\n*   **Why:** This is the heart of Kyoto. Arr"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 267,
+            "cached_tokens": 0,
+            "prefill_s": 0.898,
+            "decode_tok_s": 62.48,
+            "generated": 74,
+            "wall_s": 2.083,
+            "reply": "Here is a simple, efficient 3-day itinerary designed specifically for an autumn trip to Kyoto.\n\n### **Day 1: Arrival & The Imperial Palace**\n*Focus: Settling in, exploring the main sights, and enjoying the autumn colors.*\n\n| Time | Activity |\n| :--- | :--- |\n| **06:00"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 360,
+            "cached_tokens": 0,
+            "prefill_s": 1.276,
+            "decode_tok_s": 61.73,
+            "generated": 96,
+            "wall_s": 2.832,
+            "reply": "For a 3-day autumn trip, the best local foods to try near the Imperial Palace (Kyoto Castle) are **Miso Soup**, **Nigiri**, **Sushi**, and **Miso Tofu**.\n\nHere is why these are the top recommendations and how to get them:\n\n### 1. Miso Soup (The City's Favorite Drink)\n*   **Why:** It is the most popular food in Kyoto, often served in small bowls"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 481,
+            "cached_tokens": 0,
+            "prefill_s": 1.479,
+            "decode_tok_s": 61.95,
+            "generated": 96,
+            "wall_s": 3.03,
+            "reply": "Getting from **Kyoto Station** to **Arashiyama** is a classic \"train + bus\" route, but the cost depends heavily on your travel method. Here is the breakdown of the cheapest options:\n\n### Option 1: The Train + Bus Combo (Most Affordable)\nThis is the standard, cheapest way to get there. You take a train to the station, then a bus to the destination.\n\n*   **Train:** Take the **Kyoto"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 598,
+            "cached_tokens": 0,
+            "prefill_s": 1.927,
+            "decode_tok_s": 66.34,
+            "generated": 96,
+            "wall_s": 3.375,
+            "reply": "Here is a concise summary of the 3-day autumn Kyoto itinerary:\n\n*   **Day 1:** Arrive at Kyoto Station, explore the Imperial Palace (Kyoto Castle) for iconic views, and enjoy a traditional Miso Soup meal.\n*   **Day 2:** Visit the Arashiyama Bamboo Grove for a peaceful walk, visit the Kinkaku-ji (Golden Pavilion) for a sunrise view, and try local seasonal snacks like Miso T"
+          }
+        ],
+        "baseline_error": "engine exited: [wh] RoPE: rotary_dim=64/256 partial=0.250 attn_scale=1.0000\n[wh] gdn qkv_rows 6144 exceeds mlp scratch 3584\n"
+      },
+      "parity": {
+        "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-0.8B",
+        "reference_dtype": "float32",
+        "engines": {
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.new": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "5/5",
+              "top10_mean": 0.9199999999999999,
+              "kl_mean": 0.021116090845448746,
+              "kl_max": 0.05066619907654309
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.0012443904274167309
+              },
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.039907287856714754
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.00164449269096159
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.05066619907654309
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.012118084175607557
+              }
+            ]
+          },
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.baseline": {
+            "summary": {
+              "n": 5,
+              "ran": 0,
+              "top1": "0/0",
+              "top10_mean": null,
+              "kl_mean": null,
+              "kl_max": null
+            },
+            "rows": [
+              null,
+              null,
+              null,
+              null,
+              null
+            ]
+          }
+        }
+      }
+    },
+    "Qwen__Qwen3.5-2B": {
+      "ab": {
+        "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-2B/kpk",
+        "modes": {
+          "greedy": {
+            "summary": {
+              "a_decode": 2.9,
+              "b_decode": 25.1,
+              "a_prefill": 3.0,
+              "b_prefill": 152.4,
+              "a_rss": 2.36,
+              "b_rss": 2.36,
+              "text_match": "0/3",
+              "top1_match": "3/3",
+              "top10_overlap": 0.9,
+              "max_kl": 0.018140308060824884,
+              "max_abs_dlogit": 2.7335552275180817,
+              "decode_speedup": 8.655172413793105,
+              "prefill_speedup": 50.800000000000004
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  2.79,
+                  3.0,
+                  3.0,
+                  2.99,
+                  2.9,
+                  2.81,
+                  3.01,
+                  2.74,
+                  2.83
+                ],
+                "prefill": [
+                  2.5,
+                  3.1,
+                  3.0,
+                  3.2,
+                  3.1,
+                  3.0,
+                  2.9,
+                  2.7,
+                  2.9
+                ],
+                "rss": [
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36
+                ]
+              },
+              "b": {
+                "decode": [
+                  28.56,
+                  27.8,
+                  29.47,
+                  28.49,
+                  25.1,
+                  23.54,
+                  24.11,
+                  25.05,
+                  23.9
+                ],
+                "prefill": [
+                  191.4,
+                  152.4,
+                  197.0,
+                  180.5,
+                  150.0,
+                  113.1,
+                  162.4,
+                  120.0,
+                  129.8
+                ],
+                "rss": [
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36
+                ]
+              },
+              "text_match": [
+                false,
+                false,
+                false
+              ],
+              "logits": [
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 1.2656798362731934,
+                  "kl": 0.006791341707114314
+                },
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.8,
+                  "max_abs_dlogit": 2.7335552275180817,
+                  "kl": 0.018140308060824884
+                },
+                {
+                  "top1_match": true,
+                  "top10_overlap": 1.0,
+                  "max_abs_dlogit": 1.3286848068237305,
+                  "kl": 0.0009360849677616521
+                }
+              ]
+            }
+          },
+          "chat": {
+            "summary": {
+              "a_decode": 2.67,
+              "b_decode": 26.66,
+              "a_prefill": 3.0,
+              "b_prefill": 174.5,
+              "a_rss": 2.36,
+              "b_rss": 2.36,
+              "text_match": null,
+              "decode_speedup": 9.985018726591761,
+              "prefill_speedup": 58.166666666666664
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  2.62,
+                  2.43,
+                  2.67,
+                  2.64,
+                  2.63,
+                  2.69,
+                  2.82,
+                  2.81,
+                  2.79
+                ],
+                "prefill": [
+                  2.9,
+                  3.0,
+                  3.1,
+                  3.0,
+                  3.0,
+                  3.0,
+                  3.1,
+                  3.1,
+                  3.1
+                ],
+                "rss": [
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36
+                ]
+              },
+              "b": {
+                "decode": [
+                  26.66,
+                  23.11,
+                  23.92,
+                  26.75,
+                  26.69,
+                  27.15,
+                  26.47,
+                  26.42,
+                  26.69
+                ],
+                "prefill": [
+                  187.1,
+                  113.3,
+                  191.1,
+                  175.5,
+                  141.8,
+                  174.5,
+                  177.8,
+                  135.3,
+                  170.2
+                ],
+                "rss": [
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36,
+                  2.36
+                ]
+              },
+              "text_match": [],
+              "logits": []
+            }
+          },
+          "long": {
+            "summary": {
+              "a_decode": 3.1,
+              "b_decode": 29.63,
+              "a_prefill": 2.9,
+              "b_prefill": 156.9,
+              "a_rss": 2.38,
+              "b_rss": 2.38,
+              "text_match": "1/1",
+              "top1_match": "1/1",
+              "top10_overlap": 0.8,
+              "max_kl": 0.006020889795428763,
+              "max_abs_dlogit": 2.069431781768799,
+              "decode_speedup": 9.558064516129031,
+              "prefill_speedup": 54.10344827586207
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  3.1,
+                  2.86,
+                  3.28
+                ],
+                "prefill": [
+                  3.0,
+                  2.8,
+                  2.9
+                ],
+                "rss": [
+                  2.39,
+                  2.38,
+                  2.3
+                ]
+              },
+              "b": {
+                "decode": [
+                  29.63,
+                  30.47,
+                  29.43
+                ],
+                "prefill": [
+                  156.9,
+                  151.9,
+                  159.1
+                ],
+                "rss": [
+                  2.38,
+                  2.38,
+                  2.38
+                ]
+              },
+              "text_match": [
+                true
+              ],
+              "logits": [
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.8,
+                  "max_abs_dlogit": 2.069431781768799,
+                  "kl": 0.006020889795428763
+                }
+              ]
+            }
+          }
+        }
+      },
+      "serve": {
+        "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-2B/kpk",
+        "cache_on": [
+          {
+            "turn": 1,
+            "prompt_tokens": 31,
+            "cached_tokens": 0,
+            "prefill_s": 0.189,
+            "decode_tok_s": 29.23,
+            "generated": 96,
+            "wall_s": 3.477,
+            "reply": "Kyoto in autumn (late September to early November) is arguably the most magical time of year for a trip. The air is crisp, the colors are vibrant, and the city feels incredibly peaceful. However, the weather can be unpredictable, so prioritizing your itinerary based on the season's specific characteristics is key.\n\nHere is a prioritized guide for your 3-day trip:\n\n### 1. The Golden Rule: Dress for the Weather\nBefore you book a single"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 150,
+            "cached_tokens": 24,
+            "prefill_s": 0.924,
+            "decode_tok_s": 20.52,
+            "generated": 96,
+            "wall_s": 5.604,
+            "reply": "To avoid crowds while still enjoying Kyoto's autumn beauty, the best strategy is to **go early (before 9:00 AM)** and **go late (after 4:00 PM)**.\n\nHere is a breakdown of which specific spots are best for early mornings and which are best for late afternoons, along with why:\n\n### \ud83c\udf05 Best for Early Morning (Before 9:00 AM)\n*The goal here is to beat the"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 267,
+            "cached_tokens": 143,
+            "prefill_s": 1.069,
+            "decode_tok_s": 24.25,
+            "generated": 96,
+            "wall_s": 5.03,
+            "reply": "Here is a simple, efficient **Day 1 Itinerary** designed to maximize your time in Kyoto while avoiding the worst of the crowds.\n\n### **Theme: The Golden Pavilion & The Old City**\nThis route focuses on the most iconic sights, starting with the most famous temple (Kinkaku-ji) and moving through the historic center.\n\n| Time | Activity | Location | Why? |\n| :--- | :--- | :--- | : |"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 382,
+            "cached_tokens": 260,
+            "prefill_s": 0.941,
+            "decode_tok_s": 21.68,
+            "generated": 96,
+            "wall_s": 5.37,
+            "reply": "Since your Day 1 itinerary focuses on the **Golden Pavilion (Kinkaku-ji)** and the **Old City (Kiyomizu-dera)**, you are right in the heart of Kyoto's historic center. This area is famous for its street food scene, which is often more vibrant and accessible than in the distant temples.\n\nHere are the best local foods to try near those specific locations, categorized by where you can find them:\n\n### 1. Near K"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 503,
+            "cached_tokens": 375,
+            "prefill_s": 0.985,
+            "decode_tok_s": 26.87,
+            "generated": 96,
+            "wall_s": 4.56,
+            "reply": "Getting from **Kyoto Station** to **Arashiyama** is one of the most convenient parts of the trip, but the \"cheap\" option depends entirely on whether you want to walk, take a bus, or use a train.\n\nHere are the three best ways to do it, ranked from cheapest to most comfortable:\n\n### 1. The Cheapest Option: Bus (Kintetsu Bus)\nThis is the most budget-friendly way to get there"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 620,
+            "cached_tokens": 496,
+            "prefill_s": 0.914,
+            "decode_tok_s": 27.01,
+            "generated": 96,
+            "wall_s": 4.47,
+            "reply": "Here is a concise summary of your 3-day Kyoto autumn trip, prioritizing the best experiences and logistics:\n\n*   **Day 1: Iconic Landscapes & History**\n    Start early to avoid crowds at **Kinkaku-ji** (Golden Pavilion) and **Kiyomizu-dera** (Wooden Stage). Spend the afternoon exploring the historic **Arashiyama Bamboo Grove** and **Fushimi Inari Taisha** before"
+          }
+        ],
+        "cache_off": [
+          {
+            "turn": 1,
+            "prompt_tokens": 31,
+            "cached_tokens": 0,
+            "prefill_s": 0.198,
+            "decode_tok_s": 28.13,
+            "generated": 96,
+            "wall_s": 3.613,
+            "reply": "Kyoto in autumn (late September to early November) is arguably the most magical time of year for a trip. The air is crisp, the colors are vibrant, and the city feels incredibly peaceful. However, the weather can be unpredictable, so prioritizing your itinerary based on the season's specific characteristics is key.\n\nHere is a prioritized guide for your 3-day trip:\n\n### 1. The Golden Rule: Dress for the Weather\nBefore you book a single"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 150,
+            "cached_tokens": 0,
+            "prefill_s": 1.053,
+            "decode_tok_s": 26.93,
+            "generated": 96,
+            "wall_s": 4.619,
+            "reply": "To avoid crowds while still enjoying Kyoto's autumn beauty, the best strategy is to **go early (before 9:00 AM)** and **go late (after 4:00 PM)**.\n\nHere is a breakdown of which specific spots are best for early mornings and which are best for late afternoons, along with why:\n\n### \ud83c\udf05 Best for Early Morning (Before 9:00 AM)\n*The goal here is to beat the"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 267,
+            "cached_tokens": 0,
+            "prefill_s": 1.836,
+            "decode_tok_s": 25.19,
+            "generated": 96,
+            "wall_s": 5.648,
+            "reply": "Here is a simple, efficient **Day 1 Itinerary** designed to maximize your time in Kyoto while avoiding the worst of the crowds.\n\n### **Theme: The Golden Pavilion & The Old City**\nThis route focuses on the most iconic sights, starting with the most famous temple (Kinkaku-ji) and moving through the historic center.\n\n| Time | Activity | Location | Why? |\n| :--- | :--- | :--- | : |"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 382,
+            "cached_tokens": 0,
+            "prefill_s": 2.646,
+            "decode_tok_s": 26.18,
+            "generated": 96,
+            "wall_s": 6.314,
+            "reply": "Since your Day 1 itinerary focuses on the **Golden Pavilion (Kinkaku-ji)** and the **Old City (Kiyomizu-dera)**, you are right in the heart of Kyoto's historic center. This area is famous for its street food scene, which is often more vibrant and accessible than in the distant temples.\n\nHere are the best local foods to try near those specific locations, categorized by where you can find them:\n\n### 1. Near K"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 503,
+            "cached_tokens": 0,
+            "prefill_s": 3.524,
+            "decode_tok_s": 18.24,
+            "generated": 96,
+            "wall_s": 8.787,
+            "reply": "Getting from **Kyoto Station** to **Arashiyama** is one of the most convenient parts of the trip, but the \"cheap\" option depends entirely on whether you want to walk, take a bus, or use a train.\n\nHere are the three best ways to do it, ranked from cheapest to most comfortable:\n\n### 1. The Cheapest Option: Bus (Kintetsu Bus)\nThis is the most budget-friendly way to get there"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 620,
+            "cached_tokens": 0,
+            "prefill_s": 4.158,
+            "decode_tok_s": 24.74,
+            "generated": 96,
+            "wall_s": 8.041,
+            "reply": "Here is a concise summary of your 3-day Kyoto autumn trip, prioritizing the best experiences and logistics:\n\n*   **Day 1: Iconic Landscapes & History**\n    Start early to avoid crowds at **Kinkaku-ji** (Golden Pavilion) and **Kiyomizu-dera** (Wooden Stage). Spend the afternoon exploring the historic **Arashiyama Bamboo Grove** and **Fushimi Inari Taisha** before"
+          }
+        ],
+        "baseline": [
+          {
+            "turn": 1,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 10.81829189746938,
+            "decode_tok_s": 2.82,
+            "generated": 96,
+            "wall_s": 44.861,
+            "reply": "Kyoto in autumn (late September to early November) is arguably the most magical time of year for a trip. The city transforms into a golden wonder, with crisp air, vibrant foliage, and a distinct seasonal atmosphere.\n\nHere is a prioritized itinerary and guide to make the most of your 3-day trip:\n\n### 1. The Golden Week of Foliage (Priority #1)\nThis is the defining feature of your trip. The goal is to capture"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 50.91429707507959,
+            "decode_tok_s": 2.98,
+            "generated": 96,
+            "wall_s": 83.129,
+            "reply": "To avoid crowds while still enjoying the best views of Kyoto's autumn foliage, the strategy is to **go early (before 8:00 AM)** and **go late (after 4:00 PM)**.\n\nHere is a breakdown of which spots are best for early morning visits, ranked by how well they handle the \"early bird\" crowd strategy:\n\n### 1. The Golden Rule: The \"Golden Hour\" Window\nThe absolute best time to visit any"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 86.13349262262003,
+            "decode_tok_s": 3.12,
+            "generated": 31,
+            "wall_s": 96.069,
+            "reply": "Here is a **simple, efficient Day 1 itinerary** designed to maximize your time in Kyoto while avoiding the biggest crowds.\n\n### **Strategy for"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 107.65143901402833,
+            "decode_tok_s": 3.05,
+            "generated": 95,
+            "wall_s": 138.799,
+            "reply": "Since your Day 1 itinerary focuses on **early morning visits** to avoid crowds, you are in the perfect position to try authentic local cuisine. In Kyoto, the best food is often found in the quiet streets, small shops, and traditional restaurants (*yatai*) that open before the main tourist crowds arrive.\n\nHere are the top local foods to prioritize, specifically recommended for early morning visits:\n\n### 1. **Kaiseki (Traditional Multi-course Dining)**"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 135.43053478647948,
+            "decode_tok_s": 3.14,
+            "generated": 83,
+            "wall_s": 161.864,
+            "reply": "Getting from **Kyoto Station** to **Arashiyama** is one of the most convenient parts of your trip, but since you are traveling in **early morning** (before 8:00 AM) to avoid crowds, you have a few excellent, low-cost options.\n\nHere are the best ways to get there cheaply:\n\n### 1. **The Bus (Most Reliable &"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 174.00933973643245,
+            "decode_tok_s": 2.94,
+            "generated": 96,
+            "wall_s": 206.662,
+            "reply": "Here is a summary of your 3-day Kyoto autumn trip, prioritizing early morning visits to avoid crowds and maximizing the golden foliage experience:\n\n*   **Day 1: The Golden Morning Arrival**\n    Start your trip early at **Kyoto Station** (before 8:00 AM) to catch the first bus or train to **Arashiyama**. Enjoy the quiet streets and early access to the iconic **Bamboo Grove** and **Tenry"
+          }
+        ]
+      },
+      "parity": {
+        "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-2B",
+        "reference_dtype": "bfloat16",
+        "engines": {
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.new": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "5/5",
+              "top10_mean": 0.9199999999999999,
+              "kl_mean": 0.006451088487292736,
+              "kl_max": 0.017210749596706577
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.005303915428994636
+              },
+              {
+                "top1": true,
+                "top10": 0.7,
+                "kl": 0.009202406455702635
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.00023212423799639763
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.0003062467170634345
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.017210749596706577
+              }
+            ]
+          },
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.baseline": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "5/5",
+              "top10_mean": 0.96,
+              "kl_mean": 0.004458537027548432,
+              "kl_max": 0.009943855881748844
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.004005472114279386
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.002322778793758334
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.003938208711662359
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.002082369636293235
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.009943855881748844
+              }
+            ]
+          }
+        }
+      }
+    },
+    "ibm-granite__granite-4.2-3b": {
+      "ab": {
+        "pack": "/Users/changhyunglee/.kestrel/models/ibm-granite__granite-4.2-3b/kpk",
+        "modes": {
+          "greedy": {
+            "summary": {
+              "a_decode": 12.82,
+              "b_decode": 15.44,
+              "a_prefill": 16.8,
+              "b_prefill": 71.7,
+              "a_rss": 3.5,
+              "b_rss": 3.5,
+              "text_match": "0/3",
+              "top1_match": "3/3",
+              "top10_overlap": 0.7666666666666666,
+              "max_kl": 0.3995867824349569,
+              "max_abs_dlogit": 5.039159893989563,
+              "decode_speedup": 1.204368174726989,
+              "prefill_speedup": 4.267857142857143
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  14.15,
+                  13.01,
+                  11.45,
+                  11.31,
+                  12.59,
+                  12.51,
+                  12.94,
+                  13.49,
+                  12.82
+                ],
+                "prefill": [
+                  26.5,
+                  13.7,
+                  17.4,
+                  16.1,
+                  16.8,
+                  16.8,
+                  16.6,
+                  17.4,
+                  17.0
+                ],
+                "rss": [
+                  3.45,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5
+                ]
+              },
+              "b": {
+                "decode": [
+                  15.97,
+                  15.21,
+                  11.93,
+                  15.44,
+                  15.51,
+                  15.5,
+                  14.79,
+                  15.76,
+                  14.17
+                ],
+                "prefill": [
+                  73.4,
+                  76.7,
+                  59.8,
+                  73.9,
+                  71.6,
+                  72.3,
+                  69.7,
+                  70.6,
+                  71.7
+                ],
+                "rss": [
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5
+                ]
+              },
+              "text_match": [
+                false,
+                false,
+                false
+              ],
+              "logits": [
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.7,
+                  "max_abs_dlogit": 5.039159893989563,
+                  "kl": 0.3995867824349569
+                },
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.9,
+                  "max_abs_dlogit": 4.752154111862183,
+                  "kl": 0.2645831787177323
+                },
+                {
+                  "top1_match": true,
+                  "top10_overlap": 0.7,
+                  "max_abs_dlogit": 2.897951126098633,
+                  "kl": 0.16166047079610538
+                }
+              ]
+            }
+          },
+          "chat": {
+            "summary": {
+              "a_decode": 11.96,
+              "b_decode": 15.56,
+              "a_prefill": 17.7,
+              "b_prefill": 75.4,
+              "a_rss": 3.5,
+              "b_rss": 3.5,
+              "text_match": null,
+              "decode_speedup": 1.3010033444816054,
+              "prefill_speedup": 4.259887005649718
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  10.33,
+                  11.86,
+                  12.09,
+                  11.96,
+                  11.94,
+                  12.11,
+                  12.25,
+                  11.93,
+                  12.26
+                ],
+                "prefill": [
+                  14.6,
+                  17.1,
+                  17.7,
+                  17.5,
+                  16.4,
+                  17.8,
+                  17.8,
+                  17.7,
+                  18.1
+                ],
+                "rss": [
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5
+                ]
+              },
+              "b": {
+                "decode": [
+                  14.52,
+                  15.39,
+                  16.03,
+                  14.14,
+                  13.81,
+                  16.03,
+                  16.15,
+                  15.56,
+                  16.0
+                ],
+                "prefill": [
+                  75.4,
+                  70.8,
+                  80.6,
+                  74.2,
+                  65.4,
+                  76.7,
+                  76.1,
+                  70.4,
+                  76.1
+                ],
+                "rss": [
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5,
+                  3.5
+                ]
+              },
+              "text_match": [],
+              "logits": []
+            }
+          },
+          "long": {
+            "summary": {
+              "a_decode": 16.51,
+              "b_decode": 16.38,
+              "a_prefill": 16.5,
+              "b_prefill": 66.5,
+              "a_rss": 3.6,
+              "b_rss": 3.6,
+              "text_match": "0/1",
+              "top1_match": "0/1",
+              "top10_overlap": 0.8,
+              "max_kl": 1.0845502977226409,
+              "max_abs_dlogit": 6.291027545928955,
+              "decode_speedup": 0.9921259842519683,
+              "prefill_speedup": 4.03030303030303
+            },
+            "raw": {
+              "a": {
+                "decode": [
+                  15.31,
+                  17.02,
+                  16.51
+                ],
+                "prefill": [
+                  16.3,
+                  16.5,
+                  16.5
+                ],
+                "rss": [
+                  3.6,
+                  3.6,
+                  3.6
+                ]
+              },
+              "b": {
+                "decode": [
+                  16.29,
+                  17.21,
+                  16.38
+                ],
+                "prefill": [
+                  66.5,
+                  63.7,
+                  67.9
+                ],
+                "rss": [
+                  3.6,
+                  3.6,
+                  3.6
+                ]
+              },
+              "text_match": [
+                false
+              ],
+              "logits": [
+                {
+                  "top1_match": false,
+                  "top10_overlap": 0.8,
+                  "max_abs_dlogit": 6.291027545928955,
+                  "kl": 1.0845502977226409
+                }
+              ]
+            }
+          }
+        }
+      },
+      "serve": {
+        "pack": "/Users/changhyunglee/.kestrel/models/ibm-granite__granite-4.2-3b/kpk",
+        "cache_on": [
+          {
+            "turn": 1,
+            "prompt_tokens": 29,
+            "cached_tokens": 0,
+            "prefill_s": 0.327,
+            "decode_tok_s": 15.73,
+            "generated": 96,
+            "wall_s": 6.431,
+            "reply": "For a 3-day autumn trip to Kyoto, prioritize these must-see experiences based on seasonal appeal, cultural depth, and efficient pacing\u2014focusing on iconic sites, seasonal beauty, and balanced exploration:\n\n### \ud83d\udcc5 Key Priorities (Day-by-Day Flow)\n*(All times suggest morning visits to avoid crowds; adjust based on your arrival day.)*\n\n| Day | Morning (Priority 1)                     | Afternoon (Priority"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 140,
+            "cached_tokens": 27,
+            "prefill_s": 1.69,
+            "decode_tok_s": 17.59,
+            "generated": 96,
+            "wall_s": 7.148,
+            "reply": "For a 3-day Kyoto autumn trip, here\u2019s exactly which sites to visit **early in the morning** (before 9:00 AM) to avoid crowds\u2014based on real visitor patterns, seasonal beauty, and practical logistics. I\u2019ve prioritized the *most* crowd-free, iconic spots that still give you the full autumn experience, with clear timing, why they\u2019re best early, and quick tips.\n\n---\n\n### \u2705"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 248,
+            "cached_tokens": 138,
+            "prefill_s": 1.72,
+            "decode_tok_s": 16.96,
+            "generated": 96,
+            "wall_s": 7.38,
+            "reply": "Here\u2019s a simple, realistic Day 1 itinerary for your 3-day Kyoto autumn trip\u2014focused on **early morning visits to avoid crowds**, seasonal beauty, and efficient pacing. All times are approximate (adjust by 15\u201330 min based on your arrival time). I\u2019ve kept it minimal, practical, and centered on the *most* crowd-free, iconic autumn spots.\n\n---\n\n### \ud83d\uddd3\ufe0f Day 1 (Focus:"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 356,
+            "cached_tokens": 246,
+            "prefill_s": 1.797,
+            "decode_tok_s": 16.55,
+            "generated": 96,
+            "wall_s": 7.599,
+            "reply": "Here\u2019s a concise, practical answer focused on the *exact places* from your Day 1 itinerary (early morning visits to avoid crowds), with local foods you can easily try nearby\u2014no fluff, just what\u2019s authentic, seasonal, and convenient.\n\n---\n\n### \ud83d\uddd3\ufe0f Your Day 1 Itinerary (Early Morning, Crowd-Avoiding)  \n*(All times are approximate; aim to arrive 15\u201320 min before listed"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 470,
+            "cached_tokens": 354,
+            "prefill_s": 1.946,
+            "decode_tok_s": 16.24,
+            "generated": 96,
+            "wall_s": 7.857,
+            "reply": "Here\u2019s a clear, practical answer focused on your Day 1 itinerary (early morning, crowd-avoiding) and the Arashiyama area you\u2019ll visit. No extra steps\u2014just the cheapest, fastest way to get there from Kyoto Station, based on real local transit (no taxis, no walking long distances).\n\n### \u2705 Best cheap way from Kyoto Station to Arashiyama (Day 1 morning)\n- **Take the JR Sag"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 582,
+            "cached_tokens": 468,
+            "prefill_s": 2.029,
+            "decode_tok_s": 15.9,
+            "generated": 89,
+            "wall_s": 7.628,
+            "reply": "- Day 1: Start early (7:30\u20138:30\u202fam) at **Kiyomizu-dera Temple** (crowd-free before 9\u202fam, iconic autumn views); walk 15\u202fmin to nearby local caf\u00e9 for seasonal snacks (e.g., yuzu kosho-flavored mochi).  \n- Day 1: Mid\u2011morning (9:30"
+          }
+        ],
+        "cache_off": [
+          {
+            "turn": 1,
+            "prompt_tokens": 29,
+            "cached_tokens": 0,
+            "prefill_s": 0.39,
+            "decode_tok_s": 17.32,
+            "generated": 96,
+            "wall_s": 5.931,
+            "reply": "For a 3-day autumn trip to Kyoto, prioritize these must-see experiences based on seasonal appeal, cultural depth, and efficient pacing\u2014focusing on iconic sites, seasonal beauty, and balanced exploration:\n\n### \ud83d\udcc5 Key Priorities (Day-by-Day Flow)\n*(All times suggest morning visits to avoid crowds; adjust based on your arrival day.)*\n\n| Day | Morning (Priority 1)                     | Afternoon (Priority"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": 140,
+            "cached_tokens": 0,
+            "prefill_s": 2.131,
+            "decode_tok_s": 17.26,
+            "generated": 96,
+            "wall_s": 7.694,
+            "reply": "For a 3-day Kyoto autumn trip, here\u2019s exactly which sites to visit **early in the morning** (before 9:00 AM) to avoid crowds\u2014based on real visitor patterns, seasonal beauty, and practical logistics. I\u2019ve prioritized the *most* crowd-free, iconic spots that still give you the full autumn experience, with clear timing, why they\u2019re best early, and quick tips.\n\n---\n\n### \u2705"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": 248,
+            "cached_tokens": 0,
+            "prefill_s": 3.72,
+            "decode_tok_s": 16.8,
+            "generated": 96,
+            "wall_s": 9.434,
+            "reply": "Here\u2019s a simple, realistic Day 1 itinerary for your 3-day Kyoto autumn trip\u2014focused on **early morning visits to avoid crowds**, seasonal beauty, and efficient pacing. All times are approximate (adjust by 15\u201330 min based on your arrival time). I\u2019ve kept it minimal, practical, and centered on the *most* crowd-free, iconic autumn spots.\n\n---\n\n### \ud83d\uddd3\ufe0f Day 1 (Focus:"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": 356,
+            "cached_tokens": 0,
+            "prefill_s": 5.364,
+            "decode_tok_s": 16.22,
+            "generated": 96,
+            "wall_s": 11.282,
+            "reply": "Here\u2019s a concise, practical answer focused on the *exact places* from your Day 1 itinerary (early morning visits to avoid crowds), with local foods you can easily try nearby\u2014no fluff, just what\u2019s authentic, seasonal, and convenient.\n\n---\n\n### \ud83d\uddd3\ufe0f Your Day 1 Itinerary (Early Morning, Crowd-Avoiding)  \n*(All times are approximate; aim to arrive 15\u201320 min before listed"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": 470,
+            "cached_tokens": 0,
+            "prefill_s": 7.34,
+            "decode_tok_s": 15.9,
+            "generated": 96,
+            "wall_s": 13.38,
+            "reply": "Here\u2019s a clear, practical answer focused on your Day 1 itinerary (early morning, crowd-avoiding) and the Arashiyama area you\u2019ll visit. No extra steps\u2014just the cheapest, fastest way to get there from Kyoto Station, based on real local transit (no taxis, no walking long distances).\n\n### \u2705 Best cheap way from Kyoto Station to Arashiyama (Day 1 morning)\n- **Take the JR Sag"
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": 582,
+            "cached_tokens": 0,
+            "prefill_s": 9.122,
+            "decode_tok_s": 15.83,
+            "generated": 89,
+            "wall_s": 14.745,
+            "reply": "- Day 1: Start early (7:30\u20138:30\u202fam) at **Kiyomizu-dera Temple** (crowd-free before 9\u202fam, iconic autumn views); walk 15\u202fmin to nearby local caf\u00e9 for seasonal snacks (e.g., yuzu kosho-flavored mochi).  \n- Day 1: Mid\u2011morning (9:30"
+          }
+        ],
+        "baseline": [
+          {
+            "turn": 1,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 1.5699650484444634,
+            "decode_tok_s": 14.27,
+            "generated": 96,
+            "wall_s": 8.297,
+            "reply": "For a 3-day autumn trip to Kyoto, prioritize experiences that showcase the season\u2019s beauty, cultural depth, and seasonal highlights\u2014avoiding overcrowding and focusing on balance. Here\u2019s a concise, practical prioritization based on typical autumn (late September\u2013early November) conditions, visitor flow, and what makes Kyoto special:\n\n### \u2705 Top Priorities (What to Do First & Why)\n1. **Kinkaku-ji (Golden"
+          },
+          {
+            "turn": 2,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 8.637799389457303,
+            "decode_tok_s": 14.31,
+            "generated": 96,
+            "wall_s": 15.346,
+            "reply": "For a 3-day autumn trip to Kyoto, prioritizing **early morning visits** (before 9:00 AM) at key sites helps you avoid crowds, enjoy cooler, quieter light, and experience the most serene seasonal atmosphere. Here\u2019s exactly which of the top recommendations are best for early mornings\u2014based on typical visitor patterns, site layout, and seasonal flow:\n\n### \u2705 Best Early-Morning Sites (Arrive by 8:30\u20139"
+          },
+          {
+            "turn": 3,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 15.609450027860444,
+            "decode_tok_s": 14.5,
+            "generated": 85,
+            "wall_s": 21.472,
+            "reply": "Here\u2019s a simple, realistic Day 1 itinerary for your 3-day Kyoto autumn trip\u2014focused on early-morning quiet, seasonal beauty, and minimal stress. All times are approximate (based on typical visitor flow; arrive 15\u201330 mins early). Total daily time \u2248 6\u20137 hours of walking/exploring, leaving room for meals and transit.  \n\n> **Key principles"
+          },
+          {
+            "turn": 4,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 21.535432755866893,
+            "decode_tok_s": 14.86,
+            "generated": 75,
+            "wall_s": 26.583,
+            "reply": "Here\u2019s a simple, practical answer focused on what to eat *near the early-morning sites* you\u2019ll visit on Day 1 (based on your itinerary below). I\u2019ll keep it concise\u2014no jargon, just what\u2019s easy to find, seasonal, and locally loved.\n\n### \ud83c\udf42 Day 1 Early-Morning"
+          },
+          {
+            "turn": 5,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 26.583446102615287,
+            "decode_tok_s": 13.51,
+            "generated": 96,
+            "wall_s": 33.689,
+            "reply": "Here\u2019s the clearest, most practical way to get from Kyoto Station to Arashiyama cheaply (and safely) for your autumn trip\u2014based on real-world timing, cost, and local convenience:\n\n### \u2705 Best Option: JR Sagano Line (Most Affordable & Reliable)\n- **How to get there**:  \n  Take the **JR Sagano Line** from Kyoto Station \u2192 *Saga\u014d* station (about 15 minutes)."
+          },
+          {
+            "turn": 6,
+            "prompt_tokens": null,
+            "cached_tokens": null,
+            "prefill_s": 33.45592902670297,
+            "decode_tok_s": 13.93,
+            "generated": 96,
+            "wall_s": 40.348,
+            "reply": "- Day 1: Start early (7:30\u20138:30\u202fam) at Kinkaku-ji \u2192 Arashiyama Bamboo Grove \u2192 Tenry\u016b-ji (quiet, golden-hour light); eat local snacks near Arashiyama (e.g., yaki-imo, matcha sweets).  \n- Day 1 morning transport: Take JR Sagano Line from Kyoto Station to Saga\u014d station (\u224815\u202fmin"
+          }
+        ]
+      },
+      "parity": {
+        "snap": "/Users/changhyunglee/.kestrel/models/ibm-granite__granite-4.2-3b",
+        "reference_dtype": "bfloat16",
+        "engines": {
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.new": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "5/5",
+              "top10_mean": 0.8400000000000001,
+              "kl_mean": 0.008586220973476277,
+              "kl_max": 0.03132995587503471
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.00010799960786779381
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.00011981519575748527
+              },
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.00031235734772348323
+              },
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.03132995587503471
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.011060976840997914
+              }
+            ]
+          },
+          "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.baseline": {
+            "summary": {
+              "n": 5,
+              "ran": 5,
+              "top1": "5/5",
+              "top10_mean": 0.9,
+              "kl_mean": 0.012813333099079149,
+              "kl_max": 0.0381241472540552
+            },
+            "rows": [
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.010026262427701185
+              },
+              {
+                "top1": true,
+                "top10": 1.0,
+                "kl": 0.0006592990066625278
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.0005458501783337104
+              },
+              {
+                "top1": true,
+                "top10": 0.8,
+                "kl": 0.01471110662864312
+              },
+              {
+                "top1": true,
+                "top10": 0.9,
+                "kl": 0.0381241472540552
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "finished": "2026-10-17 23:22:36"
+}

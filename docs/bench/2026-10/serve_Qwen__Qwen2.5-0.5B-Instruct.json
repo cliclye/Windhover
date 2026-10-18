@@ -1,0 +1,189 @@
+{
+  "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen2.5-0.5B-Instruct/kpk",
+  "cache_on": [
+    {
+      "turn": 1,
+      "prompt_tokens": 27,
+      "cached_tokens": 0,
+      "prefill_s": 0.04,
+      "decode_tok_s": 127.17,
+      "generated": 96,
+      "wall_s": 0.795,
+      "reply": "When planning a 3-day trip to Kyoto in autumn, you should consider the following priorities:\n\n1. **Visit the famous temples and shrines**:\n   - Start your trip with a visit to the famous temples and shrines, such as the Kinkaku-ji (Golden Pavilion) and the Kiyomizu-ji (Golden Pagoda). These are the most iconic landmarks in Kyoto and are a must-see for any Kyoto trip.\n\n2. **Explore the"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 146,
+      "cached_tokens": 122,
+      "prefill_s": 0.038,
+      "decode_tok_s": 126.13,
+      "generated": 96,
+      "wall_s": 0.799,
+      "reply": "When planning your trip to Kyoto in autumn, it's best to visit the temples and shrines early in the morning to avoid the crowds. Here are some reasons why:\n\n1. **Early Morning Visits**:\n   - **Kinkaku-ji (Golden Pavilion)**: This is a popular spot for early morning visits. The pavilion is open from 6:00 AM to 10:00 AM, making it ideal for early morning visitors."
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 262,
+      "cached_tokens": 240,
+      "prefill_s": 0.04,
+      "decode_tok_s": 123.79,
+      "generated": 96,
+      "wall_s": 0.816,
+      "reply": "Certainly! Here's a simple 1-day itinerary with some suggested times for each activity:\n\n**Day 1:**\n- **Morning:**\n  - **Visit Kinkaku-ji (Golden Pavilion)**: 6:00 AM - 10:00 AM\n  - **Visit Kiyomizu-ji (Golden Pagoda)**: 10:00 AM - 1:00 PM\n  - **Visit the Kiy"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 378,
+      "cached_tokens": 357,
+      "prefill_s": 0.042,
+      "decode_tok_s": 122.91,
+      "generated": 96,
+      "wall_s": 0.824,
+      "reply": "When exploring Kyoto in autumn, you can't go wrong with local foods. Here are some must-try dishes near the famous temples and shrines:\n\n1. **Kiyomizu-ji (Golden Pagoda)**:\n   - **Kiyomizu Sushi** (located in the Kiyomizu-ji): A traditional sushi restaurant that offers a variety of sushi rolls, including the famous \"Kiyomizu Sushi\" which is a classic.\n   -"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 499,
+      "cached_tokens": 473,
+      "prefill_s": 0.054,
+      "decode_tok_s": 120.58,
+      "generated": 96,
+      "wall_s": 0.851,
+      "reply": "Getting from Kyoto Station to Arashiyama is relatively easy and affordable. Here are some options:\n\n1. **Train**:\n   - **Kyoto Station to Arashiyama**: You can take a train from Kyoto Station to Arashiyama. The train journey takes about 2 hours and costs around 1000 yen (approximately $10). You can purchase a ticket at the station or use a ticket vending machine.\n   - **Train to Ar"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 616,
+      "cached_tokens": 594,
+      "prefill_s": 0.051,
+      "decode_tok_s": 113.28,
+      "generated": 96,
+      "wall_s": 0.898,
+      "reply": "Certainly! Here is a summary of your 3-day Kyoto trip plan:\n\n**Day 1:**\n- **Morning:**\n  - **Visit Kinkaku-ji (Golden Pavilion)**: 6:00 AM - 10:00 AM\n  - **Visit Kiyomizu-ji (Golden Pagoda)**: 10:00 AM - 1:00 PM\n  - **Visit the Kiyomizu-"
+    }
+  ],
+  "cache_off": [
+    {
+      "turn": 1,
+      "prompt_tokens": 27,
+      "cached_tokens": 0,
+      "prefill_s": 0.04,
+      "decode_tok_s": 122.35,
+      "generated": 96,
+      "wall_s": 0.825,
+      "reply": "When planning a 3-day trip to Kyoto in autumn, you should consider the following priorities:\n\n1. **Visit the famous temples and shrines**:\n   - Start your trip with a visit to the famous temples and shrines, such as the Kinkaku-ji (Golden Pavilion) and the Kiyomizu-ji (Golden Pagoda). These are the most iconic landmarks in Kyoto and are a must-see for any Kyoto trip.\n\n2. **Explore the"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 146,
+      "cached_tokens": 0,
+      "prefill_s": 0.223,
+      "decode_tok_s": 116.62,
+      "generated": 96,
+      "wall_s": 1.046,
+      "reply": "When planning your trip to Kyoto in autumn, you should consider the best time to visit the temples and shrines, as they are often crowded. Here are some tips to help you plan your visit early in the morning:\n\n1. **Visit the temples and shrines early in the morning**:\n   - The best time to visit the temples and shrines is usually early in the morning, around 6:00 AM. This is when the crowds are generally smaller and the"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 263,
+      "cached_tokens": 0,
+      "prefill_s": 0.428,
+      "decode_tok_s": 112.49,
+      "generated": 96,
+      "wall_s": 1.282,
+      "reply": "Certainly! Here\u2019s a simple 1-day itinerary with suggested times for each activity:\n\n**Day 1:**\n- **Morning:**\n  - Start your day with a visit to the Kinkaku-ji (Golden Pavilion) at 6:00 AM.\n  - Alternatively, you can visit the Kiyomizu-ji (Golden Pagoda) at 6:30 AM.\n\n- **Afternoon:**\n  - Explore the Kiyomizu"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 379,
+      "cached_tokens": 0,
+      "prefill_s": 0.607,
+      "decode_tok_s": 114.19,
+      "generated": 96,
+      "wall_s": 1.448,
+      "reply": "Certainly! Here are some local foods you should try near the temples and shrines in Kyoto:\n\n1. **Kiyomizu-ji (Golden Pagoda)**\n   - **Kaiseki (High-Cuisine)**: Enjoy a traditional kaiseki meal, which combines several types of food and drink, such as sushi, sashimi, and sake.\n   - **Sushi**: Try some popular kaiseki-style sushi, such as the \"Kiyom"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 500,
+      "cached_tokens": 0,
+      "prefill_s": 0.925,
+      "decode_tok_s": 111.94,
+      "generated": 96,
+      "wall_s": 1.783,
+      "reply": "To get from Kyoto Station to Arashiyama, you can use the following methods:\n\n1. **Taxis**:\n   - Taxis are a convenient option for short distances. You can use a taxi service from Kyoto Station to Arashiyama. The cost is typically around 100-200 yen (about $1-2 USD) per person. You can book a taxi through a taxi app or call a taxi directly from Kyoto Station.\n\n2"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 617,
+      "cached_tokens": 0,
+      "prefill_s": 1.085,
+      "decode_tok_s": 110.74,
+      "generated": 96,
+      "wall_s": 1.952,
+      "reply": "Sure, here is a summary of your 1-day itinerary with suggested times for each activity:\n\n**Day 1:**\n- **Morning:**\n  - Visit the Kinkaku-ji (Golden Pavilion) at 6:00 AM.\n  - Alternatively, visit the Kiyomizu-ji (Golden Pagoda) at 6:30 AM.\n- **Afternoon:**\n  - Explore the Kiyomizu-ji (Golden Pagoda"
+    }
+  ],
+  "baseline": [
+    {
+      "turn": 1,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 0.12095148642121806,
+      "decode_tok_s": 106.89,
+      "generated": 40,
+      "wall_s": 0.495,
+      "reply": "When planning a 3-day trip to Kyoto in autumn, you should focus on exploring the city's unique and vibrant atmosphere. Here are some key points to consider:\n\n1. **Visit the Kyoto"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 0.5385006849491796,
+      "decode_tok_s": 91.11,
+      "generated": 42,
+      "wall_s": 0.999,
+      "reply": "When planning your trip to Kyoto in autumn, you should aim to visit the city early in the morning to avoid the crowds. Here are some of the best times to visit Kyoto:\n\n1. **Early Morning"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 0.9399146628307764,
+      "decode_tok_s": 102.57,
+      "generated": 37,
+      "wall_s": 1.301,
+      "reply": "Certainly! Here's a simple 1-day itinerary in Kyoto that includes early morning visits:\n\n**Day 1: Kyoto Early Morning**\n\n- **Morning: Kyoto**\n  - **"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 1.2718089144282574,
+      "decode_tok_s": 103.63,
+      "generated": 45,
+      "wall_s": 1.706,
+      "reply": "In Kyoto, you can explore the city's culinary delights near the places you've chosen for your early morning visit. Here are some local foods you might want to try:\n\n1. **Kaiseki**\n   - **"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 1.7372958902034539,
+      "decode_tok_s": 99.05,
+      "generated": 34,
+      "wall_s": 2.081,
+      "reply": "To get from Kyoto Station to Arashiyama in Kyoto, you can use the Kyoto Metro. Here are some options:\n\n1. **Metro Line 1**"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 2.1325366405265243,
+      "decode_tok_s": 97.68,
+      "generated": 61,
+      "wall_s": 2.757,
+      "reply": "**Day 1: Kyoto Early Morning**\n- Visit the city's unique and vibrant atmosphere.\n- Explore the city's unique and vibrant atmosphere.\n- Visit the Kyoto Station.\n- Use the Kyoto Metro to get to Arashiyama.\n- Enjoy a Kaiseki meal near the Kyoto Station."
+    }
+  ]
+}

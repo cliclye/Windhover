@@ -1,0 +1,160 @@
+[
+  {
+    "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-0.8B/kpk",
+    "modes": {
+      "greedy": {
+        "summary": {
+          "a_decode": null,
+          "b_decode": 59.77,
+          "a_prefill": null,
+          "b_prefill": 293.9,
+          "a_rss": null,
+          "b_rss": 1.09,
+          "text_match": null,
+          "decode_speedup": null,
+          "prefill_speedup": null
+        },
+        "raw": {
+          "a": {
+            "decode": [],
+            "prefill": [],
+            "rss": []
+          },
+          "b": {
+            "decode": [
+              67.26,
+              46.94,
+              49.55,
+              63.0,
+              54.82,
+              64.85,
+              59.77,
+              55.09,
+              60.89
+            ],
+            "prefill": [
+              82.2,
+              281.0,
+              293.9,
+              301.3,
+              242.5,
+              426.3,
+              372.8,
+              222.9,
+              368.6
+            ],
+            "rss": [
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09
+            ]
+          },
+          "text_match": [],
+          "logits": []
+        }
+      },
+      "chat": {
+        "summary": {
+          "a_decode": null,
+          "b_decode": 50.7,
+          "a_prefill": null,
+          "b_prefill": 272.1,
+          "a_rss": null,
+          "b_rss": 1.09,
+          "text_match": null,
+          "decode_speedup": null,
+          "prefill_speedup": null
+        },
+        "raw": {
+          "a": {
+            "decode": [],
+            "prefill": [],
+            "rss": []
+          },
+          "b": {
+            "decode": [
+              55.47,
+              55.78,
+              24.44,
+              42.56,
+              35.27,
+              59.57,
+              50.7,
+              52.8,
+              48.07
+            ],
+            "prefill": [
+              329.4,
+              300.2,
+              436.8,
+              182.0,
+              214.7,
+              213.3,
+              267.9,
+              272.1,
+              320.5
+            ],
+            "rss": [
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09,
+              1.09
+            ]
+          },
+          "text_match": [],
+          "logits": []
+        }
+      },
+      "long": {
+        "summary": {
+          "a_decode": null,
+          "b_decode": 57.17,
+          "a_prefill": null,
+          "b_prefill": 303.8,
+          "a_rss": null,
+          "b_rss": 1.12,
+          "text_match": null,
+          "decode_speedup": null,
+          "prefill_speedup": null
+        },
+        "raw": {
+          "a": {
+            "decode": [],
+            "prefill": [],
+            "rss": []
+          },
+          "b": {
+            "decode": [
+              57.17,
+              56.11,
+              63.31
+            ],
+            "prefill": [
+              280.6,
+              303.8,
+              305.1
+            ],
+            "rss": [
+              1.12,
+              1.12,
+              1.12
+            ]
+          },
+          "text_match": [],
+          "logits": []
+        }
+      }
+    }
+  }
+]

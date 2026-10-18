@@ -1,0 +1,128 @@
+{
+  "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-0.8B/kpk",
+  "cache_on": [
+    {
+      "turn": 1,
+      "prompt_tokens": 31,
+      "cached_tokens": 0,
+      "prefill_s": 0.132,
+      "decode_tok_s": 54.41,
+      "generated": 96,
+      "wall_s": 1.902,
+      "reply": "Planning a 3-day trip to Kyoto in autumn (September to November) is an excellent choice because the city transforms into a vibrant, colorful, and culturally rich destination. The weather is generally pleasant, and the city is less crowded than in spring or summer.\n\nHere is a prioritized guide to your itinerary, focusing on the most impactful experiences:\n\n### 1. The Core Experience: The Imperial Palace (Kyoto Castle)\n**Priority: #1**\nThis"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 150,
+      "cached_tokens": 24,
+      "prefill_s": 0.387,
+      "decode_tok_s": 47.97,
+      "generated": 96,
+      "wall_s": 2.39,
+      "reply": "For a 3-day trip in autumn, avoiding crowds in the early morning is crucial because the city is still relatively quiet, and the temperature is often cooler and more comfortable.\n\nHere are the best early-morning options to prioritize, ranked by their impact on your experience:\n\n### 1. The Imperial Palace (Kyoto Castle)\n**Best for:** The main attraction and the most iconic view.\n*   **Why:** This is the heart of Kyoto. Arr"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 267,
+      "cached_tokens": 143,
+      "prefill_s": 0.662,
+      "decode_tok_s": 55.85,
+      "generated": 74,
+      "wall_s": 1.99,
+      "reply": "Here is a simple, efficient 3-day itinerary designed specifically for an autumn trip to Kyoto.\n\n### **Day 1: Arrival & The Imperial Palace**\n*Focus: Settling in, exploring the main sights, and enjoying the autumn colors.*\n\n| Time | Activity |\n| :--- | :--- |\n| **06:00"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 360,
+      "cached_tokens": 260,
+      "prefill_s": 0.53,
+      "decode_tok_s": 35.41,
+      "generated": 96,
+      "wall_s": 3.244,
+      "reply": "For a 3-day autumn trip, the best local foods to try near the Imperial Palace (Kyoto Castle) are **Miso Soup**, **Nigiri**, **Sushi**, and **Miso Tofu**.\n\nHere is why these are the top recommendations and how to get them:\n\n### 1. Miso Soup (The City's Favorite Drink)\n*   **Why:** It is the most popular food in Kyoto, often served in small bowls"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 481,
+      "cached_tokens": 353,
+      "prefill_s": 0.581,
+      "decode_tok_s": 40.16,
+      "generated": 96,
+      "wall_s": 2.973,
+      "reply": "Getting from **Kyoto Station** to **Arashiyama** is a classic \"train + bus\" route, but the cost depends heavily on your travel method. Here is the breakdown of the cheapest options:\n\n### Option 1: The Train + Bus Combo (Most Affordable)\nThis is the standard, cheapest way to get there. You take a train to the station, then a bus to the destination.\n\n*   **Train:** Take the **Kyoto"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 598,
+      "cached_tokens": 474,
+      "prefill_s": 0.611,
+      "decode_tok_s": 50.19,
+      "generated": 96,
+      "wall_s": 2.527,
+      "reply": "Here is a concise summary of the 3-day autumn Kyoto itinerary:\n\n*   **Day 1:** Arrive at Kyoto Station, explore the Imperial Palace (Kyoto Castle) for iconic views, and enjoy a traditional Miso Soup meal.\n*   **Day 2:** Visit the Arashiyama Bamboo Grove for a peaceful walk, visit the Kinkaku-ji (Golden Pavilion) for a sunrise view, and try local seasonal snacks like Miso T"
+    }
+  ],
+  "cache_off": [
+    {
+      "turn": 1,
+      "prompt_tokens": 31,
+      "cached_tokens": 0,
+      "prefill_s": 0.09,
+      "decode_tok_s": 62.45,
+      "generated": 96,
+      "wall_s": 1.629,
+      "reply": "Planning a 3-day trip to Kyoto in autumn (September to November) is an excellent choice because the city transforms into a vibrant, colorful, and culturally rich destination. The weather is generally pleasant, and the city is less crowded than in spring or summer.\n\nHere is a prioritized guide to your itinerary, focusing on the most impactful experiences:\n\n### 1. The Core Experience: The Imperial Palace (Kyoto Castle)\n**Priority: #1**\nThis"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 150,
+      "cached_tokens": 0,
+      "prefill_s": 0.51,
+      "decode_tok_s": 60.52,
+      "generated": 96,
+      "wall_s": 2.097,
+      "reply": "For a 3-day trip in autumn, avoiding crowds in the early morning is crucial because the city is still relatively quiet, and the temperature is often cooler and more comfortable.\n\nHere are the best early-morning options to prioritize, ranked by their impact on your experience:\n\n### 1. The Imperial Palace (Kyoto Castle)\n**Best for:** The main attraction and the most iconic view.\n*   **Why:** This is the heart of Kyoto. Arr"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 267,
+      "cached_tokens": 0,
+      "prefill_s": 0.898,
+      "decode_tok_s": 62.48,
+      "generated": 74,
+      "wall_s": 2.083,
+      "reply": "Here is a simple, efficient 3-day itinerary designed specifically for an autumn trip to Kyoto.\n\n### **Day 1: Arrival & The Imperial Palace**\n*Focus: Settling in, exploring the main sights, and enjoying the autumn colors.*\n\n| Time | Activity |\n| :--- | :--- |\n| **06:00"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 360,
+      "cached_tokens": 0,
+      "prefill_s": 1.276,
+      "decode_tok_s": 61.73,
+      "generated": 96,
+      "wall_s": 2.832,
+      "reply": "For a 3-day autumn trip, the best local foods to try near the Imperial Palace (Kyoto Castle) are **Miso Soup**, **Nigiri**, **Sushi**, and **Miso Tofu**.\n\nHere is why these are the top recommendations and how to get them:\n\n### 1. Miso Soup (The City's Favorite Drink)\n*   **Why:** It is the most popular food in Kyoto, often served in small bowls"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 481,
+      "cached_tokens": 0,
+      "prefill_s": 1.479,
+      "decode_tok_s": 61.95,
+      "generated": 96,
+      "wall_s": 3.03,
+      "reply": "Getting from **Kyoto Station** to **Arashiyama** is a classic \"train + bus\" route, but the cost depends heavily on your travel method. Here is the breakdown of the cheapest options:\n\n### Option 1: The Train + Bus Combo (Most Affordable)\nThis is the standard, cheapest way to get there. You take a train to the station, then a bus to the destination.\n\n*   **Train:** Take the **Kyoto"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 598,
+      "cached_tokens": 0,
+      "prefill_s": 1.927,
+      "decode_tok_s": 66.34,
+      "generated": 96,
+      "wall_s": 3.375,
+      "reply": "Here is a concise summary of the 3-day autumn Kyoto itinerary:\n\n*   **Day 1:** Arrive at Kyoto Station, explore the Imperial Palace (Kyoto Castle) for iconic views, and enjoy a traditional Miso Soup meal.\n*   **Day 2:** Visit the Arashiyama Bamboo Grove for a peaceful walk, visit the Kinkaku-ji (Golden Pavilion) for a sunrise view, and try local seasonal snacks like Miso T"
+    }
+  ],
+  "baseline_error": "engine exited: [wh] RoPE: rotary_dim=64/256 partial=0.250 attn_scale=1.0000\n[wh] gdn qkv_rows 6144 exceeds mlp scratch 3584\n"
+}

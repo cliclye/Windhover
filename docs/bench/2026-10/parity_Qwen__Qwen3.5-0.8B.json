@@ -1,0 +1,60 @@
+{
+  "snap": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-0.8B",
+  "reference_dtype": "float32",
+  "engines": {
+    "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.new": {
+      "summary": {
+        "n": 5,
+        "ran": 5,
+        "top1": "5/5",
+        "top10_mean": 0.9199999999999999,
+        "kl_mean": 0.021116090845448746,
+        "kl_max": 0.05066619907654309
+      },
+      "rows": [
+        {
+          "top1": true,
+          "top10": 0.9,
+          "kl": 0.0012443904274167309
+        },
+        {
+          "top1": true,
+          "top10": 0.8,
+          "kl": 0.039907287856714754
+        },
+        {
+          "top1": true,
+          "top10": 0.9,
+          "kl": 0.00164449269096159
+        },
+        {
+          "top1": true,
+          "top10": 1.0,
+          "kl": 0.05066619907654309
+        },
+        {
+          "top1": true,
+          "top10": 1.0,
+          "kl": 0.012118084175607557
+        }
+      ]
+    },
+    "/private/tmp/claude-501/-Users-changhyunglee-Coding-Projects-Vexilo-Windhover/c7b54910-6fe0-4bed-a682-10b18fbf920b/scratchpad/windhover-engine.baseline": {
+      "summary": {
+        "n": 5,
+        "ran": 0,
+        "top1": "0/0",
+        "top10_mean": null,
+        "kl_mean": null,
+        "kl_max": null
+      },
+      "rows": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    }
+  }
+}

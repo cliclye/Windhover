@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Engine — faster prefill, prefix cache, new architectures
+- **Tiled int8 prefill GEMM** (`engine/runtime/prefill_gemm.h`): 4 rows × 4 tokens SDOT micro-tiles with pairwise-add reductions; int4-g64 rows are unpacked once per block instead of once per token. Prompt processing is **3.6–4.3× faster** on dense models (Qwen3-1.7B ~700-token prompt: 33 → 138 tok/s on a throttling M4 Air; see `docs/bench/2026-10`).
+- **Tiled down^T for prefill:** transposed int8 panels per 64-column block with the row scale folded into the activations, quantized as a **hi/lo int8 pair per 64-group** (~15-bit; single-plane int8 cost KL ≈ 0.1). The ragged tail is padded into the same tile so prompt numerics no longer depend on chunking.
+- **Decode down-projection:** int8 × int16-coefficient MLAL block kernel with the 64-wide output chunk held in registers (was one f32 axpy per row) — the only compute-bound decode matmul; ~30% faster.
+- **Prefix KV cache across turns (SERVE mode):** each chat turn reuses the KV of the longest shared token prefix and only prefills the new suffix. Hybrid (GDN) models snapshot the recurrent + conv state at the last role-start token so the next turn resumes from there. Turn-6 time-to-first-token is 6–40× lower than v0.4.3 on dense models; greedy replies are identical with the cache on or off. `WH_PREFIX_CACHE=0` disables it.
+- **Qwen3.5 / Qwen3.6 / Qwen3.8 (Gated DeltaNet) rewritten:** batched int8 projections over all prompt tokens, conv parallel over channels, recurrence parallel over heads with a two-pass row-wise state update — Qwen3.5-2B **~10× decode, ~54× prefill** vs v0.4.3.
+- **Qwen3.5 correctness fixes:** zero-centred RMSNorm `x·(1+w)` (was `x·w`, producing blank output), q/gate rows split **per head** as in `transformers` (old packs are repaired at load), and scratch sized for GDN projections wider than the MLP (Qwen3.5-0.8B previously aborted on load).
+- **IBM Granite 4.x support:** `embedding_multiplier`, `attention_multiplier`, `residual_multiplier`, `logits_scaling` in the descriptor, WMIR lowerer and forward pass.
+- **Sampling:** top-k via a size-k heap and nucleus over the k survivors (was k full vocabulary passes + 24 bisection passes — several ms per token at chat temperatures); vectorized argmax.
+- **Early-stop heuristic** no longer treats Markdown (`* _ # \` | -`) and apostrophes as keyboard smash — bold/list answers were being cut mid-sentence (engine, server and UI copies).
+- Engine stats now report `prompt_tokens`, `cached_tokens` and `prefill_s`; server replies may run up to 1024 tokens (was 256).
+
+### Models
+- New in the catalog: **Qwen3.5 0.8B / 2B / 4B**, **Granite 4.2 3B / 8B**, **MiniCPM5 2B**, **Qwen3.8 27B**, **DeepSeek V4 Flash (0731)**. Entries carry release date, parameter count and a recommended flag; 2024-era packs are tagged legacy.
+- Chat-template fallback detects the format from the pack's own template (MiniCPM5 and Granite speak ChatML despite `llama`/`granite` model types) and applies the family's "thinking off" suffix.
+
+### App — redesigned UI
+- New layout: sidebar with **saved conversations** (local only), New chat, and Chat / Models / Agent / **Performance** / Settings.
+- Chat: auto-growing composer, model picker with sizes, memory-profile switch, per-reply chips (tok/s, cached prompt tokens, prefill ms, RSS), copy, regenerate, starter prompts.
+- Models: recommended picks for this machine's RAM, "fits / tight / needs" hints, release dates, cards with install progress, Hugging Face info dialog.
+- Performance: live decode/prefill/TTFT/prefix-cache/RSS/bytes-per-token telemetry with per-turn history.
+- Light/dark/system theme, keyboard shortcuts (⌘1–5, ⌘N, ⌘B), system fonts (no Google Fonts fetch), responsive down to narrow windows.
+
+### Tools
+- `tools/engine_ab.py` (A/B speed + logit drift), `tools/serve_bench.py` (multi-turn prefix-cache bench), `tools/hf_parity.py` (accuracy vs `transformers`), `tools/bench_suite.py` (all of the above → `docs/bench/`).
+
 ### App
 - **First run opens Library** (not Agent), remembers the last tab, and defaults the catalog filter to **16GB laptop**.
 - **Windows/Mac copy:** badges and errors say 16GB laptop / this computer / desktop app — not “Mac 16GB” on Windows.

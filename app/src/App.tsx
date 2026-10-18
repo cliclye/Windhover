@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "./api";
 import { cleanChatText, extractSSE } from "./chatText";
-import { AdvancedView } from "./components/AdvancedView";
+import { loadConversations, newConversation, saveConversations, titleFrom } from "./conversations";
 import { AgentView } from "./components/AgentView";
-import { AppSidebar } from "./components/AppSidebar";
 import { ChatView } from "./components/ChatView";
 import { LibraryView } from "./components/LibraryView";
-import { RailIcon, type Tab } from "./components/RailIcon";
+import { PerformanceView } from "./components/PerformanceView";
+import { Modal, Picker, Segmented, type PickerItem } from "./components/Primitives";
+import { SettingsView } from "./components/SettingsView";
+import { Sidebar } from "./components/Sidebar";
+import { ExternalIcon, SidebarIcon } from "./components/Icons";
 import {
   formatCount,
   formatParams,
   isMacSmall,
+  isNewModel,
   isOllamaModel,
   matchInstalled,
   modelPickerLabel,
@@ -21,37 +24,77 @@ import {
 import type {
   AgentStep,
   ChatStats,
+  Conversation,
   EngineState,
   HfModelInfo,
   Msg,
   PullProgress,
   RamProfileInfo,
+  Tab,
+  TelemetryPoint,
 } from "./types";
 
-function readStoredTab(): Tab {
+type ThemePref = "light" | "dark" | "system";
+
+function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
-    const v = localStorage.getItem("wh.tab");
-    if (v === "library" || v === "chat" || v === "agent" || v === "advanced") return v;
+    const v = localStorage.getItem(key) as T | null;
+    if (v && allowed.includes(v)) return v;
   } catch {
     /* private mode / file:// */
   }
-  return "library";
+  return fallback;
+}
+
+function writeStored(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+const TABS = ["chat", "library", "agent", "performance", "settings"] as const;
+
+function systemDark() {
+  return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
 }
 
 export function App() {
-  const [tab, setTab] = useState<Tab>(readStoredTab);
+  const [tab, setTab] = useState<Tab>(() => {
+    // Deep link: #chat / #library / #agent / #performance / #settings
+    const h = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+    if ((TABS as readonly string[]).includes(h)) return h as Tab;
+    return readStored("wh.tab", TABS, "chat");
+  });
+  const [themePref, setThemePref] = useState<ThemePref>(() =>
+    readStored("wh.theme", ["light", "dark", "system"] as const, "system")
+  );
+  const [sysDark, setSysDark] = useState<boolean>(systemDark);
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 860);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   const [installed, setInstalled] = useState<Installed[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
+  const [activeConv, setActiveConv] = useState<string>("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [engineOk, setEngineOk] = useState<boolean | null>(null);
   const [enginePresent, setEnginePresent] = useState<boolean | null>(null);
-  const [family, setFamily] = useState<string>("mac");
+  const [family, setFamily] = useState<string>(() =>
+    readStored("wh.family", ["mac", "new", "all", "qwen", "gemma", "granite", "minicpm", "phi", "deepseek", "llama", "mistral", "glm", "kimi", "minimax", "windhover", "ollama"] as const, "mac")
+  );
   const [query, setQuery] = useState("");
-  const [activeModel, setActiveModel] = useState<string>("");
+  const [activeModel, setActiveModel] = useState<string>(() => {
+    try {
+      return localStorage.getItem("wh.model") || "";
+    } catch {
+      return "";
+    }
+  });
   const [stats, setStats] = useState<{
     rss_mb?: number;
     engine?: string;
@@ -63,9 +106,8 @@ export function App() {
     ram_profile?: RamProfileInfo;
   } | null>(null);
   const [lastStats, setLastStats] = useState<ChatStats | null>(null);
-  const [confirmUninstall, setConfirmUninstall] = useState<{ id: string; name: string; path?: string } | null>(
-    null
-  );
+  const [history, setHistory] = useState<TelemetryPoint[]>([]);
+  const [confirmUninstall, setConfirmUninstall] = useState<{ id: string; name: string; path?: string } | null>(null);
   const [progress, setProgress] = useState<PullProgress | null>(null);
   const [workspace, setWorkspace] = useState("");
   const [agentInput, setAgentInput] = useState("");
@@ -100,29 +142,35 @@ export function App() {
   const chatAbortRef = useRef<AbortController | null>(null);
   const bootFailRef = useRef(0);
 
+  const theme: "light" | "dark" = themePref === "system" ? (sysDark ? "dark" : "light") : themePref;
+
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+  useEffect(() => writeStored("wh.tab", tab), [tab]);
+  useEffect(() => writeStored("wh.family", family), [family]);
   useEffect(() => {
-    try {
-      localStorage.setItem("wh.tab", tab);
-    } catch {
-      /* ignore */
-    }
-  }, [tab]);
+    if (activeModel) writeStored("wh.model", activeModel);
+  }, [activeModel]);
+  useEffect(() => {
+    writeStored("wh.theme", themePref);
+    const root = document.documentElement;
+    if (themePref === "system") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", themePref);
+  }, [themePref]);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    const on = () => setSysDark(mq.matches);
+    mq.addEventListener?.("change", on);
+    return () => mq.removeEventListener?.("change", on);
+  }, []);
 
-  const chatCapable = useMemo(
-    () => installed.filter((m) => m.chat_ok && !m.impostor),
-    [installed]
-  );
-
-  const ollamaInstalled = useMemo(
-    () => installed.filter((m) => isOllamaModel(m) && m.chat_ok),
-    [installed]
-  );
+  const chatCapable = useMemo(() => installed.filter((m) => m.chat_ok && !m.impostor), [installed]);
+  const ollamaInstalled = useMemo(() => installed.filter((m) => isOllamaModel(m) && m.chat_ok), [installed]);
 
   async function refresh() {
     try {
@@ -148,6 +196,7 @@ export function App() {
       const list = (i.data || []) as Installed[];
       setCatalog(models);
       setInstalled(list);
+      setLoaded(true);
       if (s) {
         setStats(s);
         if (typeof s.engine_present === "boolean") setEnginePresent(s.engine_present);
@@ -169,18 +218,14 @@ export function App() {
       try {
         const c = await fetch("./catalog.json").then((r) => r.json());
         setCatalog(c.models || []);
-        setStatus(
-          starting
-            ? "Starting Windhover…"
-            : "Could not reach the Windhover server. Start the desktop app, or run ./windhover app"
-        );
       } catch {
-        setStatus(
-          starting
-            ? "Starting Windhover…"
-            : "Start Windhover: open the desktop app, or run ./windhover app"
-        );
+        /* offline */
       }
+      setStatus(
+        starting
+          ? "Starting Windhover…"
+          : "Can't reach the Windhover server. Open the desktop app, or run ./windhover app"
+      );
     }
   }
 
@@ -217,19 +262,12 @@ export function App() {
         body: JSON.stringify({ download_url: updateInfo?.download_url || undefined }),
       }).then((r) => r.json());
       if (j?.ok) {
-        setUpdateMsg(
-          String(
-            j.message ||
-              "Installing update — Windhover will restart on the new version automatically."
-          )
-        );
+        setUpdateMsg(String(j.message || "Installing update — Windhover will restart on the new version automatically."));
         // Keep busy: the process is about to be replaced / killed by the installer.
         return;
       }
       setUpdateMsg(String(j?.error || "Update failed."));
-      if (updateInfo?.html_url) {
-        window.open(updateInfo.html_url, "_blank", "noopener,noreferrer");
-      }
+      if (updateInfo?.html_url) window.open(updateInfo.html_url, "_blank", "noopener,noreferrer");
     } catch (e) {
       setUpdateMsg(`Update failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -246,12 +284,108 @@ export function App() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, sending]);
 
+  // ---- conversations: the active thread mirrors into localStorage history
+  useEffect(() => {
+    if (!activeConv || !messages.length) return;
+    setConversations((prev) => {
+      const existing = prev.find((c) => c.id === activeConv);
+      if (existing && existing.messages === messages) return prev; // just opened, unchanged
+      const next = existing
+        ? prev.map((c) =>
+            c.id === activeConv
+              ? { ...c, messages, title: titleFrom(messages), model: activeModel || c.model, updated: Date.now() }
+              : c
+          )
+        : [{ ...newConversation(activeModel), id: activeConv, messages, title: titleFrom(messages) }, ...prev];
+      saveConversations(next);
+      return next;
+    });
+  }, [messages, activeConv]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startNewChat = useCallback(() => {
+    chatAbortRef.current?.abort();
+    setMessages([]);
+    setInput("");
+    setActiveConv("");
+    setTab("chat");
+  }, []);
+
+  function selectConversation(id: string) {
+    const c = conversations.find((x) => x.id === id);
+    if (!c) return;
+    chatAbortRef.current?.abort();
+    setActiveConv(id);
+    setMessages(c.messages);
+    if (c.model && matchInstalled(chatCapable, c.model)) setActiveModel(c.model);
+    setTab("chat");
+  }
+
+  function deleteConversation(id: string) {
+    setConversations((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      saveConversations(next);
+      return next;
+    });
+    if (id === activeConv) {
+      setActiveConv("");
+      setMessages([]);
+    }
+  }
+
+  // ---- keyboard shortcuts: ⌘1-5 tabs, ⌘N new chat, ⌘B sidebar
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= TABS.length) {
+        e.preventDefault();
+        setTab(TABS[n - 1]);
+      } else if (e.key.toLowerCase() === "n" && !e.shiftKey) {
+        e.preventDefault();
+        startNewChat();
+      } else if (e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        setSidebarOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [startNewChat]);
+
+  // ---- telemetry history for the Performance view
+  const lastStampRef = useRef<string>("");
+  function recordTelemetry(st?: ChatStats, model?: string) {
+    if (!st) return;
+    const wh = st.windhover;
+    const stamp = JSON.stringify([wh?.decode_tok_s, wh?.prefill_s, wh?.prompt_tokens, st.latency_ms]);
+    if (stamp === lastStampRef.current) return;
+    lastStampRef.current = stamp;
+    setHistory((h) =>
+      [
+        ...h,
+        {
+          t: Date.now(),
+          model: model || st.selected_model || "",
+          decode: wh?.decode_tok_s ?? st.tokens_per_sec,
+          prefill: wh?.prefill_tok_s,
+          prompt: wh?.prompt_tokens,
+          cached: wh?.cached_tokens,
+          prefillS: wh?.prefill_s,
+          latencyMs: st.latency_ms,
+          rssGb: wh?.rss_gb,
+        },
+      ].slice(-60)
+    );
+  }
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (family === "ollama") return [];
     return catalog.filter((m) => {
       if (family === "mac") {
-        if (!isMacSmall(m)) return false;
+        if (!isMacSmall(m) || m.legacy) return false;
+      } else if (family === "new") {
+        if (!isNewModel(m)) return false;
       } else if (family !== "all" && (m.family || "other") !== family) {
         return false;
       }
@@ -271,10 +405,7 @@ export function App() {
     });
   }, [ollamaInstalled, family, query]);
 
-  const activeMeta = useMemo(
-    () => matchInstalled(chatCapable, activeModel) || chatCapable[0],
-    [chatCapable, activeModel]
-  );
+  const activeMeta = useMemo(() => matchInstalled(chatCapable, activeModel) || chatCapable[0], [chatCapable, activeModel]);
 
   async function pull(m: CatalogModel, weights = false) {
     const autoWeights = isMacSmall(m);
@@ -282,19 +413,14 @@ export function App() {
     if (m.status === "download" && !useWeights) {
       const ok = confirm(
         `${m.name} is ~${m.size_gb} GB from Hugging Face.\n\n` +
-          `Windhover will NOT install a fake stub. Continue with a real download?\n\n` +
-          `For local chat on a 16GB laptop, use the 16GB laptop filter instead.`
+          `Windhover will NOT install a fake stub. Continue with a real download?`
       );
       if (!ok) return;
       useWeights = true;
     }
     setBusy(m.id);
     setProgress({ id: m.id, pct: 1, message: `Starting ${m.name}…` });
-    setStatus(
-      useWeights || isMacSmall(m)
-        ? `Downloading ${m.name} (~${m.size_gb} GB)…`
-        : `Installing ${m.name}…`
-    );
+    setStatus(useWeights || isMacSmall(m) ? `Downloading ${m.name} (~${m.size_gb} GB)…` : `Installing ${m.name}…`);
     try {
       const r = await fetch(apiUrl("/api/pull"), {
         method: "POST",
@@ -303,7 +429,6 @@ export function App() {
       });
       const j = await r.json();
       if (j.async && j.job_id) {
-        // Poll job progress until done/error
         for (;;) {
           await new Promise((res) => setTimeout(res, 450));
           const st = await fetch(apiUrl(`/api/jobs/${j.job_id}`)).then((x) => x.json());
@@ -314,19 +439,12 @@ export function App() {
           }
           const pct = Number(st.pct) || 0;
           const message = String(st.message || st.error || `Downloading ${m.name}…`);
-          setProgress({
-            id: m.id,
-            pct,
-            message,
-            bytes: typeof st.bytes === "number" ? st.bytes : undefined,
-          });
+          setProgress({ id: m.id, pct, message, bytes: typeof st.bytes === "number" ? st.bytes : undefined });
           setStatus(message);
           if (st.status === "done") {
             setStatus(`Installed ${m.name}`);
             setProgress({ id: m.id, pct: 100, message: "Installed" });
-            if (isMacSmall(m) || m.chat === "engine") {
-              setActiveModel(m.id);
-            }
+            if (isMacSmall(m) || m.chat === "engine") setActiveModel(m.id);
             break;
           }
           if (st.status === "error") {
@@ -338,15 +456,12 @@ export function App() {
       } else if (j.ok) {
         setStatus(`Installed ${m.name}`);
         setProgress({ id: m.id, pct: 100, message: "Installed" });
-        if (isMacSmall(m) || m.chat === "engine") {
-          setActiveModel(m.id);
-        }
+        if (isMacSmall(m) || m.chat === "engine") setActiveModel(m.id);
       } else {
         setStatus(j.error || `Failed: ${m.id}`);
         setProgress(null);
       }
       await refresh();
-      // Clear progress bar shortly after success
       setTimeout(() => setProgress((p) => (p?.id === m.id && p.pct >= 100 ? null : p)), 1200);
     } catch (e) {
       setStatus(String(e));
@@ -356,8 +471,8 @@ export function App() {
     }
   }
 
-  async function uninstall(id: string, name?: string, path?: string) {
-    // Prefer in-app confirm — window.confirm is unreliable in the Tauri webview.
+  function uninstall(id: string, name?: string, path?: string) {
+    // In-app confirm — window.confirm is unreliable in the Tauri webview.
     setConfirmUninstall({ id, name: name || id, path });
   }
 
@@ -379,6 +494,7 @@ export function App() {
         if (activeModel === id || activeModel.replace("/", "__") === id.replace("/", "__")) {
           setActiveModel("");
           setMessages([]);
+          setActiveConv("");
         }
       } else {
         setStatus(j.error || `Failed to uninstall ${id}`);
@@ -391,15 +507,14 @@ export function App() {
     }
   }
 
-  async function openChat(id: string) {
+  function openChat(id: string) {
     const inst = matchInstalled(installed, id);
     if (!inst?.chat_ok) {
-      setStatus("That pack can’t chat — install a Hugging Face model from Library (16GB laptop), or start Ollama.");
+      setStatus("That pack can't chat — install a Hugging Face model, or start Ollama.");
       return;
     }
     setActiveModel(id);
-    setMessages([]);
-    setTab("chat");
+    startNewChat();
   }
 
   async function pollPrepareJob(jobId: string, modelLabel: string) {
@@ -414,11 +529,7 @@ export function App() {
         return false;
       }
       const pct = typeof st.pct === "number" ? st.pct : 50;
-      setProgress({
-        id: modelLabel,
-        pct,
-        message: String(st.message || `Preparing ${modelLabel}…`),
-      });
+      setProgress({ id: modelLabel, pct, message: String(st.message || `Preparing ${modelLabel}…`) });
       if (st.status === "done") {
         setStatus(`${modelLabel} is ready — send your message again`);
         setProgress(null);
@@ -443,9 +554,7 @@ export function App() {
       const j = (await fetch(
         apiUrl(`/v1/model-info?repo=${encodeURIComponent(repo)}&model=${encodeURIComponent(m.id)}`)
       ).then((r) => r.json())) as HfModelInfo;
-      if (!j?.ok) {
-        setModelInfoErr(String(j?.error || "Could not load Hugging Face info."));
-      }
+      if (!j?.ok) setModelInfoErr(String(j?.error || "Could not load Hugging Face info."));
       setModelInfo(j);
     } catch (e) {
       setModelInfoErr(e instanceof Error ? e.message : String(e));
@@ -467,15 +576,15 @@ export function App() {
     }
   }
 
-  async function send() {
-    const text = input.trim();
+  async function sendText(text: string, base: Msg[]) {
     if (!text || sending) return;
     const modelId = activeModel || chatCapable[0]?.id;
     if (!modelId) {
-      setStatus("Install a Hugging Face model from Library first (or start Ollama)");
+      setStatus("Install a model first (or start Ollama)");
       setTab("library");
       return;
     }
+    if (!activeConv) setActiveConv(newConversation(modelId).id);
     chatAbortRef.current?.abort();
     const ac = new AbortController();
     chatAbortRef.current = ac;
@@ -483,18 +592,16 @@ export function App() {
 
     setSending(true);
     setInput("");
-    const next = [...messages, { role: "user" as const, content: text }];
+    const next = [...base, { role: "user" as const, content: text }];
     setMessages(next);
     let assistant = "";
     let gotToken = false;
 
-    const paint = (content: string, stats?: ChatStats) => {
-      setMessages([...next, { role: "assistant", content, stats }]);
+    const paint = (content: string, st?: ChatStats) => {
+      setMessages([...next, { role: "assistant", content, stats: st }]);
     };
 
-    const useStream = !isOllamaModel(
-      matchInstalled(chatCapable, modelId) || { id: modelId }
-    );
+    const useStream = !isOllamaModel(matchInstalled(chatCapable, modelId) || { id: modelId });
 
     async function postChat(stream: boolean) {
       return fetch(apiUrl("/v1/chat/completions"), {
@@ -504,7 +611,7 @@ export function App() {
         body: JSON.stringify({
           model: modelId,
           messages: next.map(({ role, content }) => ({ role, content })),
-          max_tokens: 256,
+          max_tokens: 512,
           temperature: 0.35,
           stream,
         }),
@@ -529,7 +636,7 @@ export function App() {
       const ctype = r.headers.get("content-type") || "";
       if (!streaming || !ctype.includes("text/event-stream")) {
         const j = await r.json();
-        const st = (j?.stats || {}) as ChatStats;
+        const st = (j?.stats || j?.windhover || {}) as ChatStats;
         if (typeof j?.engine_active === "boolean") st.engine_active = j.engine_active;
         if (j?.code === "engine_inactive" || j?.engine_active === false) {
           st.engine_active = false;
@@ -547,21 +654,16 @@ export function App() {
           return;
         }
         if (!r.ok || j?.code === "engine_inactive") {
-          const errMsg =
-            String(j?.error || `Chat failed (${r.status})`) +
-            (j?.detail ? `\n\n${j.detail}` : "");
+          const errMsg = String(j?.error || `Chat failed (${r.status})`) + (j?.detail ? `\n\n${j.detail}` : "");
           setLastStats(st);
-          setStatus(
-            j?.code === "engine_inactive" || r.status === 503
-              ? "Windhover engine is not active"
-              : String(j?.error || "Chat failed")
-          );
+          setStatus(j?.code === "engine_inactive" || r.status === 503 ? "Windhover engine is not active" : String(j?.error || "Chat failed"));
           paint(errMsg, { ...st, engine_active: false, backend: st.backend || "error" });
           void refresh();
           return;
         }
         const content = j?.choices?.[0]?.message?.content || j?.error || "No response.";
         setLastStats(st);
+        recordTelemetry(st, modelId);
         paint(cleanChatText(String(content)), st);
         void refresh();
         return;
@@ -599,13 +701,8 @@ export function App() {
             continue;
           }
           if (obj.error || obj.code === "engine_inactive") {
-            const errMsg =
-              String(obj.error || "Engine inactive") + (obj.detail ? `\n\n${obj.detail}` : "");
-            paint(errMsg, {
-              ...(obj.stats || {}),
-              engine_active: false,
-              backend: "error",
-            });
+            const errMsg = String(obj.error || "Engine inactive") + (obj.detail ? `\n\n${obj.detail}` : "");
+            paint(errMsg, { ...(obj.stats || {}), engine_active: false, backend: "error" });
             setStatus(obj.code === "engine_inactive" ? "Windhover engine is not active" : String(obj.error));
             return;
           }
@@ -628,19 +725,21 @@ export function App() {
         paint("No response from the model. Try again, or pick another installed model.");
       } else {
         paint(cleanChatText(assistant) || "No response.", finalStats);
-        if (finalStats) setLastStats(finalStats);
+        if (finalStats) {
+          setLastStats(finalStats);
+          recordTelemetry(finalStats, modelId);
+        }
       }
       void refresh();
     } catch (e) {
       if (ac.signal.aborted) {
-        paint(assistant.trim() ? `${assistant}\n\n_(stopped)_` : "Chat stopped.");
+        paint(assistant.trim() ? `${assistant}\n\n_(stopped)_` : "Stopped.");
         setStatus("Chat cancelled");
       } else {
         const msg = e instanceof Error ? e.message : String(e);
-        const friendly =
-          /failed to fetch|networkerror|load failed/i.test(msg)
-            ? "Could not reach the Windhover server (Failed to fetch). Is the app/API running on port 8000? Try Send again."
-            : msg;
+        const friendly = /failed to fetch|networkerror|load failed/i.test(msg)
+          ? "Couldn't reach the Windhover server (Failed to fetch). Is the app running on port 8000? Try again."
+          : msg;
         setMessages([...next, { role: "assistant", content: friendly }]);
         setStatus("Chat request failed — is Windhover running?");
       }
@@ -649,6 +748,23 @@ export function App() {
       if (chatAbortRef.current === ac) chatAbortRef.current = null;
       setSending(false);
     }
+  }
+
+  function send() {
+    void sendText(input.trim(), messages);
+  }
+
+  function retryLast() {
+    if (sending) return;
+    let lastUser = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUser = i;
+        break;
+      }
+    }
+    if (lastUser < 0) return;
+    void sendText(messages[lastUser].content, messages.slice(0, lastUser));
   }
 
   function stopChat() {
@@ -676,11 +792,10 @@ export function App() {
   async function applyWorkspace(path?: string) {
     const root = (path ?? workspace).trim();
     if (!root) {
-      // Empty field: open the native picker instead of failing silently.
       await browseWorkspace();
       return;
     }
-    setAgentStatus(`Setting workspace…`);
+    setAgentStatus("Setting workspace…");
     try {
       const r = await fetch(apiUrl("/api/workspace"), {
         method: "POST",
@@ -692,17 +807,14 @@ export function App() {
         setWorkspaceReady(false);
         setTree([]);
         setAgentStatus(j.error || "Could not set workspace");
-        setStatus(j.error || "Could not set workspace");
         return;
       }
       setWorkspace(String(j.root));
-      setStatus(`Workspace: ${j.root}`);
       setAgentStatus(`Using ${j.root}`);
       await loadWorkspaceTree();
     } catch (e) {
       setWorkspaceReady(false);
       setAgentStatus(String(e));
-      setStatus(String(e));
     }
   }
 
@@ -725,17 +837,14 @@ export function App() {
         setWorkspaceReady(false);
         setTree([]);
         setAgentStatus(j.error || "Could not pick folder");
-        setStatus(j.error || "Could not pick folder");
         return;
       }
       setWorkspace(String(j.root));
-      setStatus(`Workspace: ${j.root}`);
       setAgentStatus(`Using ${j.root}`);
       await loadWorkspaceTree();
     } catch (e) {
       setWorkspaceReady(false);
       setAgentStatus(String(e));
-      setStatus(String(e));
     } finally {
       setPickingFolder(false);
     }
@@ -746,12 +855,12 @@ export function App() {
     if (!text || agentBusy) return;
     const modelId = activeModel || chatCapable[0]?.id;
     if (!modelId) {
-      setStatus("Install a chat-capable model from Library first");
+      setStatus("Install a chat-capable model first");
       setTab("library");
       return;
     }
     if (!workspace.trim()) {
-      setStatus("Select a workspace folder first");
+      setAgentStatus("Choose a workspace folder first");
       return;
     }
     setAgentBusy(true);
@@ -761,7 +870,6 @@ export function App() {
     setAgentInput("");
     setAgentStatus("Starting…");
     setAgentPhase("start");
-    setStatus("Agent running…");
     try {
       await applyWorkspace(workspace);
       const r = await fetch(apiUrl("/api/agent"), {
@@ -779,26 +887,21 @@ export function App() {
       });
       const j = await r.json();
       if (!j.ok) {
-        setStatus(j.error || "Agent failed");
         setAgentSummary(String(j.error || "failed"));
         setAgentStatus(String(j.error || "failed"));
         return;
       }
-      // Sync fallback (older servers)
       if (!j.async || !j.job_id) {
         setAgentSteps((j.steps || []) as AgentStep[]);
         setAgentSummary(String(j.summary || ""));
         setAgentStatus("Done");
         setAgentPhase("done");
-        setStatus("Agent finished");
         return;
       }
       const jobId = String(j.job_id);
       for (;;) {
         await new Promise((res) => setTimeout(res, 400));
-        const st = await fetch(apiUrl(`/api/jobs?id=${encodeURIComponent(jobId)}`)).then((x) =>
-          x.json()
-        );
+        const st = await fetch(apiUrl(`/api/jobs?id=${encodeURIComponent(jobId)}`)).then((x) => x.json());
         if (Array.isArray(st.steps)) setAgentSteps(st.steps as AgentStep[]);
         if (st.message) setAgentStatus(String(st.message));
         if (st.phase) setAgentPhase(String(st.phase));
@@ -808,21 +911,18 @@ export function App() {
           setAgentSummary(String(result.summary || st.summary || ""));
           setAgentStatus("Done");
           setAgentPhase("done");
-          setStatus("Agent finished");
           break;
         }
         if (st.status === "error") {
           setAgentSummary(String(st.error || st.message || "Agent failed"));
           setAgentStatus(String(st.error || st.message || "failed"));
           setAgentPhase("error");
-          setStatus(String(st.error || "Agent failed"));
           break;
         }
       }
       const treeR = await fetch(apiUrl("/api/workspace/tree?path=.")).then((x) => x.json());
       if (treeR.ok) setTree(treeR.entries || []);
     } catch (e) {
-      setStatus(String(e));
       setAgentSummary(String(e));
       setAgentStatus(String(e));
       setAgentPhase("error");
@@ -837,407 +937,350 @@ export function App() {
       : enginePresent === false
         ? "API up, but windhover-engine binary missing — run ./windhover build"
         : lastStats?.engine_active === false
-          ? lastStats.engine_error ||
-            "Last reply did not use windhover-engine — engine inactive for that turn"
+          ? lastStats.engine_error || "Last reply did not use windhover-engine"
           : engineOk
             ? "Windhover API online · windhover-engine ready"
             : "Checking…";
   const engineState: EngineState =
+    engineOk === false ? "off" : enginePresent === false || lastStats?.engine_active === false ? "warn" : engineOk ? "on" : "";
+  const engineLabel =
     engineOk === false
-      ? "off"
-      : enginePresent === false || lastStats?.engine_active === false
-        ? "warn"
-        : engineOk
-          ? "on"
-          : "";
+      ? "Offline"
+      : enginePresent === false
+        ? "No engine"
+        : lastStats?.engine_warm || stats?.engine_warm
+          ? "Engine warm"
+          : engineOk
+            ? "Engine ready"
+            : "Connecting";
   const engineInactiveBanner =
     engineOk === false
-      ? "Windhover API offline — start the desktop app, or run ./windhover app"
+      ? "Windhover API offline — open the desktop app, or run ./windhover app"
       : enginePresent === false
-        ? "Windhover engine is not active — binary missing. Run ./windhover build, then restart."
+        ? "windhover-engine binary is missing. Run ./windhover build, then restart."
         : lastStats?.engine_active === false
-          ? lastStats.engine_error ||
-            "Windhover engine is not active for the last reply (fallback or failure)."
+          ? lastStats.engine_error || "The engine wasn't used for the last reply (fallback or failure)."
           : null;
 
-  const ramSelect = (
-    <select
-      className="model-select ram-select"
-      value={stats?.ram_profile?.name || "balanced"}
-      disabled={sending || agentBusy}
-      title={stats?.ram_profile?.blurb || "RAM profile — Fast pins the full FFN; Balanced/Low-RAM set RAM_GB + AU"}
-      aria-label="RAM profile"
-      onChange={(e) => void setRamProfile(e.target.value)}
-    >
-      <option value="fast">Fast</option>
-      <option value="balanced">Balanced</option>
-      <option value="low">Low-RAM</option>
-    </select>
-  );
+  const modelItems: PickerItem[] = chatCapable.map((m) => ({
+    value: m.id,
+    label: modelPickerLabel(m).replace(/^Ollama · /, ""),
+    hint: isOllamaModel(m) ? "Ollama" : m.size_bytes ? `${(m.size_bytes / 1e9).toFixed(1)} GB` : undefined,
+    group: isOllamaModel(m) ? "Ollama" : "Windhover engine",
+  }));
 
-  const modelSelect = (
+  const composerLeft = (
     <>
-      <select
-        className="model-select"
+      <Picker
+        label="Model"
         value={activeModel}
-        onChange={(e) => {
-          setActiveModel(e.target.value);
-          if (tab === "chat") setMessages([]);
+        items={modelItems}
+        placeholder="No model installed"
+        disabled={sending || agentBusy}
+        onChange={(id) => {
+          setActiveModel(id);
         }}
-        disabled={!chatCapable.length}
-        aria-label="Model"
-      >
-        {!chatCapable.length ? (
-          <option value="">Install a model or start Ollama</option>
-        ) : null}
-        {chatCapable.map((m) => (
-          <option key={m.id} value={m.id}>
-            {modelPickerLabel(m)}
-          </option>
-        ))}
-      </select>
-      {ramSelect}
+      />
+      <Segmented
+        label="Memory profile"
+        value={stats?.ram_profile?.name || "balanced"}
+        disabled={sending || agentBusy}
+        options={[
+          { value: "fast", label: "Fast", title: "Pin the full FFN — fastest, most RAM" },
+          { value: "balanced", label: "Balanced", title: "~55% RAM cap with SSD paging" },
+          { value: "low", label: "Low", title: "~40% RAM cap, no mlock" },
+        ]}
+        onChange={(v) => void setRamProfile(v)}
+      />
     </>
   );
 
+  const titles: Record<Tab, string> = {
+    chat: activeConv ? conversations.find((c) => c.id === activeConv)?.title || "Chat" : "New chat",
+    library: "Models",
+    agent: "Agent",
+    performance: "Performance",
+    settings: "Settings",
+  };
+  const modelName = activeMeta ? modelPickerLabel(activeMeta) : "your model";
+  const physGb = stats?.ram_profile?.physical_ram_gb ?? null;
+
   return (
-    <div className="shell">
-      {confirmUninstall && typeof document !== "undefined"
-        ? createPortal(
-            <div className="modal-backdrop" role="dialog" aria-modal="true">
-              <div className="modal">
-                <h2>Uninstall model?</h2>
-                <p>
-                  Remove <strong>{confirmUninstall.name}</strong> from this computer? This deletes local
-                  files in the Windhover models folder (<code>~/.windhover/models</code>).
-                </p>
-                <div className="modal-actions">
-                  <button type="button" className="btn ghost" onClick={() => setConfirmUninstall(null)}>
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="btn primary danger-fill"
-                    onClick={() => void confirmUninstallNow()}
-                  >
-                    Uninstall
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
-
-      {modelInfoOpen && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="modal-backdrop"
-              role="dialog"
-              aria-modal="true"
-              onClick={() => setModelInfoOpen(null)}
-            >
-              <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-                <h2>{modelInfoOpen.name}</h2>
-                <p className="muted mono">{modelInfoOpen.hf_repo || modelInfoOpen.id}</p>
-                {modelInfoBusy ? <p className="muted">Loading Hugging Face data…</p> : null}
-                {modelInfoErr ? <p className="status-err">{modelInfoErr}</p> : null}
-                {modelInfo?.ok ? (
-                  <>
-                    <div className="info-grid">
-                      <div>
-                        <span className="info-k">Downloads</span>
-                        <strong>{formatCount(modelInfo.downloads)}</strong>
-                      </div>
-                      <div>
-                        <span className="info-k">Likes</span>
-                        <strong>{formatCount(modelInfo.likes)}</strong>
-                      </div>
-                      <div>
-                        <span className="info-k">Parameters</span>
-                        <strong>{formatParams(modelInfo.parameters)}</strong>
-                      </div>
-                      <div>
-                        <span className="info-k">License</span>
-                        <strong>{modelInfo.license || modelInfoOpen.license || "—"}</strong>
-                      </div>
-                      <div>
-                        <span className="info-k">Pipeline</span>
-                        <strong>{modelInfo.pipeline_tag || "—"}</strong>
-                      </div>
-                      <div>
-                        <span className="info-k">Library</span>
-                        <strong>{modelInfo.library_name || "—"}</strong>
-                      </div>
-                    </div>
-                    {modelInfo.card_summary ? (
-                      <p className="info-summary">{modelInfo.card_summary}</p>
-                    ) : (
-                      <p className="muted">{modelInfoOpen.description}</p>
-                    )}
-                    {modelInfo.benchmarks && modelInfo.benchmarks.length > 0 ? (
-                      <div className="bench-wrap">
-                        <h3>Benchmarks</h3>
-                        <table className="bench-table">
-                          <thead>
-                            <tr>
-                              <th>Dataset</th>
-                              <th>Metric</th>
-                              <th>Value</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {modelInfo.benchmarks.slice(0, 24).map((b, i) => (
-                              <tr key={i}>
-                                <td>{b.dataset || b.task || "—"}</td>
-                                <td>{b.metric || "—"}</td>
-                                <td>
-                                  {typeof b.value === "number"
-                                    ? Number.isInteger(b.value)
-                                      ? b.value
-                                      : b.value.toFixed(3)
-                                    : b.value ?? "—"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="muted">No published model-index benchmarks on this card yet.</p>
-                    )}
-                    {modelInfo.tags && modelInfo.tags.length ? (
-                      <div className="tag-row">
-                        {modelInfo.tags.slice(0, 16).map((t) => (
-                          <span className="tag-chip" key={t}>
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-                <div className="modal-actions">
-                  <button type="button" className="btn ghost" onClick={() => setModelInfoOpen(null)}>
-                    Close
-                  </button>
-                  {modelInfo?.html_url || modelInfoOpen.hf_repo ? (
-                    <a
-                      className="btn primary"
-                      href={
-                        modelInfo?.html_url ||
-                        `https://huggingface.co/${modelInfoOpen.hf_repo || modelInfoOpen.id}`
-                      }
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Hugging Face
-                    </a>
-                  ) : null}
-                </div>
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
-
-      <header className="titlebar">
-        <div className="traffic-spacer" aria-hidden />
-        <span className="titlebar-label">Windhover</span>
-        <div className="titlebar-end">
-          {updateInfo?.available ? (
-            <button
-              type="button"
-              className="btn update-btn"
-              disabled={updateBusy}
-              onClick={() => void applyUpdate()}
-              title={`Update to ${updateInfo.latest}`}
-            >
-              {updateBusy ? "Updating…" : `Update to ${updateInfo.latest}`}
-            </button>
-          ) : null}
-          <span className={`status-dot ${engineState}`} title={engineTitle} />
-        </div>
-      </header>
-
-      {updateInfo?.available ? (
-        <div className="update-banner" role="status">
-          <span>
-            Windhover {updateInfo.latest} is ready
-            {updateInfo.current ? ` · you have ${updateInfo.current}` : ""}.
-          </span>
-          <button type="button" className="btn primary" disabled={updateBusy} onClick={() => void applyUpdate()}>
-            {updateBusy ? "Updating…" : "Update"}
-          </button>
-          {updateMsg ? <span className="update-msg">{updateMsg}</span> : null}
-        </div>
+    <div className={`app${sidebarOpen ? "" : " sb-collapsed"}`}>
+      {confirmUninstall ? (
+        <Modal
+          title="Uninstall model?"
+          onClose={() => setConfirmUninstall(null)}
+          actions={
+            <>
+              <button type="button" className="btn ghost" onClick={() => setConfirmUninstall(null)}>
+                Cancel
+              </button>
+              <button type="button" className="btn danger" onClick={() => void confirmUninstallNow()}>
+                Uninstall
+              </button>
+            </>
+          }
+        >
+          <p>
+            Remove <strong>{confirmUninstall.name}</strong> from this computer? This deletes its files from the Windhover
+            models folder (<code>~/.windhover/models</code>).
+          </p>
+        </Modal>
       ) : null}
 
-      <div className="app-frame">
-        <nav className="rail" aria-label="Primary">
+      {modelInfoOpen ? (
+        <Modal
+          wide
+          title={modelInfoOpen.name}
+          subtitle={<span className="mono">{modelInfoOpen.hf_repo || modelInfoOpen.id}</span>}
+          onClose={() => setModelInfoOpen(null)}
+          actions={
+            <>
+              <button type="button" className="btn ghost" onClick={() => setModelInfoOpen(null)}>
+                Close
+              </button>
+              <a
+                className="btn primary"
+                href={modelInfo?.html_url || `https://huggingface.co/${modelInfoOpen.hf_repo || modelInfoOpen.id}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Hugging Face <ExternalIcon size={14} />
+              </a>
+            </>
+          }
+        >
+          {modelInfoBusy ? <p className="muted">Loading from Hugging Face…</p> : null}
+          {modelInfoErr ? <p className="text-bad">{modelInfoErr}</p> : null}
+          {modelInfo?.ok ? (
+            <>
+              <div className="info-grid">
+                <div>
+                  <span>Downloads</span>
+                  <strong>{formatCount(modelInfo.downloads)}</strong>
+                </div>
+                <div>
+                  <span>Likes</span>
+                  <strong>{formatCount(modelInfo.likes)}</strong>
+                </div>
+                <div>
+                  <span>Parameters</span>
+                  <strong>{formatParams(modelInfo.parameters)}</strong>
+                </div>
+                <div>
+                  <span>License</span>
+                  <strong>{modelInfo.license || modelInfoOpen.license || "—"}</strong>
+                </div>
+                <div>
+                  <span>Pipeline</span>
+                  <strong>{modelInfo.pipeline_tag || "—"}</strong>
+                </div>
+                <div>
+                  <span>Library</span>
+                  <strong>{modelInfo.library_name || "—"}</strong>
+                </div>
+              </div>
+              <p className="info-summary">{modelInfo.card_summary || modelInfoOpen.description}</p>
+              {modelInfo.benchmarks && modelInfo.benchmarks.length > 0 ? (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Dataset</th>
+                        <th>Metric</th>
+                        <th className="num">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modelInfo.benchmarks.slice(0, 24).map((b, i) => (
+                        <tr key={i}>
+                          <td>{b.dataset || b.task || "—"}</td>
+                          <td>{b.metric || "—"}</td>
+                          <td className="num mono">
+                            {typeof b.value === "number"
+                              ? Number.isInteger(b.value)
+                                ? b.value
+                                : b.value.toFixed(3)
+                              : (b.value ?? "—")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="muted">No published model-index benchmarks on this card.</p>
+              )}
+              {modelInfo.tags?.length ? (
+                <div className="tag-row">
+                  {modelInfo.tags.slice(0, 16).map((t) => (
+                    <span className="tag" key={t}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : !modelInfoBusy && !modelInfoErr ? (
+            <p className="muted">{modelInfoOpen.description}</p>
+          ) : null}
+        </Modal>
+      ) : null}
+
+      <Sidebar
+        tab={tab}
+        onTab={setTab}
+        conversations={conversations}
+        activeConv={activeConv}
+        onSelectConv={selectConversation}
+        onDeleteConv={deleteConversation}
+        onNewChat={startNewChat}
+        engineState={engineState}
+        engineTitle={engineTitle}
+        engineLabel={engineLabel}
+        appVersion={appVersion || updateInfo?.current || ""}
+        installedCount={chatCapable.length}
+        theme={theme}
+        onToggleTheme={() => setThemePref(theme === "dark" ? "light" : "dark")}
+        updateLatest={updateInfo?.available ? updateInfo.latest : undefined}
+        onUpdate={() => void applyUpdate()}
+      />
+
+      <main className="main">
+        <header className="topbar">
           <button
             type="button"
-            className="rail-brand"
-            title="Windhover"
-            onClick={() => setTab(chatCapable.length ? "chat" : "library")}
+            className="icon-btn"
+            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            title="Toggle sidebar (⌘B)"
+            onClick={() => setSidebarOpen((o) => !o)}
           >
-            <img src="./windhover-icon.png" alt="" width={28} height={28} />
+            <SidebarIcon />
           </button>
-          {(
-            [
-              { id: "library" as Tab, label: "Library" },
-              { id: "chat" as Tab, label: "Chat" },
-              { id: "agent" as Tab, label: "Agent" },
-              { id: "advanced" as Tab, label: "Settings" },
-            ] as const
-          ).map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`rail-btn${tab === item.id ? " active" : ""}`}
-              aria-label={item.label}
-              aria-current={tab === item.id ? "page" : undefined}
-              title={item.label}
-              onClick={() => setTab(item.id)}
-            >
-              <RailIcon name={item.id} />
-            </button>
-          ))}
-          <div className="rail-spacer" />
-          <div className={`rail-engine ${engineState}`} title={engineTitle} aria-hidden>
-            <i className="dot" />
+          <h1 className="topbar-title">{titles[tab]}</h1>
+          <div className="topbar-end">
+            {progress && tab !== "library" ? (
+              <button type="button" className="chip progress-chip" onClick={() => setTab("library")}>
+                {Math.round(progress.pct)}% · {progress.message}
+              </button>
+            ) : null}
+            {lastStats?.windhover?.decode_tok_s ? (
+              <span className="chip" title="Last reply decode speed">
+                {Number(lastStats.windhover.decode_tok_s).toFixed(1)} tok/s
+              </span>
+            ) : null}
           </div>
-        </nav>
+        </header>
+        {updateInfo?.available && updateMsg && updateBusy ? <div className="banner info">{updateMsg}</div> : null}
 
-        <AppSidebar
-          tab={tab}
-          chatCapable={chatCapable}
-          activeModel={activeModel}
-          onSelectModel={(id) => {
-            setActiveModel(id);
-            if (tab === "chat") setMessages([]);
-          }}
-          onNewChat={() => {
-            setMessages([]);
-            setInput("");
-          }}
-          engineTitle={engineTitle}
-          engineState={engineState}
-          lastStats={lastStats}
-          rssMb={Number(stats?.rss_mb ?? lastStats?.rss_mb ?? 0)}
-          ramProfile={stats?.ram_profile}
-          workspace={workspace}
-          onWorkspaceChange={(value) => {
-            setWorkspace(value);
-            setWorkspaceReady(false);
-          }}
-          workspaceReady={workspaceReady}
-          agentBusy={agentBusy}
-          pickingFolder={pickingFolder}
-          onBrowseWorkspace={() => void browseWorkspace()}
-          onApplyWorkspace={() => void applyWorkspace()}
-          agentStatus={agentStatus}
-          tree={tree}
-          query={query}
-          onQueryChange={setQuery}
-          family={family}
-          onFamilyChange={setFamily}
-          catalogCount={filtered.length}
-          ollamaCount={filteredOllama.length}
-          appVersion={appVersion || updateInfo?.current || ""}
-        />
+        {tab === "chat" ? (
+          <ChatView
+            messages={messages}
+            sending={sending}
+            input={input}
+            onInput={setInput}
+            onSend={send}
+            onStop={stopChat}
+            onRetry={retryLast}
+            onStarter={(t) => void sendText(t, messages)}
+            chatCapable={chatCapable.length > 0}
+            loading={!loaded}
+            composerLeft={composerLeft}
+            threadRef={threadRef}
+            modelName={modelName}
+            onOpenLibrary={() => setTab("library")}
+            banner={messages.length || sending ? engineInactiveBanner : status && !chatCapable.length ? status : null}
+          />
+        ) : null}
 
-        <main className={`work-main tab-${tab}`}>
-          {tab === "library" ? (
-            <LibraryView
-              status={status}
-              progress={progress}
-              family={family}
-              filtered={filtered}
-              filteredOllama={filteredOllama}
-              installed={installed}
-              busy={busy}
-              chatReady={chatCapable.length > 0}
-              onInstallLaptop={() => {
-                const small =
-                  catalog.find((m) => m.id === "Qwen/Qwen2.5-3B-Instruct" && isMacSmall(m)) ||
-                  catalog.find((m) => isMacSmall(m));
-                if (small) void pull(small);
-                else setFamily("mac");
-              }}
-              onOpenChatTab={() => setTab("chat")}
-              onOpenInfo={(m) => void openModelInfo(m)}
-              onPull={(m, weights) => void pull(m, weights)}
-              onUninstall={(id, name, path) => void uninstall(id, name, path)}
-              onOpenChat={(id) => void openChat(id)}
-              onUseInAgent={(id) => {
-                setActiveModel(id);
-                setTab("agent");
-              }}
-            />
-          ) : null}
+        {tab === "library" ? (
+          <LibraryView
+            status={status}
+            progress={progress}
+            family={family}
+            onFamilyChange={setFamily}
+            query={query}
+            onQueryChange={setQuery}
+            catalog={catalog}
+            filtered={filtered}
+            filteredOllama={filteredOllama}
+            installed={installed}
+            busy={busy}
+            physGb={physGb}
+            onOpenInfo={(m) => void openModelInfo(m)}
+            onPull={(m, weights) => void pull(m, weights)}
+            onUninstall={uninstall}
+            onOpenChat={openChat}
+            onUseInAgent={(id) => {
+              setActiveModel(id);
+              setTab("agent");
+            }}
+          />
+        ) : null}
 
-          {tab === "chat" ? (
-            <ChatView
-              messages={messages}
-              sending={sending}
-              input={input}
-              onInput={setInput}
-              onSend={() => void send()}
-              onStop={stopChat}
-              chatCapable={chatCapable.length > 0}
-              modelSelect={modelSelect}
-              threadRef={threadRef}
-              emptyHint={
-                chatCapable.length
-                  ? activeMeta
-                    ? `${activeMeta.name || activeMeta.id}${isOllamaModel(activeMeta) ? " · Ollama" : ""}. First reply loads the model.`
-                    : "Ask locally."
-                  : "Install a 16GB laptop pack from Library, or start Ollama."
-              }
-              onOpenLibrary={() => setTab("library")}
-              banner={messages.length || sending ? engineInactiveBanner : null}
-            />
-          ) : null}
+        {tab === "agent" ? (
+          <AgentView
+            agentSteps={agentSteps}
+            agentBusy={agentBusy}
+            agentPrompt={agentPrompt}
+            agentInput={agentInput}
+            onInput={setAgentInput}
+            onRun={() => void runAgent()}
+            chatCapable={chatCapable.length > 0}
+            composerLeft={composerLeft}
+            workspace={workspace}
+            onWorkspaceChange={(v) => {
+              setWorkspace(v);
+              setWorkspaceReady(false);
+            }}
+            workspaceReady={workspaceReady}
+            pickingFolder={pickingFolder}
+            onBrowseWorkspace={() => void browseWorkspace()}
+            onApplyWorkspace={() => void applyWorkspace()}
+            tree={tree}
+            agentPhase={agentPhase}
+            agentStatus={agentStatus}
+            agentSummary={agentSummary}
+            onOpenLibrary={() => setTab("library")}
+          />
+        ) : null}
 
-          {tab === "agent" ? (
-            <AgentView
-              agentSteps={agentSteps}
-              agentBusy={agentBusy}
-              agentPrompt={agentPrompt}
-              agentInput={agentInput}
-              onInput={setAgentInput}
-              onRun={() => void runAgent()}
-              chatCapable={chatCapable.length > 0}
-              modelSelect={modelSelect}
-              workspaceReady={workspaceReady}
-              agentPhase={agentPhase}
-              agentStatus={agentStatus}
-              agentSummary={agentSummary}
-              onOpenLibrary={() => setTab("library")}
-            />
-          ) : null}
+        {tab === "performance" ? (
+          <PerformanceView
+            lastStats={lastStats}
+            history={history}
+            engineState={engineState}
+            ramProfile={stats?.ram_profile}
+            rssMb={Number(stats?.rss_mb ?? lastStats?.rss_mb ?? 0)}
+            onClear={() => setHistory([])}
+          />
+        ) : null}
 
-          {tab === "advanced" ? (
-            <AdvancedView
-              appVersion={appVersion}
-              updateInfo={updateInfo}
-              updateMsg={updateMsg}
-              updateBusy={updateBusy}
-              onCheckUpdate={() => void checkForUpdate(true)}
-              onApplyUpdate={() => void applyUpdate()}
-              onRefresh={() => void refresh()}
-              engineOk={engineOk}
-              enginePresent={enginePresent}
-              engineState={engineState}
-              lastStats={lastStats}
-              stats={stats}
-              activeModel={activeModel}
-              chatCapableCount={chatCapable.length}
-            />
-          ) : null}
-        </main>
-      </div>
+        {tab === "settings" ? (
+          <SettingsView
+            appVersion={appVersion}
+            updateInfo={updateInfo}
+            updateMsg={updateMsg}
+            updateBusy={updateBusy}
+            onCheckUpdate={() => void checkForUpdate(true)}
+            onApplyUpdate={() => void applyUpdate()}
+            onRefresh={() => void refresh()}
+            engineOk={engineOk}
+            enginePresent={enginePresent}
+            engineState={engineState}
+            lastStats={lastStats}
+            stats={stats}
+            activeModel={activeModel}
+            chatCapableCount={chatCapable.length}
+            ramProfile={stats?.ram_profile}
+            onRamProfile={(v) => void setRamProfile(v)}
+            theme={themePref}
+            onTheme={setThemePref}
+            busy={sending || agentBusy}
+          />
+        ) : null}
+      </main>
     </div>
   );
 }

@@ -9,12 +9,16 @@
  *   - CATS sparse FFN: full gate, threshold |act(g)|, skip up/down^T rows
  *   - AU tier manager: hot-prefix bundles resident/mlocked, cold tail on SSD
  *   - opt-in n-gram self-speculation (WH_SPEC=1, greedy-exact)
+ *   - tiled SDOT prefill GEMM (prefill_gemm.h) and int16-coefficient down^T decode
+ *   - cross-turn prefix KV cache in SERVE mode (GDN state snapshots for hybrids)
+ *   - batched Gated DeltaNet (Qwen3.5+) and Granite multipliers
  *
  * Quality profile validated by tools/windhover_gates.py (G2, "wh_c"):
  * int8-row qkv+lm, int4-g64-asym o/gate/up/down^T with AWQ folded at convert.
  *
  * Env: SNAP PROMPT|COLI_PROMPT NGEN TEMP TOPK TOPP NUCLEUS SEED CTX QUIET
  *      RAM_GB WH_SPARSE(0|25|40) WH_SPEC(0|1) WH_STATS(1) MLOCK IDOT SERVE
+ *      WH_PREFIX_CACHE(1) WH_PREFILL_TILED(1) WH_GDN_REF(0) WH_PROF(0)
  *
  * SERVE=1: load once, then length-prefixed turns on stdin (see tools/engine_session.py).
  */
@@ -122,7 +126,9 @@ static int wh_chunk_is_gibberish(const char *s, int n) {
             char l = (char)(c | 32);
             if (l == 'a' || l == 'e' || l == 'i' || l == 'o' || l == 'u') vowels++;
         } else if (c >= '0' && c <= '9') digits++;
-        else if (strchr(";'\\/_+=@#$%^&*`~|-", (int)c)) punct++;
+        /* Markdown / code characters (* _ # ` | -) and apostrophes are normal
+         * output, not keyboard smash: counting them stopped bold/list answers. */
+        else if (strchr(";\\/+=@$%^&~", (int)c)) punct++;
     }
     int solid = letters + digits + punct;
     if (solid < 14) return 0;
@@ -226,6 +232,7 @@ static void wh_arm_chat_stops(Tok *T, WhDesc *d, const char *snap,
     WH_ADD_STOP(tok_id_of(T, "<|system|>"));
     WH_ADD_STOP(tok_id_of(T, "<|im_start|>"));
     WH_ADD_STOP(tok_id_of(T, "<|start_header_id|>"));
+    WH_ADD_STOP(tok_id_of(T, "<|start_of_role|>"));
     WH_ADD_STOP(d->eos_id);
     #undef WH_ADD_STOP
     /* Merge every eos_token_id from HF configs (Phi lists [<|end|>, <|endoftext|>]). */
@@ -317,12 +324,14 @@ typedef struct {
     /* scratch */
     float *x, *nrm, *tmp, *q, *k, *v, *ctx, *sc, *g, *u, *logit; /* batched: [S][*] */
     int8_t *xq; float *sx; int32_t *xqsum;   /* activation quant [S][I], [S], [S][ng] */
+    int8_t *hq, *hl; float *hscT;       /* prefill down^T: hi/lo q8 FFN act [S][I], group scales */
     float *dacc;                        /* down accum per thread [T][S][D] */
     float *lin_state;                   /* [layers][nv*hk*hv] GDN recurrent */
     float *lin_conv_state;              /* [layers][qkv_rows*(K-1)] conv state */
     float *qgate;                       /* [S][H*hd] attn output gate scratch */
     int lin_state_stride;               /* nv*hk*hv */
     int lin_conv_stride;                /* qkv_rows*(K-1) */
+    int scr_w;                          /* row width of g/u scratch: max(MLP, GDN qkv) */
     int nthreads;
     /* sparsity */
     float *cats_tau;                    /* [layers] chosen tau (0=off) */
@@ -336,9 +345,10 @@ typedef struct {
     /* telemetry */
     int64_t bytes_full, bytes_read;     /* per-token model bytes: nominal vs after skips */
     int64_t ffn_rows_total, ffn_rows_kept;
-    double t_attn, t_mlp, t_lm;
+    double t_attn, t_mlp, t_lm, t_down, t_core, t_proj;
     double load_s;
     int prof;
+    int last_reused;                    /* prompt tokens served from the prefix cache */
 } WModel;
 
 #include "gdn.h"
@@ -498,6 +508,70 @@ static inline void axpy_i8_row(float *acc, const int8_t *q8, float rs, float hj,
     }
 #endif
     for (; i < I; i++) acc[i] += s * (float)q8[i];
+#endif
+}
+
+/* Block down-projection for int8 down^T rows (decode, S=1):
+ *   acc[0..D) += sum_r a[r] * q8_r[0..D)
+ * The R coefficients are quantized to int16 against the block max (rel. err
+ * ~1.5e-5) so the inner loop is int8xint16 -> int32 MLAL with the 64-wide
+ * output chunk held in registers. Replaces R separate f32 axpys (each a
+ * widen-convert-load-FMA-store per element), which made down^T the only
+ * compute-bound matmul in decode. R <= WH_DOWN_BLK, D % 64 == 0. */
+#define WH_DOWN_BLK 32
+static void down_i8_block(float *acc, const int8_t *const *rows, const float *a,
+                          int R, int D) {
+    float amax = 0.f;
+    for (int r = 0; r < R; r++) { float v = fabsf(a[r]); if (v > amax) amax = v; }
+    if (!(amax > 0.f) || !isfinite(amax)) {
+        if (!isfinite(amax))
+            for (int r = 0; r < R; r++) axpy_i8_row(acc, rows[r], 1.f, a[r], D);
+        return;
+    }
+#if defined(__ARM_NEON)
+    float A = amax / 32767.f, inv = 32767.f / amax;
+    int16_t aq[WH_DOWN_BLK];
+    const int8_t *rp[WH_DOWN_BLK];
+    int nr = 0;
+    for (int r = 0; r < R; r++) {
+        int q = (int)lrintf(a[r] * inv);
+        if (q == 0) continue;               /* contributes < 1.5e-5 of the block max */
+        aq[nr] = (int16_t)q; rp[nr] = rows[r]; nr++;
+    }
+    const float32x4_t vA = vdupq_n_f32(A);
+    for (int d = 0; d < D; d += 64) {
+        int32x4_t c0 = vdupq_n_s32(0), c1 = c0, c2 = c0, c3 = c0, c4 = c0, c5 = c0,
+                  c6 = c0, c7 = c0, c8 = c0, c9 = c0, c10 = c0, c11 = c0, c12 = c0,
+                  c13 = c0, c14 = c0, c15 = c0;
+        for (int r = 0; r < nr; r++) {
+            const int8_t *w = rp[r] + d;
+            __builtin_prefetch(w + 256, 0, 0);
+            int16_t s = aq[r];
+            int8x16_t w0 = vld1q_s8(w), w1 = vld1q_s8(w + 16);
+            int8x16_t w2 = vld1q_s8(w + 32), w3 = vld1q_s8(w + 48);
+            int16x8_t l0 = vmovl_s8(vget_low_s8(w0)), h0 = vmovl_high_s8(w0);
+            int16x8_t l1 = vmovl_s8(vget_low_s8(w1)), h1 = vmovl_high_s8(w1);
+            int16x8_t l2 = vmovl_s8(vget_low_s8(w2)), h2 = vmovl_high_s8(w2);
+            int16x8_t l3 = vmovl_s8(vget_low_s8(w3)), h3 = vmovl_high_s8(w3);
+            c0  = vmlal_n_s16(c0,  vget_low_s16(l0), s); c1  = vmlal_high_n_s16(c1,  l0, s);
+            c2  = vmlal_n_s16(c2,  vget_low_s16(h0), s); c3  = vmlal_high_n_s16(c3,  h0, s);
+            c4  = vmlal_n_s16(c4,  vget_low_s16(l1), s); c5  = vmlal_high_n_s16(c5,  l1, s);
+            c6  = vmlal_n_s16(c6,  vget_low_s16(h1), s); c7  = vmlal_high_n_s16(c7,  h1, s);
+            c8  = vmlal_n_s16(c8,  vget_low_s16(l2), s); c9  = vmlal_high_n_s16(c9,  l2, s);
+            c10 = vmlal_n_s16(c10, vget_low_s16(h2), s); c11 = vmlal_high_n_s16(c11, h2, s);
+            c12 = vmlal_n_s16(c12, vget_low_s16(l3), s); c13 = vmlal_high_n_s16(c13, l3, s);
+            c14 = vmlal_n_s16(c14, vget_low_s16(h3), s); c15 = vmlal_high_n_s16(c15, h3, s);
+        }
+        float *o = acc + d;
+#define WH_DFIN(k, c) vst1q_f32(o + 4 * (k), vfmaq_f32(vld1q_f32(o + 4 * (k)), vcvtq_f32_s32(c), vA))
+        WH_DFIN(0, c0);  WH_DFIN(1, c1);  WH_DFIN(2, c2);  WH_DFIN(3, c3);
+        WH_DFIN(4, c4);  WH_DFIN(5, c5);  WH_DFIN(6, c6);  WH_DFIN(7, c7);
+        WH_DFIN(8, c8);  WH_DFIN(9, c9);  WH_DFIN(10, c10); WH_DFIN(11, c11);
+        WH_DFIN(12, c12); WH_DFIN(13, c13); WH_DFIN(14, c14); WH_DFIN(15, c15);
+#undef WH_DFIN
+    }
+#else
+    for (int r = 0; r < R; r++) axpy_i8_row(acc, rows[r], 1.f, a[r], D);
 #endif
 }
 
@@ -661,33 +735,35 @@ static int mm_wt_sme_i8(const WT *w, const int8_t *xq, const float *sx,
 }
 #endif
 
-/* Batched GEMV: y[s][o]. Weight rows stream once; s inner. Inside omp region. */
-static void mm_wt(const WT *w, const int8_t *xq, const float *sx,
-                  const int32_t *xqsum, float *y, int S, int ystride) {
-    int O = w->O, I = w->I, ng = w->ng;
+/* Batched GEMV over rows [o_lo,o_hi) x tokens [s_lo,s_hi): y[s][o].
+ * Weight rows stream once; s inner. Inside omp region. */
+static void mm_wt_rng(const WT *w, const int8_t *xq, const float *sx,
+                      const int32_t *xqsum, float *y, int s_lo, int s_hi,
+                      int o_lo, int o_hi, int ystride) {
+    int I = w->I, ng = w->ng;
     if (w->fmt == WT_I8R) {
         #pragma omp for schedule(static) nowait
-        for (int o = 0; o < O; o++) {
+        for (int o = o_lo; o < o_hi; o++) {
             const int8_t *wr = w->q8 + (int64_t)o * I;
             float rs = w->rs[o];
-            for (int s = 0; s < S; s++)
+            for (int s = s_lo; s < s_hi; s++)
                 y[(int64_t)s * ystride + o] = (float)dot_i8i8(wr, xq + (int64_t)s * I, I) * rs * sx[s];
         }
     } else if (w->fmt == WT_I4G) {
         #pragma omp for schedule(static) nowait
-        for (int o = 0; o < O; o++) {
+        for (int o = o_lo; o < o_hi; o++) {
             const uint8_t *wr = w->q4 + (int64_t)o * (I >> 1);
             const wh_f16 *sc = w->sc + (int64_t)o * ng;
             const wh_f16 *zp = w->zp + (int64_t)o * ng;
-            for (int s = 0; s < S; s++)
+            for (int s = s_lo; s < s_hi; s++)
                 y[(int64_t)s * ystride + o] =
                     dot_i4g(wr, sc, zp, xq + (int64_t)s * I, xqsum + (int64_t)s * ng, sx[s], I);
         }
     } else {
         #pragma omp for schedule(static) nowait
-        for (int o = 0; o < O; o++) {
+        for (int o = o_lo; o < o_hi; o++) {
             const float *wr = w->f + (int64_t)o * I;
-            for (int s = 0; s < S; s++) {
+            for (int s = s_lo; s < s_hi; s++) {
                 /* f32 fallback path is only for tiny tensors */
                 float acc = 0.f;
                 const int8_t *xr = xq + (int64_t)s * I;
@@ -696,6 +772,23 @@ static void mm_wt(const WT *w, const int8_t *xq, const float *sx,
             }
         }
     }
+}
+
+static void mm_wt(const WT *w, const int8_t *xq, const float *sx,
+                  const int32_t *xqsum, float *y, int S, int ystride) {
+    mm_wt_rng(w, xq, sx, xqsum, y, 0, S, 0, w->O, ystride);
+}
+
+#include "prefill_gemm.h"
+
+static int g_pf_off = -1;   /* WH_PREFILL_TILED=0 disables the tiled prefill path */
+
+static int pf_enabled(void) {
+    if (g_pf_off < 0) {
+        const char *e = getenv("WH_PREFILL_TILED");
+        g_pf_off = (e && !atoi(e)) ? 1 : 0;
+    }
+    return !g_pf_off;
 }
 
 /* Outside OpenMP: optional SME2 int8 prefill, else OMP GEMV.
@@ -712,6 +805,28 @@ static void mm_wt_run(const WT *w, const int8_t *xq, const float *sx,
 #ifdef _OPENMP
     if (omp_in_parallel()) {
         mm_wt(w, xq, sx, xqsum, y, S, ystride);
+        return;
+    }
+#endif
+#if defined(WH_HAVE_TILED_PREFILL)
+    if (S >= 4 && w->O >= 4 && w->I % WH_GS == 0 &&
+        (w->fmt == WT_I8R || w->fmt == WT_I4G) && pf_enabled()) {
+        int S4 = S & ~3, O4 = w->O & ~3;
+        const float *xsT = NULL;
+        if (w->fmt == WT_I4G) {
+            xsT = pf_prep_xsum(xqsum, S4, w->ng);
+#ifdef _OPENMP
+            pf_wbuf_reserve(omp_get_max_threads(), (int64_t)4 * w->I);
+#else
+            pf_wbuf_reserve(1, (int64_t)4 * w->I);
+#endif
+        }
+        #pragma omp parallel
+        {
+            pf_mm_tiles(w, xq, sx, xsT, y, S4, O4, ystride);
+            if (O4 < w->O) mm_wt_rng(w, xq, sx, xqsum, y, 0, S, O4, w->O, ystride);
+            if (S4 < S) mm_wt_rng(w, xq, sx, xqsum, y, S4, S, 0, O4, ystride);
+        }
         return;
     }
 #endif
@@ -812,6 +927,16 @@ static void act_bulk(float *g, int n, int gelu) {
     }
 #endif
     for (; i < n; i++) g[i] = act_fn(g[i], gelu);
+}
+
+/* x += a * dx  (Granite residual_multiplier; a == 1 for every other family). */
+static void add_scaled_inplace(float *x, const float *dx, float a, int D) {
+    int d = 0;
+#if defined(__ARM_NEON)
+    for (; d + 4 <= D; d += 4)
+        vst1q_f32(x + d, vfmaq_n_f32(vld1q_f32(x + d), vld1q_f32(dx + d), a));
+#endif
+    for (; d < D; d++) x[d] += a * dx[d];
 }
 
 static void add_inplace(float *x, const float *dx, int D) {
@@ -985,6 +1110,55 @@ static void tau_arm(WModel *m) {
     m->tau_online = 0;
 }
 
+/* Qwen3.5 gated attention: HF q_proj rows are interleaved per head as
+ * [q_h (hd) | gate_h (hd)]. Packs written before the per-head split stored
+ * rows [0,H*hd) as "q" and [H*hd,2*H*hd) as "q_gate", i.e. the wrong rows.
+ * Row quantization is per-row, so rebuilding both tensors by row
+ * permutation is exact. Only runs for packs without q_gate_layout=per_head. */
+static void wt_copy_row(const WT *src, int r, WT *dst, int dr, int8_t *q8, float *rs,
+                        uint8_t *q4, wh_f16 *sc, wh_f16 *zp) {
+    int I = src->I, ng = src->ng;
+    if (src->fmt == WT_I8R) {
+        memcpy(q8 + (int64_t)dr * I, src->q8 + (int64_t)r * I, (size_t)I);
+        rs[dr] = src->rs[r];
+    } else {
+        memcpy(q4 + (int64_t)dr * (I / 2), src->q4 + (int64_t)r * (I / 2), (size_t)(I / 2));
+        memcpy(sc + (int64_t)dr * ng, src->sc + (int64_t)r * ng, (size_t)ng * sizeof(wh_f16));
+        memcpy(zp + (int64_t)dr * ng, src->zp + (int64_t)r * ng, (size_t)ng * sizeof(wh_f16));
+    }
+    (void)dst;
+}
+
+static void wh_fix_q_gate_layout(WLayer *l, int H, int hd) {
+    WT q = l->q, g = l->q_gate;
+    if (q.fmt != g.fmt || (q.fmt != WT_I8R && q.fmt != WT_I4G) || q.O != H * hd || g.O != H * hd)
+        return;
+    int O = H * hd, I = q.I, ng = q.ng;
+    WT nq = q, ngt = g;
+    int8_t *q8a = NULL, *q8b = NULL; float *rsa = NULL, *rsb = NULL;
+    uint8_t *q4a = NULL, *q4b = NULL; wh_f16 *sca = NULL, *scb = NULL, *zpa = NULL, *zpb = NULL;
+    if (q.fmt == WT_I8R) {
+        q8a = balloc((int64_t)O * I); q8b = balloc((int64_t)O * I);
+        rsa = falloc(O); rsb = falloc(O);
+    } else {
+        q4a = balloc((int64_t)O * I / 2); q4b = balloc((int64_t)O * I / 2);
+        sca = balloc((int64_t)O * ng * 2); scb = balloc((int64_t)O * ng * 2);
+        zpa = balloc((int64_t)O * ng * 2); zpb = balloc((int64_t)O * ng * 2);
+    }
+    for (int h = 0; h < H; h++)
+        for (int j = 0; j < hd; j++) {
+            int Rq = h * 2 * hd + j, Rg = Rq + hd;      /* rows in the HF [2*H*hd] q_proj */
+            const WT *sq = Rq < O ? &q : &g; int rq = Rq < O ? Rq : Rq - O;
+            const WT *sg = Rg < O ? &q : &g; int rg = Rg < O ? Rg : Rg - O;
+            wt_copy_row(sq, rq, &nq, h * hd + j, q8a, rsa, q4a, sca, zpa);
+            wt_copy_row(sg, rg, &ngt, h * hd + j, q8b, rsb, q4b, scb, zpb);
+        }
+    if (q.fmt == WT_I8R) { nq.q8 = q8a; nq.rs = rsa; ngt.q8 = q8b; ngt.rs = rsb; }
+    else { nq.q4 = q4a; nq.sc = sca; nq.zp = zpa; ngt.q4 = q4b; ngt.sc = scb; ngt.zp = zpb; }
+    l->q = nq;
+    l->q_gate = ngt;
+}
+
 static void wh_model_init(WModel *m, const char *snap) {
     memset(m, 0, sizeof(*m));
     /* Prefer WMIR dims when present; else config.json allowlist path. */
@@ -999,6 +1173,22 @@ static void wh_model_init(WModel *m, const char *snap) {
     double t0 = now_s();
     st_init(&m->S, snap);
     WhDesc *d = &m->d;
+    /* Qwen3.5 / Qwen3.6 / Qwen3.8 RMSNorm is zero-centred: x * (1 + w) (the GDN
+     * gated norm is the only plain-w norm and is applied separately). */
+    int qwen35 = !strncmp(d->model_type, "qwen3_5", 7) || !strcmp(d->model_type, "qwen3.5");
+    if (qwen35) d->norm = WH_NORM_RMS_GEMMA;
+    int qgate_per_head = 0;
+    {
+        char kp[2048];
+        snprintf(kp, sizeof(kp), "%s/kestrel.json", snap);
+        long kn = 0;
+        char *kb = wh_read_file_(kp, &kn);
+        if (kb) {
+            qgate_per_head = strstr(kb, "\"q_gate_layout\": \"per_head\"") != NULL ||
+                             strstr(kb, "\"q_gate_layout\":\"per_head\"") != NULL;
+            free(kb);
+        }
+    }
     int D = d->hidden, I = d->inter, H = d->heads, KV = d->kv_heads, hd = d->head_dim;
     if (KV <= 0 || H % KV != 0) {
         fprintf(stderr, "[wh] invalid heads=%d kv_heads=%d\n", H, KV);
@@ -1111,6 +1301,7 @@ static void wh_model_init(WModel *m, const char *snap) {
         wt_from_view(m, P("model.layers.%d.self_attn.q_gate_proj.weight"),
                      &l->q_gate, H * hd, D, 1);
         l->has_q_gate = (l->q_gate.fmt != WT_NONE);
+        if (l->has_q_gate && qwen35 && !qgate_per_head) wh_fix_q_gate_layout(l, H, hd);
         wt_from_view(m, P("model.layers.%d.self_attn.k_proj.weight"), &l->k, KV * hd, D, 1);
         wt_from_view(m, P("model.layers.%d.self_attn.v_proj.weight"), &l->v, KV * hd, D, 1);
         wt_from_view(m, P("model.layers.%d.self_attn.o_proj.weight"), &l->o, D, H * hd, 0);
@@ -1187,6 +1378,13 @@ static void wh_model_init(WModel *m, const char *snap) {
     /* Scratch buffers sized to the widest MLP layer (double-wide, etc.). */
     for (int i = 0; i < d->layers; i++)
         if (m->L[i].layer_inter > d->inter) d->inter = m->L[i].layer_inter;
+    /* GDN projections can be wider than the MLP (Qwen3.5-0.8B: qkv 6144 > I 3584). */
+    m->scr_w = d->inter;
+    for (int i = 0; i < d->layers; i++) {
+        if (!m->L[i].has_linear) continue;
+        int kd = m->L[i].lin_nk * m->L[i].lin_hk, vd = m->L[i].lin_nv * m->L[i].lin_hv;
+        if (2 * kd + vd > m->scr_w) m->scr_w = 2 * kd + vd;
+    }
     m->bytes_full = bytes_full;
     m->load_s = now_s() - t0;
     m->prof = getenv("WH_PROF") ? 1 : 0;
@@ -1284,6 +1482,7 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
     int D = d->hidden, I = d->inter, H = d->heads, KV = d->kv_heads, hd = d->head_dim;
     int gqa = H / KV, ngD = D / WH_GS, ngA = (H * hd) / WH_GS;
     float qscale = d->query_scale > 0 ? d->query_scale : 1.f / sqrtf((float)hd);
+    float rsc = d->residual_scale > 0 ? d->residual_scale : 1.f;
     int use_sparse = (S <= 4);
 
     /* embeddings */
@@ -1317,36 +1516,46 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
         }
 
         if (l->has_linear && !l->has_gqa) {
-            /* Faithful Qwen3.5 Gated DeltaNet (recurrent), token by token. */
+            /* Qwen3.5 Gated DeltaNet: batched projections, parallel heads. */
             int key_dim = l->lin_nk * l->lin_hk;
             int value_dim = l->lin_nv * l->lin_hv;
             int qkv_rows = 2 * key_dim + value_dim;
-            /* Need scratch: qkv_rows + value_dim + 2*nv  — use g/u/tmp carefully.
-             * g is [S][I]; I=12288 for 9B covers qkv_rows=8192. */
-            if (qkv_rows > I) {
-                fprintf(stderr, "[wh] gdn qkv_rows %d exceeds mlp scratch %d\n", qkv_rows, I);
+            int GW = m->scr_w;   /* scratch row stride for the GDN qkv / z planes */
+            if (qkv_rows > GW || value_dim > GW) {
+                fprintf(stderr, "[wh] gdn dims (qkv %d, v %d) exceed scratch %d\n",
+                        qkv_rows, value_dim, GW);
                 exit(1);
             }
             float *state = m->lin_state
                 ? m->lin_state + (int64_t)li * m->lin_state_stride : NULL;
             float *cstate = m->lin_conv_state
                 ? m->lin_conv_state + (int64_t)li * m->lin_conv_stride : NULL;
-            for (int s = 0; s < S; s++) {
-                float *nrm = m->nrm + (int64_t)s * D;
-                float *qkv = m->g + (int64_t)s * I;
-                float *zbuf = m->u + (int64_t)s * I; /* value_dim */
-                float *ab = zbuf + value_dim;        /* 2*nv */
-                float *out = m->tmp + (int64_t)s * D;
-                if (!state) {
-                    fprintf(stderr, "[wh] gdn missing recurrent state\n");
-                    exit(1);
+            if (!state) {
+                fprintf(stderr, "[wh] gdn missing recurrent state\n");
+                exit(1);
+            }
+            static int gdn_ref = -1;   /* WH_GDN_REF=1: original per-token GDN path (debug / A-B) */
+            if (gdn_ref < 0) gdn_ref = getenv("WH_GDN_REF") ? atoi(getenv("WH_GDN_REF")) : 0;
+            if (gdn_ref) {
+                for (int s = 0; s < S; s++) {
+                    float *nrm = m->nrm + (int64_t)s * D;
+                    float *zbuf = m->u + (int64_t)s * GW;
+                    wh_gdn_step(l, nrm, D, d->eps, state, cstate, m->g + (int64_t)s * GW,
+                                zbuf, zbuf + value_dim, m->tmp + (int64_t)s * D);
                 }
-                wh_gdn_step(l, nrm, D, d->eps, state, cstate, qkv, zbuf, ab, out);
+            } else {
+                /* a/b scratch: m->ctx rows are free here ([S][H*hd] >= 2*nv) */
+                wh_gdn_layer(l, S, D, GW, d->eps, m->nrm, m->xq, m->sx, m->xqsum,
+                             state, cstate, m->g, m->u, m->ctx, m->tmp);
+            }
+            for (int s = 0; s < S; s++) {
+                float *out = m->tmp + (int64_t)s * D;
                 float *x = m->x + (int64_t)s * D;
                 if (d->post_norms && l->post_ln)
                     rmsnorm_row(out, out, l->post_ln, D, d->eps,
                                 d->norm == WH_NORM_RMS_GEMMA);
-                for (int j = 0; j < D; j++) x[j] += out[j];
+                if (rsc != 1.f) add_scaled_inplace(x, out, rsc, D);
+                else add_inplace(x, out, D);
             }
             goto wh_layer_mlp;
         }
@@ -1405,6 +1614,8 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
             }
         }
         /* attention scores/ctx per (s, head) */
+        double tc0 = m->prof ? now_s() : 0;
+        if (m->prof) m->t_proj += tc0 - tt0;
         #pragma omp parallel for schedule(static) collapse(2) if(H * S >= 4)
         for (int s = 0; s < S; s++) {
             for (int hh = 0; hh < H; hh++) {
@@ -1452,6 +1663,7 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
                               VS + (int64_t)t * (hd / WH_KVG), hd);
             }
         }
+        if (m->prof) m->t_core += now_s() - tc0;
         /* Qwen3.5 attn output gate: ctx *= sigmoid(gate) before o_proj */
         if (l->has_q_gate && m->qgate) {
             for (int s = 0; s < S; s++) {
@@ -1472,7 +1684,8 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
             if (d->post_norms && l->post_ln) {
                 rmsnorm_row(o, o, l->post_ln, D, d->eps, d->norm == WH_NORM_RMS_GEMMA);
             }
-            add_inplace(dst, o, D);
+            if (rsc != 1.f) add_scaled_inplace(dst, o, rsc, D);
+            else add_inplace(dst, o, D);
         }
         if (m->prof) { m->t_attn += now_s() - tt0; tt0 = now_s(); }
 
@@ -1531,6 +1744,9 @@ wh_layer_mlp:
 #endif
                     float *acc = m->dacc + (int64_t)tid * D;
                     memset(acc, 0, (size_t)D * sizeof(float));
+                    const int8_t *brow[WH_DOWN_BLK];
+                    float bco[WH_DOWN_BLK];
+                    int nb = 0;
                     #pragma omp for schedule(static) nowait
                     for (int t = 0; t < nK; t++) {
                         int j = m->Jlist[t];
@@ -1544,8 +1760,9 @@ wh_layer_mlp:
                                  l->up.rs[j] * sx;
                         hj = m->g[(int64_t)s * Li + j] * uj;
                         if (l->downT.fmt == WT_I8R) {
-                            axpy_i8_row(acc, l->downT.q8 + (int64_t)j * D,
-                                        l->downT.rs[j], hj, D);
+                            brow[nb] = l->downT.q8 + (int64_t)j * D;
+                            bco[nb] = hj * l->downT.rs[j];
+                            if (++nb == WH_DOWN_BLK) { down_i8_block(acc, brow, bco, nb, D); nb = 0; }
                         } else {
                             axpy_i4g_row(acc, l->downT.q4 + (int64_t)j * (D >> 1),
                                          l->downT.sc + (int64_t)j * ngD,
@@ -1555,6 +1772,7 @@ wh_layer_mlp:
                                     hj * (float)l->downT.oc[(int64_t)j * l->downT.noc + k];
                         }
                     }
+                    if (nb) down_i8_block(acc, brow, bco, nb, D);
                 }
                 memset(out, 0, (size_t)D * sizeof(float));
                 for (int t = 0; t < nth; t++)
@@ -1571,6 +1789,53 @@ wh_layer_mlp:
                 for (int j = 0; j < Li; j++) g[j] *= u[j];
             }
             int nth = m->nthreads;
+            double td0 = m->prof ? now_s() : 0;
+#if defined(WH_HAVE_TILED_PREFILL)
+            if (S >= 2 && l->downT.fmt == WT_I8R && Li % WH_GS == 0 &&
+                D % WH_PF_DBLK == 0 && pf_enabled()) {
+                /* Pad the ragged tail to a full 4-token tile (duplicate the last
+                 * row; padded outputs land in unused scratch rows) so every
+                 * prefill token takes the same numeric path regardless of how
+                 * the prompt was chunked — keeps prefix-cache reuse consistent. */
+                int S4 = (S + 3) & ~3;
+                for (int s = S; s < S4; s++)
+                    memcpy(m->g + (int64_t)s * Li, m->g + (int64_t)(S - 1) * Li,
+                           (size_t)Li * sizeof(float));
+                pf_down_prep(m->g, S4, Li, l->downT.rs, m->hq, m->hl, m->hscT, S4);
+#ifdef _OPENMP
+                pf_wbuf_reserve(omp_get_max_threads(), (int64_t)WH_PF_DBLK * Li);
+#else
+                pf_wbuf_reserve(1, (int64_t)WH_PF_DBLK * Li);
+#endif
+                #pragma omp parallel
+                { pf_down_tiles(&l->downT, m->hq, m->hl, m->hscT, m->tmp, S4, Li, D); }
+                if (m->prof) m->t_down += now_s() - td0;
+                goto wh_mlp_done;
+            }
+#endif
+            if (S == 1 && l->downT.fmt == WT_I8R) {
+                #pragma omp parallel
+                {
+                    int tid = 0;
+#ifdef _OPENMP
+                    tid = omp_get_thread_num();
+#endif
+                    float *acc = m->dacc + (int64_t)tid * D;
+                    memset(acc, 0, (size_t)D * sizeof(float));
+                    const int8_t *brow[WH_DOWN_BLK];
+                    float bco[WH_DOWN_BLK];
+                    int nb = 0;
+                    #pragma omp for schedule(static) nowait
+                    for (int j = 0; j < Li; j++) {
+                        float hj = m->g[j];
+                        if (hj == 0.f) continue;
+                        brow[nb] = l->downT.q8 + (int64_t)j * D;
+                        bco[nb] = hj * l->downT.rs[j];
+                        if (++nb == WH_DOWN_BLK) { down_i8_block(acc, brow, bco, nb, D); nb = 0; }
+                    }
+                    if (nb) down_i8_block(acc, brow, bco, nb, D);
+                }
+            } else
             #pragma omp parallel
             {
                 int tid = 0;
@@ -1626,12 +1891,17 @@ wh_layer_mlp:
                 for (int t = 0; t < nth; t++)
                     add_inplace(out, m->dacc + ((int64_t)t * S + s) * D, D);
             }
+            if (m->prof) m->t_down += now_s() - td0;
         }
+#if defined(WH_HAVE_TILED_PREFILL)
+wh_mlp_done:
+#endif
         for (int s = 0; s < S; s++) {
             float *o = m->tmp + (int64_t)s * D;
             if (d->post_norms && l->post_ffn_ln)
                 rmsnorm_row(o, o, l->post_ffn_ln, D, d->eps, 1);
-            add_inplace(m->x + (int64_t)s * D, o, D);
+            if (rsc != 1.f) add_scaled_inplace(m->x + (int64_t)s * D, o, rsc, D);
+            else add_inplace(m->x + (int64_t)s * D, o, D);
         }
         if (m->prof) m->t_mlp += now_s() - tt0;
     }
@@ -1649,6 +1919,10 @@ wh_layer_mlp:
     }
     int SL = S - s_lo;
     mm_wt_run(&m->lm, m->xq, m->sx, m->xqsum, m->logit, SL, m->d.vocab);
+    if (d->logit_scale > 0 && fabsf(d->logit_scale - 1.f) > 1e-6f) {
+        float inv = 1.f / d->logit_scale;
+        for (int64_t t = 0; t < (int64_t)SL * d->vocab; t++) m->logit[t] *= inv;
+    }
     if (d->final_softcap > 0)
         for (int s = 0; s < SL; s++) {
             float *lg = m->logit + (int64_t)s * d->vocab;
@@ -1666,12 +1940,91 @@ static float rngf(void) {
     return (float)((g_rng >> 11) & 0xFFFFFF) / (float)0x1000000;
 }
 
+static int argmax_f32(const float *x, int n) {
+    int b = 0; float v = x[0];
+    int i = 1;
+#if defined(__ARM_NEON)
+    if (n >= 16) {
+        float32x4_t m0 = vld1q_f32(x), m1 = vld1q_f32(x + 4);
+        float32x4_t m2 = vld1q_f32(x + 8), m3 = vld1q_f32(x + 12);
+        for (i = 16; i + 16 <= n; i += 16) {
+            m0 = vmaxq_f32(m0, vld1q_f32(x + i));
+            m1 = vmaxq_f32(m1, vld1q_f32(x + i + 4));
+            m2 = vmaxq_f32(m2, vld1q_f32(x + i + 8));
+            m3 = vmaxq_f32(m3, vld1q_f32(x + i + 12));
+        }
+        float mx = vmaxvq_f32(vmaxq_f32(vmaxq_f32(m0, m1), vmaxq_f32(m2, m3)));
+        for (; i < n; i++) if (x[i] > mx) mx = x[i];
+        /* first index holding the max (matches the scalar scan's tie rule) */
+        for (int j = 0; j < n; j++) if (x[j] == mx) return j;
+        return 0;
+    }
+#endif
+    for (; i < n; i++) if (x[i] > v) { v = x[i]; b = i; }
+    return b;
+}
+
+/* Top-k candidates via a size-k min-heap: O(vocab) compares + O(k log k).
+ * The old path selected the k-th value with k full passes over the vocab
+ * (40 x 150k compares) and ran nucleus as 24 more passes — several ms/token. */
+typedef struct { float v; int i; } WhCand;
+
+static void cand_sift_down(WhCand *h, int n, int at) {
+    for (;;) {
+        int l = 2 * at + 1, r = l + 1, s = at;
+        if (l < n && h[l].v < h[s].v) s = l;
+        if (r < n && h[r].v < h[s].v) s = r;
+        if (s == at) return;
+        WhCand t = h[at]; h[at] = h[s]; h[s] = t;
+        at = s;
+    }
+}
+
+static int cand_cmp_desc(const void *a, const void *b) {
+    float x = ((const WhCand *)a)->v, y = ((const WhCand *)b)->v;
+    return x < y ? 1 : (x > y ? -1 : 0);
+}
+
+#define WH_TOPK_MAX 1024
+
 static int sample_logits(float *logit, int vocab, float temp, int topk,
                          float topp) {
-    if (temp <= 0.f) {
-        int b = 0; float v = logit[0];
-        for (int i = 1; i < vocab; i++) if (logit[i] > v) { v = logit[i]; b = i; }
-        return b;
+    if (temp <= 0.f) return argmax_f32(logit, vocab);
+    if (topk > 0 && topk <= WH_TOPK_MAX && topk < vocab) {
+        WhCand heap[WH_TOPK_MAX];
+        int n = 0;
+        for (int i = 0; i < vocab; i++) {
+            float v = logit[i];
+            if (n < topk) {
+                heap[n].v = v; heap[n].i = i; n++;
+                if (n == topk)
+                    for (int a = topk / 2 - 1; a >= 0; a--) cand_sift_down(heap, n, a);
+            } else if (v > heap[0].v) {
+                heap[0].v = v; heap[0].i = i;
+                cand_sift_down(heap, n, 0);
+            }
+        }
+        qsort(heap, (size_t)n, sizeof(WhCand), cand_cmp_desc);
+        float inv = 1.f / temp, mx = heap[0].v;
+        double sum = 0;
+        float p[WH_TOPK_MAX];
+        for (int c = 0; c < n; c++) { p[c] = expf((heap[c].v - mx) * inv); sum += p[c]; }
+        int keep = n;
+        if (topp > 0.f && topp < 1.f) {
+            double cum = 0;
+            for (int c = 0; c < n; c++) {
+                cum += p[c];
+                if (cum / sum >= topp) { keep = c + 1; break; }
+            }
+            sum = 0;
+            for (int c = 0; c < keep; c++) sum += p[c];
+        }
+        double r = rngf() * sum, acc = 0;
+        for (int c = 0; c < keep; c++) {
+            acc += p[c];
+            if (acc >= r) return heap[c].i;
+        }
+        return heap[keep - 1].i;
     }
     float inv = 1.f / temp;
     float mx = -1e30f;
@@ -1798,7 +2151,7 @@ static int spec_draft(const int *ids, int len, int *draft, int kmax) {
 
 static void wh_alloc_scratch(WModel *m, int max_t) {
     WhDesc *d = &m->d;
-    int D = d->hidden, I = d->inter, H = d->heads, hd = d->head_dim;
+    int D = d->hidden, I = m->scr_w > d->inter ? m->scr_w : d->inter, H = d->heads, hd = d->head_dim;
     int S = WH_MAXS;
     int A = H * hd > D ? H * hd : D;
     if (I > A) A = I;
@@ -1831,6 +2184,9 @@ static void wh_alloc_scratch(WModel *m, int max_t) {
     m->Jlist = (int *)balloc((int64_t)I * 4);
     m->Jmag = falloc(I);
     m->Jkeep = (unsigned char *)balloc(I);
+    m->hq = balloc((int64_t)S * I);
+    m->hl = balloc((int64_t)S * I);
+    m->hscT = falloc((int64_t)S * (I / WH_GS + 1));
     /* Phi-4 / partial RoPE: rotate only rope_dim dims; inv_freq uses /rope_dim */
     {
         int rdim = d->rope_dim > 0 ? d->rope_dim : hd;
@@ -1899,6 +2255,97 @@ static void wh_stdio_binary(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
 #endif
     setvbuf(stdin, NULL, _IONBF, 0);
+}
+
+/* ---- cross-turn prefix KV cache (SERVE mode) ------------------------------
+ * Chat re-sends the whole conversation every turn. The KV cache of the
+ * previous turn is still valid for every position whose token is unchanged,
+ * so a new turn only prefills the suffix after the longest common token
+ * prefix. Recurrent GDN layers (Qwen3.5) cannot rewind, so for hybrids the
+ * engine snapshots the recurrent + conv state at the end of each prompt and
+ * reuses exactly that point when the new prompt extends it. */
+#define WH_PC_SNAPS 2
+typedef struct {
+    int *ids; int len, cap;          /* tokens whose KV is valid: positions [0,len) */
+    /* GDN state snapshots: [0] at the last role-start token of the prompt (the
+     * point every later turn shares), [1] at the end of the prompt. */
+    float *lin_snap[WH_PC_SNAPS], *conv_snap[WH_PC_SNAPS];
+    int snap_pos[WH_PC_SNAPS];       /* -1 = empty */
+    int enabled;
+} WhPrefixCache;
+static WhPrefixCache g_pc = { NULL, 0, 0, {NULL, NULL}, {NULL, NULL}, {-1, -1}, 0 };
+
+static int wh_has_linear(const WModel *m) {
+    return m->lin_state && m->lin_state_stride > 0;
+}
+
+static void pc_snapshot(WModel *m, int slot, int pos) {
+    if (!wh_has_linear(m)) return;
+    size_t ls = (size_t)m->d.layers * (size_t)m->lin_state_stride;
+    size_t cs = m->lin_conv_state ? (size_t)m->d.layers * (size_t)m->lin_conv_stride : 0;
+    if (!g_pc.lin_snap[slot]) g_pc.lin_snap[slot] = falloc((int64_t)ls);
+    if (cs && !g_pc.conv_snap[slot]) g_pc.conv_snap[slot] = falloc((int64_t)cs);
+    memcpy(g_pc.lin_snap[slot], m->lin_state, ls * sizeof(float));
+    if (cs) memcpy(g_pc.conv_snap[slot], m->lin_conv_state, cs * sizeof(float));
+    g_pc.snap_pos[slot] = pos;
+}
+
+static void pc_restore(WModel *m, int pos) {
+    size_t ls = (size_t)m->d.layers * (size_t)m->lin_state_stride;
+    size_t cs = m->lin_conv_state ? (size_t)m->d.layers * (size_t)m->lin_conv_stride : 0;
+    for (int k = 0; k < WH_PC_SNAPS; k++) {
+        if (g_pc.snap_pos[k] != pos || !g_pc.lin_snap[k]) continue;
+        memcpy(m->lin_state, g_pc.lin_snap[k], ls * sizeof(float));
+        if (cs) memcpy(m->lin_conv_state, g_pc.conv_snap[k], cs * sizeof(float));
+        return;
+    }
+}
+
+static void pc_store(const int *ids, int len) {
+    if (len <= 0) { g_pc.len = 0; return; }
+    if (len > g_pc.cap) {
+        free(g_pc.ids);
+        g_pc.cap = len + 1024;
+        g_pc.ids = malloc((size_t)g_pc.cap * sizeof(int));
+        if (!g_pc.ids) { g_pc.cap = g_pc.len = 0; return; }
+    }
+    memcpy(g_pc.ids, ids, (size_t)len * sizeof(int));
+    g_pc.len = len;
+}
+
+/* Positions [0, return) can be reused for a new prompt ids[0, np). */
+static int pc_reuse(const WModel *m, const int *ids, int np) {
+    if (!g_pc.enabled || g_pc.len <= 0 || np < 2) return 0;
+    int lcp = 0, lim = g_pc.len < np ? g_pc.len : np;
+    while (lcp < lim && ids[lcp] == g_pc.ids[lcp]) lcp++;
+    if (lcp > np - 1) lcp = np - 1;      /* always prefill >= 1 token for logits */
+    if (wh_has_linear(m)) {
+        int best = 0;
+        for (int k = 0; k < WH_PC_SNAPS; k++)
+            if (g_pc.snap_pos[k] > best && g_pc.snap_pos[k] <= lcp && g_pc.lin_snap[k])
+                best = g_pc.snap_pos[k];
+        return best;
+    }
+    return lcp;
+}
+
+/* Last role-start special token in ids[lo, np): the start of the final
+ * "<|im_start|>assistant" header, shared verbatim by every later turn. */
+static int pc_boundary(Tok *T, const int *ids, int lo, int np) {
+    static int rs[8], nrs = -1;
+    if (nrs < 0) {
+        const char *names[] = {"<|im_start|>", "<start_of_turn>", "<|start_header_id|>",
+                               "<|assistant|>", "<|start_of_role|>"};
+        nrs = 0;
+        for (int i = 0; i < 5; i++) {
+            int id = tok_id_of(T, names[i]);
+            if (id >= 0) rs[nrs++] = id;
+        }
+    }
+    for (int i = np - 1; i > lo; i--)
+        for (int k = 0; k < nrs; k++)
+            if (ids[i] == rs[k]) return i;
+    return -1;
 }
 
 static void wh_reset_turn(WModel *m) {
@@ -1984,12 +2431,14 @@ static void wh_emit_json_stats(WModel *m, int np, int generated, int steps,
     int64_t au_touch = m->au.hot_hits + m->au.cold_fetches + m->au.cold_drops;
     double hit = au_touch
         ? 100.0 * (double)m->au.hot_hits / (double)au_touch : 100.0;
+    int computed = np - m->last_reused;
     printf("\n@@WH_STATS@@{\"decode_tok_s\":%.2f,\"prefill_tok_s\":%.1f,"
            "\"rss_gb\":%.2f,\"footprint_gb\":%.2f,\"sparsity_pct\":%.1f,"
            "\"bytes_per_tok\":%.0f,\"au_hit_pct\":%.1f,"
-           "\"tokens\":%d,\"forwards\":%d}\n",
-           tps, prefill_s > 0 ? np / prefill_s : 0, rss_gb(), footprint_gb(),
-           sp, bytes_tok, hit, generated, steps);
+           "\"tokens\":%d,\"forwards\":%d,\"prompt_tokens\":%d,"
+           "\"cached_tokens\":%d,\"prefill_s\":%.3f}\n",
+           tps, prefill_s > 0 ? computed / prefill_s : 0, rss_gb(), footprint_gb(),
+           sp, bytes_tok, hit, generated, steps, np, m->last_reused, prefill_s);
 }
 
 /* Prefill + decode one prompt into stdout. ids[] must hold max_t + SPEC_K. */
@@ -1999,6 +2448,7 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
                        int quiet, int json_stats, int dump_logits) {
     WhDesc *d = &m->d;
     wh_reset_turn(m);
+    int pc_ok = g_pc.enabled;
     int enc_cap = max_t;
     if (enc_cap < 1) enc_cap = 1;
     int np = tok_encode(T, prompt, prompt_len, ids, enc_cap);
@@ -2024,14 +2474,28 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
     }
 
     double tp0 = now_s();
-    int pos = 0;
+    int reused = pc_ok ? pc_reuse(m, ids, np) : 0;
+    if (reused > 0) {
+        if (wh_has_linear(m)) pc_restore(m, reused);
+        m->kv_len = reused;
+    }
+    /* Hybrids: split prefill at the last role-start token so its recurrent
+     * state can be snapshotted for the next turn. */
+    int bnd = (pc_ok && wh_has_linear(m)) ? pc_boundary(T, ids, reused, np) : -1;
+    if (pc_ok) g_pc.snap_pos[0] = -1;   /* never reuse a snapshot from an older turn */
+    int pos = reused;
     while (pos < np) {
         int S = np - pos;
         if (S > WH_PREFILL_S) S = WH_PREFILL_S;
+        if (bnd > pos && bnd < pos + S) S = bnd - pos;
         wh_forward(m, ids + pos, S, pos, 0);
         pos += S;
+        if (pos == bnd && pc_ok) pc_snapshot(m, 0, bnd);
     }
     double prefill_s = now_s() - tp0;
+    if (pc_ok) pc_snapshot(m, 1, np);
+    m->last_reused = reused;
+    int np_computed = np - reused;
     tau_arm(m);
     if (dump_logits && getenv("WH_LOGITS")) {
         FILE *lf = fopen(getenv("WH_LOGITS"), "wb");
@@ -2041,8 +2505,11 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
         }
     }
     if (!quiet)
-        fprintf(stderr, "[wh] prefill %d tok in %.2fs (%.1f tok/s)\n",
-                np, prefill_s, prefill_s > 0 ? np / prefill_s : 0);
+        fprintf(stderr, "[wh] prefill %d tok (%d cached) in %.2fs (%.1f tok/s)\n",
+                np, reused, prefill_s, prefill_s > 0 ? np_computed / prefill_s : 0);
+    if (m->prof)
+        fprintf(stderr, "[wh][prof] prefill attn=%.2fs (qkv+rope %.2fs, core %.2fs) mlp=%.2fs (down %.2fs) lm=%.2fs\n",
+                m->t_attn, m->t_proj, m->t_core, m->t_mlp, m->t_down, m->t_lm);
 
     if (spec_on) {
         spec_init();
@@ -2050,7 +2517,7 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
         for (int i = SPEC_NMIN; i <= np; i++) spec_update(ids, i);
     }
 
-    m->t_attn = m->t_mlp = m->t_lm = 0;
+    m->t_attn = m->t_mlp = m->t_lm = m->t_down = 0;
     double t0 = now_s();
     int generated = 0, steps = 0, accepted_total = 0;
     char outbuf[8192];
@@ -2086,9 +2553,7 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
             int acc = 0;
             for (int j = 0; j < nd; j++) {
                 float *lj = m->logit + (int64_t)j * d->vocab;
-                int am = 0; float v = lj[0];
-                for (int i2 = 1; i2 < d->vocab; i2++)
-                    if (lj[i2] > v) { v = lj[i2]; am = i2; }
+                int am = argmax_f32(lj, d->vocab);
                 if (am == draft[j]) {
                     ids[cur_len++] = am;
                     generated++;
@@ -2118,6 +2583,7 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
     }
     fputc('\n', stdout);
     fflush(stdout);
+    if (pc_ok) pc_store(ids, m->kv_len < cur_len ? m->kv_len : cur_len);
     double dt = now_s() - t0;
     double tps = dt > 0 ? generated / dt : 0;
 
@@ -2141,8 +2607,8 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
                     accepted_total, generated,
                     steps > 0 ? (double)generated / steps : 0);
         if (m->prof)
-            fprintf(stderr, "[wh][prof] attn=%.2fs mlp=%.2fs lm=%.2fs\n",
-                    m->t_attn, m->t_mlp, m->t_lm);
+            fprintf(stderr, "[wh][prof] attn=%.2fs mlp=%.2fs (down %.2fs) lm=%.2fs\n",
+                    m->t_attn, m->t_mlp, m->t_down, m->t_lm);
     }
     if (json_stats) wh_emit_json_stats(m, np, generated, steps, tps, prefill_s);
     return generated;
@@ -2299,6 +2765,7 @@ int wh_run(int argc, char **argv) {
                     "load %.2fs | ctx %d | footprint %.2f GB\n",
                     snap, d->model_type, d->layers, d->hidden, d->inter,
                     M.bytes_full / 1e9, M.load_s, max_t, footprint_gb());
+        g_pc.enabled = getenv("WH_PREFIX_CACHE") ? atoi(getenv("WH_PREFIX_CACHE")) : 1;
         int rc = wh_serve_loop(&M, &T, stops, nstop, ids, max_t, quiet);
         free(ids);
         g_wh = NULL;

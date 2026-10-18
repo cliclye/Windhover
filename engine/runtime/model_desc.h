@@ -4,7 +4,7 @@
  * wh_desc_from_config still parses config.json for legacy packs and as a
  * fallback when WMIR is absent. Nested VL configs unwrap text_config.
  *
- * Classic families: qwen2, qwen3, llama, mistral, gemma2, gemma3, phi3.
+ * Classic families: qwen2, qwen3, llama, mistral, gemma2, gemma3, phi3, granite.
  * Extended (WMIR lowerers): gemma4, qwen3_5, llama4, kimi, deepseek_v4, …
  * MoE configs without a dense KPK route to engine.c.
  */
@@ -37,6 +37,8 @@ typedef struct {
     float final_softcap;   /* gemma2 final logit softcapping */
     float embed_scale;     /* gemma: sqrt(hidden) multiplier on embeddings */
     float query_scale;     /* attention 1/sqrt(query_pre_attn_scalar or head_dim) */
+    float residual_scale;  /* granite residual_multiplier on attn/mlp outputs (0 = 1) */
+    float logit_scale;     /* granite logits_scaling: logits /= this (0 = 1) */
     int fused_qkv;         /* phi3 on-disk layout (split by converter) */
     int fused_gate_up;     /* phi3 */
     int max_position;      /* clamp CTX */
@@ -54,7 +56,7 @@ typedef struct {
 
 /* Families that can run on the dense/KPK path (hint; WMIR is source of truth). */
 static const char *WH_DENSE_TYPES[] = {
-    "qwen2", "qwen3", "llama", "mistral", "gemma2", "gemma3", "phi3",
+    "qwen2", "qwen3", "llama", "mistral", "gemma2", "gemma3", "phi3", "granite",
     "gemma4", "gemma4_text", "qwen3_5", "qwen3_5_text", "qwen3.5",
     NULL
 };
@@ -253,7 +255,15 @@ static int wh_desc_from_config(const char *snap, WhDesc *d) {
     } else if (!strcmp(d->model_type, "phi3")) {
         d->fused_qkv = 1;
         d->fused_gate_up = 1;
+    } else if (!strcmp(d->model_type, "granite")) {
+        /* Granite: llama layout + four scalar multipliers. */
+        float em = wh_jf_(r, "embedding_multiplier", 1.f);
+        if (fabsf(em - 1.f) > 1e-6f) d->embed_scale = em;
+        d->query_scale = wh_jf_(r, "attention_multiplier", 0.f);
+        d->residual_scale = wh_jf_(r, "residual_multiplier", 1.f);
+        d->logit_scale = wh_jf_(r, "logits_scaling", 1.f);
     }
+    if (!strncmp(d->model_type, "qwen3_5", 7)) d->norm = WH_NORM_RMS_GEMMA;
     free(buf);
     free(arena);
     return d->hidden > 0 && d->layers > 0 && d->heads > 0 &&

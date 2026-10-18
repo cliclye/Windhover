@@ -24,7 +24,8 @@ function isGibberishChunk(s: string): boolean {
       letters++;
       if ("aeiouAEIOU".includes(c)) vowels++;
     } else if (/[0-9]/.test(c)) digits++;
-    else if (/[;'\\/_+=@#$%^&*`~|-]/.test(c)) punct++;
+    // Markdown/code chars (* _ # ` | -) and apostrophes are normal text.
+    else if (/[;\\/+=@$%^&~]/.test(c)) punct++;
   }
   if (digits / t.length >= 0.22) return true;
   if (punct / t.length >= 0.12 && digits + letters > 8) return true;

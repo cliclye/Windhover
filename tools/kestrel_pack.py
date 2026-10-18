@@ -107,7 +107,7 @@ def dequant_g64(packed, sc, z):
 
 # Legacy allowlist kept for docs/tests; convert uses WMIR lowerers.
 ARCHES = {
-    "qwen2", "qwen3", "llama", "mistral", "gemma2", "gemma3", "phi3",
+    "qwen2", "qwen3", "llama", "mistral", "gemma2", "gemma3", "phi3", "granite",
 }
 
 MOE_ENGINE_FAMILIES = {
@@ -591,15 +591,19 @@ def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8, on_progr
             raise RuntimeError(f"kpk: layer {i} missing tensors")
 
         # Qwen3.5 full attention: q_proj is [2*H*hd, D] → query + sigmoid gate.
+        # HF interleaves per head: view(H, 2*hd, D) -> [q_h | gate_h] (torch.chunk on dim -1).
         w_qgate = None
         if wq is not None and wq.ndim == 2 and wq.shape[0] == 2 * H * hd:
-            wq = np.ascontiguousarray(wq)
-            w_qgate = np.ascontiguousarray(wq[H * hd:])
-            wq = np.ascontiguousarray(wq[: H * hd])
+            wq3 = np.ascontiguousarray(wq).reshape(H, 2 * hd, -1)
+            w_qgate = np.ascontiguousarray(wq3[:, hd:, :].reshape(H * hd, -1))
+            wq = np.ascontiguousarray(wq3[:, :hd, :].reshape(H * hd, -1))
 
         # --- exact AWQ folding ---
         # qkv: scale s folds out of input_layernorm weight
+        zero_centred_norm = desc.get("norm") == "rmsnorm_gemma"
         sq = awq_scales.get(p + "self_attn.q_proj")  # same input for q/k/v
+        if zero_centred_norm:
+            sq = None  # x*(1+w): dividing w by s would not divide the effective weight
         if sq is not None and sq.shape[0] == D:
             wq, wk, wv = wq * sq[None, :], wk * sq[None, :], wv * sq[None, :]
             if w_qgate is not None:
@@ -617,6 +621,8 @@ def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8, on_progr
                     awq_scales[p + "mlp.down_proj"][perm]
         # gate/up: folds out of post_attention_layernorm
         sg = awq_scales.get(p + "mlp.gate_proj")
+        if zero_centred_norm:
+            sg = None
         if sg is not None and sg.shape[0] == D:
             wg, wu = wg * sg[None, :], wu * sg[None, :]
             post_ln = post_ln / sg
@@ -745,6 +751,7 @@ def convert(snap, outdir, awq=True, calib=True, attn_bits=8, lm_bits=8, on_progr
         "formats": meta_fmt,
         "awq": bool(awq_scales),
         "down_transposed": True,
+        "q_gate_layout": "per_head",
         "neurons_permuted_hot_first": hot is not None,
         "descriptor": {k: v for k, v in desc.items() if k != "wmir"},
         "wmir": wmir if wmir else None,

@@ -1,7 +1,72 @@
-import type { ReactNode, Ref } from "react";
+import { useState, type ReactNode, type Ref } from "react";
+import type { ChatStats, Msg } from "../types";
 import { Composer } from "./Composer";
+import { BoltIcon, CheckIcon, CopyIcon, RetryIcon } from "./Icons";
 import { MarkdownBody } from "./MarkdownBody";
-import type { Msg } from "../types";
+
+const STARTERS = [
+  "Explain how a CPU cache works, simply.",
+  "Write a Python script that renames files by date.",
+  "Draft a polite follow-up email after an interview.",
+  "Give me a 3-day itinerary for Kyoto in autumn.",
+];
+
+function StatChips({ s }: { s?: ChatStats }) {
+  if (!s) return null;
+  const wh = s.windhover;
+  const chips: Array<{ k: string; v: string; title?: string; strong?: boolean }> = [];
+  const tps = wh?.decode_tok_s ?? s.tokens_per_sec;
+  if (tps) chips.push({ k: "speed", v: `${Number(tps).toFixed(1)} tok/s`, strong: true });
+  if (wh?.prompt_tokens) {
+    const cached = wh.cached_tokens || 0;
+    chips.push({
+      k: "prompt",
+      v: cached > 0 ? `${cached}/${wh.prompt_tokens} cached` : `${wh.prompt_tokens} prompt tok`,
+      title:
+        cached > 0
+          ? "Prompt tokens reused from the previous turn's KV cache (not recomputed)"
+          : "Prompt tokens prefilled this turn",
+    });
+  }
+  if (wh?.prefill_s != null) chips.push({ k: "ttft", v: `${(wh.prefill_s * 1000).toFixed(0)} ms prefill` });
+  else if (s.latency_ms != null) chips.push({ k: "lat", v: `${Math.round(s.latency_ms)} ms` });
+  if (wh?.rss_gb) chips.push({ k: "rss", v: `${wh.rss_gb.toFixed(2)} GB RSS` });
+  if (s.backend && s.backend !== "windhover-engine") chips.push({ k: "be", v: s.backend });
+  if (!chips.length) return null;
+  return (
+    <div className="msg-stats">
+      {chips.map((c) => (
+        <span key={c.k} className={`chip${c.strong ? " strong" : ""}`} title={c.title}>
+          {c.k === "speed" ? <BoltIcon size={12} /> : null}
+          {c.v}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function CopyBtn({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className="msg-act"
+      aria-label="Copy reply"
+      title="Copy"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(
+          () => {
+            setDone(true);
+            setTimeout(() => setDone(false), 1200);
+          },
+          () => undefined
+        );
+      }}
+    >
+      {done ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+    </button>
+  );
+}
 
 export function ChatView({
   messages,
@@ -10,10 +75,13 @@ export function ChatView({
   onInput,
   onSend,
   onStop,
+  onRetry,
+  onStarter,
   chatCapable,
-  modelSelect,
+  loading,
+  composerLeft,
   threadRef,
-  emptyHint,
+  modelName,
   onOpenLibrary,
   banner,
 }: {
@@ -23,64 +91,106 @@ export function ChatView({
   onInput: (value: string) => void;
   onSend: () => void;
   onStop: () => void;
+  onRetry: () => void;
+  onStarter: (text: string) => void;
   chatCapable: boolean;
-  modelSelect: ReactNode;
+  loading?: boolean;
+  composerLeft: ReactNode;
   threadRef: Ref<HTMLDivElement>;
-  emptyHint: string;
+  modelName: string;
   onOpenLibrary: () => void;
   banner: string | null;
 }) {
+  const lastAssistant = messages.length - 1;
   return (
-    <section className="work-pane chat-work">
+    <section className="pane chat-pane">
       {banner ? (
-        <div className="engine-banner" role="alert">
+        <div className="banner warn" role="alert">
           {banner}
         </div>
       ) : null}
-      <div className="thread work-scroll" ref={threadRef}>
+      <div className="thread" ref={threadRef}>
         {messages.length === 0 && !sending ? (
-          <div className="empty">
-            <strong>{chatCapable ? "Ask anything." : "Install a model to chat."}</strong>
-            <span>{emptyHint}</span>
-            {!chatCapable ? (
+          <div className="hero">
+            <div className="hero-mark">
+              <img src="./windhover-icon.png" alt="" width={44} height={44} />
+            </div>
+            <h1>{chatCapable ? "What can I help with?" : loading ? "Starting Windhover…" : "Install a model to start"}</h1>
+            <p className="hero-sub">
+              {chatCapable
+                ? `${modelName} · runs entirely on this computer`
+                : loading
+                  ? "Connecting to the local engine."
+                  : "Pick a model that fits your machine in Models. Downloads come straight from Hugging Face."}
+            </p>
+            {loading && !chatCapable ? null : chatCapable ? (
+              <div className="starters">
+                {STARTERS.map((s) => (
+                  <button key={s} type="button" className="starter" onClick={() => onStarter(s)}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            ) : (
               <button type="button" className="btn primary" onClick={onOpenLibrary}>
-                Open Library
+                Browse models
               </button>
-            ) : null}
+            )}
           </div>
         ) : (
-          <>
-            {messages.map((m, i) => (
-              <div className={`bubble ${m.role}`} key={i}>
-                {m.role === "assistant" ? (
-                  <div className="md">
-                    <MarkdownBody text={m.content} />
+          <div className="thread-inner">
+            {messages.map((m, i) =>
+              m.role === "user" ? (
+                <div className="msg user" key={i}>
+                  <div className="msg-bubble">{m.content}</div>
+                </div>
+              ) : (
+                <div className="msg assistant" key={i}>
+                  <div className="msg-avatar" aria-hidden>
+                    <img src="./windhover-icon.png" alt="" width={20} height={20} />
                   </div>
-                ) : (
-                  m.content
-                )}
-                {m.role === "assistant" && m.stats?.tokens_per_sec ? (
-                  <div className="bubble-meta">
-                    {m.stats.tokens_per_sec} tok/s
-                    {m.stats.latency_ms != null ? ` · ${m.stats.latency_ms} ms` : ""}
-                    {m.stats.ram_gb != null ? ` · cap ${m.stats.ram_gb} GB` : ""}
-                    {m.stats.ram_profile ? ` · ${m.stats.ram_profile}` : ""}
-                    {m.stats.backend ? ` · ${m.stats.backend}` : ""}
+                  <div className="msg-body">
+                    <div className="md">
+                      <MarkdownBody text={m.content} />
+                    </div>
+                    <div className="msg-foot">
+                      <StatChips s={m.stats} />
+                      {!(sending && i === lastAssistant) ? (
+                        <div className="msg-actions">
+                          <CopyBtn text={m.content} />
+                          {i === lastAssistant ? (
+                            <button
+                              type="button"
+                              className="msg-act"
+                              aria-label="Regenerate"
+                              title="Regenerate"
+                              onClick={onRetry}
+                            >
+                              <RetryIcon size={14} />
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                ) : null}
-              </div>
-            ))}
+                </div>
+              )
+            )}
             {sending && messages[messages.length - 1]?.role !== "assistant" ? (
-              <div className="bubble assistant thinking" aria-live="polite">
-                <span className="think-dots">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                Thinking…
+              <div className="msg assistant" aria-live="polite">
+                <div className="msg-avatar" aria-hidden>
+                  <img src="./windhover-icon.png" alt="" width={20} height={20} />
+                </div>
+                <div className="msg-body">
+                  <span className="typing">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </div>
               </div>
             ) : null}
-          </>
+          </div>
         )}
       </div>
       <Composer
@@ -89,11 +199,12 @@ export function ChatView({
         onSubmit={onSend}
         onStop={onStop}
         busy={sending}
-        placeholder="Message Windhover"
+        placeholder={chatCapable ? `Message ${modelName}` : "Install a model first"}
         disabled={!chatCapable && !sending}
-        footerLeft={modelSelect}
+        footerLeft={composerLeft}
         submitLabel="Send"
-        stopLabel="Stop"
+        stopLabel="Stop generating"
+        autoFocus
       />
     </section>
   );

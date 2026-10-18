@@ -1,0 +1,189 @@
+{
+  "pack": "/Users/changhyunglee/.kestrel/models/Qwen__Qwen3.5-2B/kpk",
+  "cache_on": [
+    {
+      "turn": 1,
+      "prompt_tokens": 31,
+      "cached_tokens": 0,
+      "prefill_s": 0.189,
+      "decode_tok_s": 29.23,
+      "generated": 96,
+      "wall_s": 3.477,
+      "reply": "Kyoto in autumn (late September to early November) is arguably the most magical time of year for a trip. The air is crisp, the colors are vibrant, and the city feels incredibly peaceful. However, the weather can be unpredictable, so prioritizing your itinerary based on the season's specific characteristics is key.\n\nHere is a prioritized guide for your 3-day trip:\n\n### 1. The Golden Rule: Dress for the Weather\nBefore you book a single"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 150,
+      "cached_tokens": 24,
+      "prefill_s": 0.924,
+      "decode_tok_s": 20.52,
+      "generated": 96,
+      "wall_s": 5.604,
+      "reply": "To avoid crowds while still enjoying Kyoto's autumn beauty, the best strategy is to **go early (before 9:00 AM)** and **go late (after 4:00 PM)**.\n\nHere is a breakdown of which specific spots are best for early mornings and which are best for late afternoons, along with why:\n\n### \ud83c\udf05 Best for Early Morning (Before 9:00 AM)\n*The goal here is to beat the"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 267,
+      "cached_tokens": 143,
+      "prefill_s": 1.069,
+      "decode_tok_s": 24.25,
+      "generated": 96,
+      "wall_s": 5.03,
+      "reply": "Here is a simple, efficient **Day 1 Itinerary** designed to maximize your time in Kyoto while avoiding the worst of the crowds.\n\n### **Theme: The Golden Pavilion & The Old City**\nThis route focuses on the most iconic sights, starting with the most famous temple (Kinkaku-ji) and moving through the historic center.\n\n| Time | Activity | Location | Why? |\n| :--- | :--- | :--- | : |"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 382,
+      "cached_tokens": 260,
+      "prefill_s": 0.941,
+      "decode_tok_s": 21.68,
+      "generated": 96,
+      "wall_s": 5.37,
+      "reply": "Since your Day 1 itinerary focuses on the **Golden Pavilion (Kinkaku-ji)** and the **Old City (Kiyomizu-dera)**, you are right in the heart of Kyoto's historic center. This area is famous for its street food scene, which is often more vibrant and accessible than in the distant temples.\n\nHere are the best local foods to try near those specific locations, categorized by where you can find them:\n\n### 1. Near K"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 503,
+      "cached_tokens": 375,
+      "prefill_s": 0.985,
+      "decode_tok_s": 26.87,
+      "generated": 96,
+      "wall_s": 4.56,
+      "reply": "Getting from **Kyoto Station** to **Arashiyama** is one of the most convenient parts of the trip, but the \"cheap\" option depends entirely on whether you want to walk, take a bus, or use a train.\n\nHere are the three best ways to do it, ranked from cheapest to most comfortable:\n\n### 1. The Cheapest Option: Bus (Kintetsu Bus)\nThis is the most budget-friendly way to get there"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 620,
+      "cached_tokens": 496,
+      "prefill_s": 0.914,
+      "decode_tok_s": 27.01,
+      "generated": 96,
+      "wall_s": 4.47,
+      "reply": "Here is a concise summary of your 3-day Kyoto autumn trip, prioritizing the best experiences and logistics:\n\n*   **Day 1: Iconic Landscapes & History**\n    Start early to avoid crowds at **Kinkaku-ji** (Golden Pavilion) and **Kiyomizu-dera** (Wooden Stage). Spend the afternoon exploring the historic **Arashiyama Bamboo Grove** and **Fushimi Inari Taisha** before"
+    }
+  ],
+  "cache_off": [
+    {
+      "turn": 1,
+      "prompt_tokens": 31,
+      "cached_tokens": 0,
+      "prefill_s": 0.198,
+      "decode_tok_s": 28.13,
+      "generated": 96,
+      "wall_s": 3.613,
+      "reply": "Kyoto in autumn (late September to early November) is arguably the most magical time of year for a trip. The air is crisp, the colors are vibrant, and the city feels incredibly peaceful. However, the weather can be unpredictable, so prioritizing your itinerary based on the season's specific characteristics is key.\n\nHere is a prioritized guide for your 3-day trip:\n\n### 1. The Golden Rule: Dress for the Weather\nBefore you book a single"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 150,
+      "cached_tokens": 0,
+      "prefill_s": 1.053,
+      "decode_tok_s": 26.93,
+      "generated": 96,
+      "wall_s": 4.619,
+      "reply": "To avoid crowds while still enjoying Kyoto's autumn beauty, the best strategy is to **go early (before 9:00 AM)** and **go late (after 4:00 PM)**.\n\nHere is a breakdown of which specific spots are best for early mornings and which are best for late afternoons, along with why:\n\n### \ud83c\udf05 Best for Early Morning (Before 9:00 AM)\n*The goal here is to beat the"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 267,
+      "cached_tokens": 0,
+      "prefill_s": 1.836,
+      "decode_tok_s": 25.19,
+      "generated": 96,
+      "wall_s": 5.648,
+      "reply": "Here is a simple, efficient **Day 1 Itinerary** designed to maximize your time in Kyoto while avoiding the worst of the crowds.\n\n### **Theme: The Golden Pavilion & The Old City**\nThis route focuses on the most iconic sights, starting with the most famous temple (Kinkaku-ji) and moving through the historic center.\n\n| Time | Activity | Location | Why? |\n| :--- | :--- | :--- | : |"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 382,
+      "cached_tokens": 0,
+      "prefill_s": 2.646,
+      "decode_tok_s": 26.18,
+      "generated": 96,
+      "wall_s": 6.314,
+      "reply": "Since your Day 1 itinerary focuses on the **Golden Pavilion (Kinkaku-ji)** and the **Old City (Kiyomizu-dera)**, you are right in the heart of Kyoto's historic center. This area is famous for its street food scene, which is often more vibrant and accessible than in the distant temples.\n\nHere are the best local foods to try near those specific locations, categorized by where you can find them:\n\n### 1. Near K"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 503,
+      "cached_tokens": 0,
+      "prefill_s": 3.524,
+      "decode_tok_s": 18.24,
+      "generated": 96,
+      "wall_s": 8.787,
+      "reply": "Getting from **Kyoto Station** to **Arashiyama** is one of the most convenient parts of the trip, but the \"cheap\" option depends entirely on whether you want to walk, take a bus, or use a train.\n\nHere are the three best ways to do it, ranked from cheapest to most comfortable:\n\n### 1. The Cheapest Option: Bus (Kintetsu Bus)\nThis is the most budget-friendly way to get there"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 620,
+      "cached_tokens": 0,
+      "prefill_s": 4.158,
+      "decode_tok_s": 24.74,
+      "generated": 96,
+      "wall_s": 8.041,
+      "reply": "Here is a concise summary of your 3-day Kyoto autumn trip, prioritizing the best experiences and logistics:\n\n*   **Day 1: Iconic Landscapes & History**\n    Start early to avoid crowds at **Kinkaku-ji** (Golden Pavilion) and **Kiyomizu-dera** (Wooden Stage). Spend the afternoon exploring the historic **Arashiyama Bamboo Grove** and **Fushimi Inari Taisha** before"
+    }
+  ],
+  "baseline": [
+    {
+      "turn": 1,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 10.81829189746938,
+      "decode_tok_s": 2.82,
+      "generated": 96,
+      "wall_s": 44.861,
+      "reply": "Kyoto in autumn (late September to early November) is arguably the most magical time of year for a trip. The city transforms into a golden wonder, with crisp air, vibrant foliage, and a distinct seasonal atmosphere.\n\nHere is a prioritized itinerary and guide to make the most of your 3-day trip:\n\n### 1. The Golden Week of Foliage (Priority #1)\nThis is the defining feature of your trip. The goal is to capture"
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 50.91429707507959,
+      "decode_tok_s": 2.98,
+      "generated": 96,
+      "wall_s": 83.129,
+      "reply": "To avoid crowds while still enjoying the best views of Kyoto's autumn foliage, the strategy is to **go early (before 8:00 AM)** and **go late (after 4:00 PM)**.\n\nHere is a breakdown of which spots are best for early morning visits, ranked by how well they handle the \"early bird\" crowd strategy:\n\n### 1. The Golden Rule: The \"Golden Hour\" Window\nThe absolute best time to visit any"
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 86.13349262262003,
+      "decode_tok_s": 3.12,
+      "generated": 31,
+      "wall_s": 96.069,
+      "reply": "Here is a **simple, efficient Day 1 itinerary** designed to maximize your time in Kyoto while avoiding the biggest crowds.\n\n### **Strategy for"
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 107.65143901402833,
+      "decode_tok_s": 3.05,
+      "generated": 95,
+      "wall_s": 138.799,
+      "reply": "Since your Day 1 itinerary focuses on **early morning visits** to avoid crowds, you are in the perfect position to try authentic local cuisine. In Kyoto, the best food is often found in the quiet streets, small shops, and traditional restaurants (*yatai*) that open before the main tourist crowds arrive.\n\nHere are the top local foods to prioritize, specifically recommended for early morning visits:\n\n### 1. **Kaiseki (Traditional Multi-course Dining)**"
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 135.43053478647948,
+      "decode_tok_s": 3.14,
+      "generated": 83,
+      "wall_s": 161.864,
+      "reply": "Getting from **Kyoto Station** to **Arashiyama** is one of the most convenient parts of your trip, but since you are traveling in **early morning** (before 8:00 AM) to avoid crowds, you have a few excellent, low-cost options.\n\nHere are the best ways to get there cheaply:\n\n### 1. **The Bus (Most Reliable &"
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": null,
+      "cached_tokens": null,
+      "prefill_s": 174.00933973643245,
+      "decode_tok_s": 2.94,
+      "generated": 96,
+      "wall_s": 206.662,
+      "reply": "Here is a summary of your 3-day Kyoto autumn trip, prioritizing early morning visits to avoid crowds and maximizing the golden foliage experience:\n\n*   **Day 1: The Golden Morning Arrival**\n    Start your trip early at **Kyoto Station** (before 8:00 AM) to catch the first bus or train to **Arashiyama**. Enjoy the quiet streets and early access to the iconic **Bamboo Grove** and **Tenry"
+    }
+  ]
+}

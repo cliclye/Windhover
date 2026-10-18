@@ -36,8 +36,8 @@ jobs:
             msys_env: ucrt64
             arch: x86-64-v3
             asset: Windhover-Windows-x64.exe
-            # OpenMP via gcc-libs (libgomp); *-openmp package name is gone on UCRT64.
-            pacman: mingw-w64-ucrt-x86_64-gcc make
+            # GCC 16 on MSYS2 split OpenMP into its own (optional) libgomp package.
+            pacman: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-libgomp make
           - runner: windows-11-arm
             triple: aarch64-pc-windows-msvc
             msystem: CLANGARM64
@@ -281,6 +281,7 @@ jobs:
           files: dist/${{ matrix.asset }}
           fail_on_unmatched_files: true
           make_latest: true
+          overwrite_files: true
           body_path: release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

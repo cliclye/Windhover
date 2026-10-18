@@ -149,8 +149,9 @@ jobs:
         with:
           msystem: UCRT64
           update: true
-          # OpenMP comes via gcc-libs (libgomp); the old *-openmp package was renamed/removed.
-          install: mingw-w64-ucrt-x86_64-gcc make
+          # GCC 16 on MSYS2 split OpenMP into its own (optional) libgomp package;
+          # without it the x64 engine build fails in seconds (broken since 2026-10-02).
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-libgomp make
       - name: Build + oracle
         shell: msys2 {0}
         run: |

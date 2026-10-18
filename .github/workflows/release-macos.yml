@@ -181,6 +181,7 @@ jobs:
           files: dist/Windhover-macOS-arm64.dmg
           fail_on_unmatched_files: true
           make_latest: true
+          overwrite_files: true
           body_path: release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

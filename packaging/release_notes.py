@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write GitHub Release notes for a tag from CHANGELOG.md.
 
-  python3 packaging/release_notes.py v0.5.0 > release-notes.md
+  python3 packaging/release_notes.py v0.5.0 release-notes.md
 
 Emits the "## [0.5.0]" section of CHANGELOG.md (falls back to "## Unreleased")
 followed by the standard download / first-launch block, so both release
@@ -50,7 +50,13 @@ def main() -> int:
     if body:
         out += [body, ""]
     out += [f"Full history: [CHANGELOG.md]({REPO}/blob/main/CHANGELOG.md)", "", DOWNLOADS]
-    sys.stdout.write("\n".join(out))
+    text = "\n".join(out)
+    if len(sys.argv) > 2:
+        # Write the file ourselves: Windows runners default stdout to cp1252,
+        # which cannot encode the changelog's arrows / multiplication signs.
+        Path(sys.argv[2]).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.buffer.write(text.encode("utf-8"))
     return 0
 
 

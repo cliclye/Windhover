@@ -180,3 +180,9 @@ export const ShieldIcon = ({ size }: P) => (
     <path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6z" />
   </Svg>
 );
+export const GlobeIcon = ({ size }: P) => (
+  <Svg size={size}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5S9.7 5.9 12 3.5Z" />
+  </Svg>
+);

@@ -1,4 +1,5 @@
 import type { ChatStats, EngineState, RamProfileInfo } from "../types";
+import type { WebAccess } from "../webSearch";
 import { Segmented } from "./Primitives";
 
 type UpdateInfo = {
@@ -7,6 +8,22 @@ type UpdateInfo = {
   latest?: string;
   html_url?: string;
 } | null;
+
+const WEB_ACCESS: Array<{ value: WebAccess; label: string; blurb: string }> = [
+  { value: "off", label: "Off", blurb: "Chat never goes online. Answers come only from the model's built-in knowledge." },
+  {
+    value: "ask",
+    label: "Ask first",
+    blurb:
+      "Chat asks before searching the web — when you turn on Web search in the composer, or when a question looks like it needs current information.",
+  },
+  {
+    value: "auto",
+    label: "Automatic",
+    blurb:
+      "Chat searches without asking when Web search is on, and on its own for questions about recent events, prices, scores or news.",
+  },
+];
 
 const PROFILES: Array<{ value: string; label: string; blurb: string }> = [
   { value: "fast", label: "Fast", blurb: "Pins the full FFN in RAM (no ceiling). Highest tok/s, highest wired memory." },
@@ -33,6 +50,9 @@ export function SettingsView({
   onRamProfile,
   theme,
   onTheme,
+  webAccess,
+  onWebAccess,
+  webOnline,
   busy,
 }: {
   appVersion: string;
@@ -53,6 +73,9 @@ export function SettingsView({
   onRamProfile: (name: string) => void;
   theme: "light" | "dark" | "system";
   onTheme: (t: "light" | "dark" | "system") => void;
+  webAccess: WebAccess;
+  onWebAccess: (v: WebAccess) => void;
+  webOnline: boolean | null;
   busy: boolean;
 }) {
   const cur = ramProfile?.name || "balanced";
@@ -63,7 +86,7 @@ export function SettingsView({
         <header className="page-head">
           <div>
             <h1>Settings</h1>
-            <p className="page-sub">Memory, updates, appearance and engine routing.</p>
+            <p className="page-sub">Memory, web access, updates, appearance and engine routing.</p>
           </div>
           <button type="button" className="btn ghost sm" onClick={onRefresh}>
             Refresh
@@ -87,6 +110,24 @@ export function SettingsView({
             disabled={busy}
             options={PROFILES.map((p) => ({ value: p.value, label: p.label, title: p.blurb }))}
             onChange={onRamProfile}
+          />
+        </div>
+
+        <div className="card setting">
+          <div className="setting-text">
+            <h2>Web access</h2>
+            <p>{WEB_ACCESS.find((w) => w.value === webAccess)?.blurb}</p>
+            <p className="setting-meta">
+              {webAccess === "off"
+                ? "Turn on to let the local model look up recent information, with sources."
+                : `${webOnline === false ? "Offline right now — chats answer from the model alone. " : webOnline ? "Online. " : ""}Searches go to DuckDuckGo (Bing as fallback) and the top pages are downloaded — the model reading them still runs on this computer.`}
+            </p>
+          </div>
+          <Segmented
+            label="Web access"
+            value={webAccess}
+            options={WEB_ACCESS.map((w) => ({ value: w.value, label: w.label, title: w.blurb }))}
+            onChange={onWebAccess}
           />
         </div>
 

@@ -10,8 +10,9 @@ import { PerformanceView } from "./components/PerformanceView";
 import { Modal, Picker, Segmented, type PickerItem } from "./components/Primitives";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
-import { ExternalIcon, SidebarIcon } from "./components/Icons";
+import { ExternalIcon, GlobeIcon, SidebarIcon } from "./components/Icons";
 import { useFollowBottom } from "./smooth";
+import { checkOnline, looksTimeSensitive, runWebSearch, type WebAccess, type WebMode } from "./webSearch";
 import {
   formatCount,
   formatParams,
@@ -33,6 +34,7 @@ import type {
   RamProfileInfo,
   Tab,
   TelemetryPoint,
+  WebSource,
 } from "./types";
 
 type ThemePref = "light" | "dark" | "system";
@@ -90,6 +92,21 @@ export function App() {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
+  const [webAccess, setWebAccess] = useState<WebAccess>(() =>
+    readStored("wh.webAccess", ["off", "ask", "auto"] as const, "ask")
+  );
+  const [webMode, setWebMode] = useState<WebMode>(() =>
+    readStored("wh.webMode", ["off", "search", "research"] as const, "off")
+  );
+  const [webOnline, setWebOnline] = useState<boolean | null>(null);
+  const [webAsk, setWebAsk] = useState<{
+    mode: Exclude<WebMode, "off">;
+    suggested: boolean;
+    convId: string;
+    resolve: (mode: WebMode) => void;
+  } | null>(null);
+  /** "Ask first" answers, per conversation, so one chat asks once. */
+  const webChatRef = useRef<Record<string, "allow" | "decline">>({});
   const [engineOk, setEngineOk] = useState<boolean | null>(null);
   const [enginePresent, setEnginePresent] = useState<boolean | null>(null);
   const [family, setFamily] = useState<string>(() =>
@@ -149,6 +166,19 @@ export function App() {
   }, [progress]);
   useEffect(() => writeStored("wh.tab", tab), [tab]);
   useEffect(() => writeStored("wh.family", family), [family]);
+  useEffect(() => writeStored("wh.webAccess", webAccess), [webAccess]);
+  useEffect(() => writeStored("wh.webMode", webMode), [webMode]);
+  useEffect(() => {
+    if (webAccess === "off" || !engineOk) return;
+    const update = () => void checkOnline(true).then(setWebOnline);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, [webAccess, engineOk]);
   useEffect(() => {
     if (activeModel) writeStored("wh.model", activeModel);
   }, [activeModel]);
@@ -570,7 +600,47 @@ export function App() {
     }
   }
 
-  async function sendText(text: string, base: Msg[], atts: Attachment[] = []) {
+  /** Decide whether this turn goes online: Settings permission, composer toggle, connectivity. */
+  async function decideWeb(text: string, convId: string): Promise<WebMode> {
+    if (webAccess === "off" || !text) return "off";
+    const suggested = webMode === "off";
+    const wanted: WebMode = suggested ? (looksTimeSensitive(text) ? "search" : "off") : webMode;
+    if (wanted === "off") return "off";
+    const prior = webChatRef.current[convId];
+    if (suggested && prior === "decline") return "off";
+    const online = await checkOnline();
+    setWebOnline(online);
+    if (!online) {
+      if (!suggested) setStatus("No internet connection — answering from the model's own knowledge");
+      return "off";
+    }
+    if (webAccess === "auto" || prior === "allow") return wanted;
+    return new Promise((resolve) => setWebAsk({ mode: wanted, suggested, convId, resolve }));
+  }
+
+  function answerWebAsk(choice: "offline" | "chat" | "always") {
+    const ask = webAsk;
+    if (!ask) return;
+    setWebAsk(null);
+    if (choice === "offline") {
+      webChatRef.current[ask.convId] = "decline";
+      ask.resolve("off");
+      return;
+    }
+    if (choice === "always") setWebAccess("auto");
+    else webChatRef.current[ask.convId] = "allow";
+    ask.resolve(ask.mode);
+  }
+
+  async function sendWithWeb(text: string, base: Msg[], atts: Attachment[] = []) {
+    if ((!text && !atts.length) || sending || webAsk) return;
+    const modelId = activeModel || chatCapable[0]?.id;
+    const convId = activeConv || newConversation(modelId || "").id;
+    const web = modelId ? await decideWeb(text, convId) : "off";
+    await sendText(text, base, atts, web, convId);
+  }
+
+  async function sendText(text: string, base: Msg[], atts: Attachment[] = [], web: WebMode = "off", convId = "") {
     if ((!text && !atts.length) || sending) return;
     const modelId = activeModel || chatCapable[0]?.id;
     if (!modelId) {
@@ -578,7 +648,7 @@ export function App() {
       setTab("library");
       return;
     }
-    if (!activeConv) setActiveConv(newConversation(modelId).id);
+    if (!activeConv) setActiveConv(convId || newConversation(modelId).id);
     chatAbortRef.current?.abort();
     const ac = new AbortController();
     chatAbortRef.current = ac;
@@ -596,9 +666,11 @@ export function App() {
     setMessages(next);
     let assistant = "";
     let gotToken = false;
+    let sources: WebSource[] | undefined;
+    let webError: string | undefined;
 
     const paint = (content: string, st?: ChatStats) => {
-      setMessages([...next, { role: "assistant", content, stats: st }]);
+      setMessages([...next, { role: "assistant", content, stats: st, sources, webError }]);
     };
 
     const useStream = !isOllamaModel(matchInstalled(chatCapable, modelId) || { id: modelId });
@@ -618,11 +690,20 @@ export function App() {
           max_tokens: 2048,
           temperature: 0.35,
           stream,
+          ...(sources ? { web_sources: sources } : {}),
         }),
       });
     }
 
     try {
+      if (web !== "off") {
+        const status = (webStatus: string) => setMessages([...next, { role: "assistant", content: "", webStatus }]);
+        status(web === "research" ? "Planning searches" : "Searching the web");
+        const res = await runWebSearch({ messages: next, mode: web, model: modelId, signal: ac.signal, onProgress: status });
+        if (res.ok && res.sources?.length) sources = res.sources;
+        else webError = res.error || "no results";
+        setMessages([...next, { role: "assistant", content: "", sources, webError, webStatus: "Writing the answer" }]);
+      }
       let r: Response;
       let streaming = useStream;
       try {
@@ -755,7 +836,7 @@ export function App() {
   }
 
   function send() {
-    void sendText(input.trim(), messages, attachments);
+    void sendWithWeb(input.trim(), messages, attachments);
   }
 
   function retryLast() {
@@ -775,7 +856,7 @@ export function App() {
       dataUrl: d,
       thumb: u.thumbs?.[i] || d,
     }));
-    void sendText(u.content, messages.slice(0, lastUser), again);
+    void sendWithWeb(u.content, messages.slice(0, lastUser), again);
   }
 
   function stopChat() {
@@ -843,6 +924,30 @@ export function App() {
         ]}
         onChange={(v) => void setRamProfile(v)}
       />
+      {webAccess !== "off" ? (
+        <Picker
+          label="Web search"
+          placeholder="Web off"
+          value={webMode}
+          icon={<GlobeIcon size={14} />}
+          active={webMode !== "off"}
+          title={
+            webOnline === false
+              ? "No internet connection — answers come from the model alone"
+              : "Let the model look things up on the web for current answers"
+          }
+          disabled={sending}
+          items={[
+            { value: "off", label: "Web off" },
+            { value: "search", label: "Web search", hint: webOnline === false ? "offline" : undefined },
+            { value: "research", label: "Deep research", hint: webOnline === false ? "offline" : undefined },
+          ]}
+          onChange={(v) => {
+            setWebMode(v as WebMode);
+            void checkOnline(true).then(setWebOnline);
+          }}
+        />
+      ) : null}
     </>
   );
 
@@ -877,6 +982,36 @@ export function App() {
             Remove <strong>{confirmUninstall.name}</strong> from this computer? This deletes its files from the Windhover
             models folder (<code>~/.windhover/models</code>).
           </p>
+        </Modal>
+      ) : null}
+
+      {webAsk ? (
+        <Modal
+          title={webAsk.suggested ? "Search the web for this?" : "Allow web search?"}
+          onClose={() => answerWebAsk("offline")}
+          actions={
+            <>
+              <button type="button" className="btn ghost" onClick={() => answerWebAsk("offline")}>
+                Answer offline
+              </button>
+              <button type="button" className="btn ghost" onClick={() => answerWebAsk("chat")}>
+                Allow in this chat
+              </button>
+              <button type="button" className="btn primary" onClick={() => answerWebAsk("always")}>
+                Always allow
+              </button>
+            </>
+          }
+        >
+          <p>
+            {webAsk.suggested
+              ? `This looks like it needs up-to-date information that ${modelName} may not know. `
+              : ""}
+            Windhover will send {webAsk.mode === "research" ? "a few search queries" : "your question"} to a search engine
+            (DuckDuckGo, or Bing as a fallback), read the top pages, and hand them to the local model so it can answer with
+            sources. The model itself still runs on this computer.
+          </p>
+          <p className="setting-meta">You can change this anytime in Settings → Web access.</p>
         </Modal>
       ) : null}
 
@@ -1036,7 +1171,7 @@ export function App() {
             onAttachments={setAttachments}
             onStop={stopChat}
             onRetry={retryLast}
-            onStarter={(t) => void sendText(t, messages)}
+            onStarter={(t) => void sendWithWeb(t, messages)}
             chatCapable={chatCapable.length > 0}
             loading={!loaded}
             composerLeft={composerLeft}
@@ -1120,6 +1255,9 @@ export function App() {
             onRamProfile={(v) => void setRamProfile(v)}
             theme={themePref}
             onTheme={setThemePref}
+            webAccess={webAccess}
+            onWebAccess={setWebAccess}
+            webOnline={webOnline}
             busy={sending}
           />
         ) : null}

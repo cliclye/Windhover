@@ -687,6 +687,7 @@ kbd {
   padding: 3px 10px;
   border-radius: 6px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .segmented button:hover:not(:disabled) {
@@ -724,6 +725,21 @@ kbd {
 
 .picker-btn:disabled {
   opacity: 0.6;
+}
+
+.picker-btn > svg:first-child {
+  flex: none;
+  color: var(--text-3);
+}
+
+.picker.on .picker-btn {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.picker.on .picker-btn > svg:first-child {
+  color: var(--accent);
 }
 
 .picker-label {
@@ -1171,6 +1187,101 @@ kbd {
 
 .md a {
   color: var(--accent-text);
+}
+
+.md a.cite {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  margin: 0 1px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  vertical-align: 0.15em;
+}
+
+.md a.cite:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.web-status,
+.web-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.web-status svg,
+.web-note svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.web-status .typing {
+  padding: 0;
+}
+
+.web-status .typing i {
+  width: 4px;
+  height: 4px;
+}
+
+.web-note {
+  margin-bottom: 8px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 2px 0 10px;
+}
+
+.source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 3px 9px 3px 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.source:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.source-n {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.source-domain {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .md blockquote {

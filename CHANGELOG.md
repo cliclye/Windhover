@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Chat stopped mid-answer on math
+- The "keyboard smash" early stop (engine, server and UI copies) treated LaTeX and equations — `\\frac{1}{2}`, `$u(x) =`, `f'(x) = cos^2(x)` — as gibberish and cut answers off mid-derivation. Text with LaTeX commands, `$`, or `=` with parentheses is never counted as smash; real keyboard smash is still caught.
+- Chat replies may now run to 2048 tokens (was 512, server cap 1024), so long step-by-step solutions reach the final answer.
+
 ### Images (vision)
 - Paste, drop or attach images in **Chat** and **Code**. Qwen3.5 packs see them through their own vision encoder, run locally in numpy (`tools/vision_qwen35.py`); output matches `transformers` (cosine ≥ 0.99999).
 - Engine: new serve flag (bit 1) followed by an image block. Embeddings are placed at `<|image_pad|>` slots, and full-attention layers use interleaved M-RoPE (3D positions) when an image is present; text-only requests keep the old path. Image slots carry hash-derived ids, so the prefix cache reuses the same picture across turns (260/267 tokens cached on the second turn in our test).

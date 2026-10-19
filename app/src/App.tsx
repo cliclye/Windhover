@@ -617,7 +617,7 @@ export function App() {
             const imgs = images?.length ? images : thumbs;
             return imgs?.length ? { role, content, images: imgs } : { role, content };
           }),
-          max_tokens: 512,
+          max_tokens: 2048,
           temperature: 0.35,
           stream,
         }),

@@ -1263,7 +1263,7 @@ def _engine_chat(
     env["PROMPT"] = formatted
     env["COLI_PROMPT"] = formatted
     # Cap runaway decode: long budgets fill with nonsense when EOS is missed.
-    ngen = max(16, min(int(max_tokens), 4096 if raw else 1024))
+    ngen = max(16, min(int(max_tokens), 4096))
     env["NGEN"] = str(ngen)
     # Softer sampling + nucleus — full-vocab TEMP=0.7 was the main gibberish source.
     temp = float(temperature)

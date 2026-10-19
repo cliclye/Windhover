@@ -64,10 +64,20 @@ def truncate_repetition(text: str) -> str:
     return text
 
 
+_MATH_RE = re.compile(r"\$|\\[A-Za-z]")
+
+
+def _is_math(s: str) -> bool:
+    """LaTeX ($x^2$, \\frac) or an equation like f'(x) = cos^2(x) — never smash."""
+    return bool(_MATH_RE.search(s)) or ("=" in s and ("(" in s or ")" in s))
+
+
 def _is_gibberish_chunk(s: str) -> bool:
     """True for keyboard-smash / high-entropy alnum tails (not normal prose)."""
     t = re.sub(r"\s+", "", s or "")
     if len(t) < 14:
+        return False
+    if _is_math(s):
         return False
     letters = sum(c.isalpha() for c in t)
     digits = sum(c.isdigit() for c in t)

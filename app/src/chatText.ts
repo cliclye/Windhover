@@ -12,9 +12,15 @@ export function extractSSE(buffer: string) {
   return { data, rest };
 }
 
+/** LaTeX ($x^2$, \frac) or an equation like f'(x) = cos^2(x) — never keyboard smash. */
+function isMath(s: string): boolean {
+  return /\$|\\[A-Za-z]/.test(s) || (s.includes("=") && /[()]/.test(s));
+}
+
 function isGibberishChunk(s: string): boolean {
   const t = (s || "").replace(/\s+/g, "");
   if (t.length < 14) return false;
+  if (isMath(s)) return false;
   let letters = 0;
   let digits = 0;
   let punct = 0;

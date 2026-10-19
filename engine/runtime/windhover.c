@@ -115,8 +115,23 @@ static int wh_is_stop(const int *stops, int nstop, int tok) {
 }
 
 /* Heuristic: stop decode when a finished sentence is followed by keyboard-smash. */
+/* Math is not keyboard smash: LaTeX (\\frac, $x^2$) and equations such as
+ * f'(x) = cos^2(x) are full of digits and symbols. */
+static int wh_chunk_is_math(const char *s, int n) {
+    int eq = 0, paren = 0;
+    for (int i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == '$') return 1;
+        if (c == '\\' && i + 1 < n && ((s[i + 1] | 32) >= 'a' && (s[i + 1] | 32) <= 'z')) return 1;
+        if (c == '=') eq = 1;
+        if (c == '(' || c == ')') paren = 1;
+    }
+    return eq && paren;
+}
+
 static int wh_chunk_is_gibberish(const char *s, int n) {
     if (!s || n < 14) return 0;
+    if (wh_chunk_is_math(s, n)) return 0;
     int letters = 0, digits = 0, punct = 0, vowels = 0, spaces = 0;
     for (int i = 0; i < n; i++) {
         unsigned char c = (unsigned char)s[i];

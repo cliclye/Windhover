@@ -63,3 +63,29 @@ class ChatTextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MathIsNotGibberish(unittest.TestCase):
+    def test_latex_answer_is_kept(self):
+        from chat_text import cut_gibberish_tail
+
+        text = ("Use the product rule. Let $u(x) = \\frac{1}{2}\\cos(x)$ and $v(x) = \\sin(x)$. "
+                "Then $f'(x) = \\frac{1}{2}(\\cos^2(x) - \\sin^2(x)) = \\frac{1}{2}\\cos(2x)$.")
+        self.assertEqual(cut_gibberish_tail(text), text)
+        self.assertEqual(clean_chat_text(text), text)
+
+    def test_plain_equation_is_kept(self):
+        from chat_text import cut_gibberish_tail
+
+        text = "Differentiate. f'(x) = 0.5*(cos^2(x) - sin^2(x)) = 0.5*cos(2x)"
+        self.assertEqual(cut_gibberish_tail(text), text)
+
+    def test_keyboard_smash_still_cut(self):
+        from chat_text import cut_gibberish_tail
+
+        self.assertEqual(cut_gibberish_tail("Paris is the capital. qwrtzxcvbnmlkjhgfdsp"),
+                         "Paris is the capital.")
+
+
+if __name__ == "__main__":
+    unittest.main()

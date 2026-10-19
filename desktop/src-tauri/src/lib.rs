@@ -114,7 +114,31 @@ fn spawn_command(mut cmd: Command) -> Option<Child> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    #[cfg(unix)]
+    {
+        // Own process group: the PyInstaller server runs as a child of its
+        // bootloader and starts windhover-engine — stop_child() ends them all.
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok()
+}
+
+fn stop_child(mut child: Child) {
+    #[cfg(unix)]
+    {
+        let pg = format!("-{}", child.id());
+        let _ = Command::new("kill").args(["-TERM", "--", &pg]).status();
+        for _ in 0..20 {
+            if let Ok(Some(_)) = child.try_wait() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        let _ = Command::new("kill").args(["-KILL", "--", &pg]).status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn start_backend(app: Option<&tauri::AppHandle>) -> Option<Child> {
@@ -274,14 +298,26 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 if let Some(state) = window.try_state::<Backend>() {
                     if let Ok(mut guard) = state.0.lock() {
-                        if let Some(mut child) = guard.take() {
-                            let _ = child.kill();
-                            let _ = child.wait();
+                        if let Some(child) = guard.take() {
+                            stop_child(child);
                         }
                     }
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("failed to run the Windhover application");
+        .build(tauri::generate_context!())
+        .expect("failed to build the Windhover application")
+        .run(|app, event| {
+            // ⌘Q / Quit menu exits without destroying the window first: stop the
+            // server sidecar here too, or it keeps holding port 8000.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<Backend>() {
+                    if let Ok(mut guard) = state.0.lock() {
+                        if let Some(child) = guard.take() {
+                            stop_child(child);
+                        }
+                    }
+                }
+            }
+        });
 }

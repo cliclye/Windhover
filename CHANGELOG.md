@@ -8,12 +8,20 @@
 - Ollama vision models receive images too (`image_url` parts / `images`). Models without a vision encoder say so instead of guessing.
 - Saved chats store thumbnails only; the sidecar now bundles Pillow.
 
+### Code — does the work instead of describing it
+- The agent saves files and runs commands itself. A reply that pastes a whole file, or tells you to run something yourself, is sent back with a nudge to use its tools. The system prompt also shows how to open a page or serve a folder on localhost.
+- `run` can keep long-running commands going in the background (dev servers, `http.server`, `npm run dev` … are detected automatically). Servers started on Windhover's port 8000 are moved to a free port, and later `localhost:8000` URLs are rewritten to match. Background processes stop with the session or the app.
+- A reply that runs out of tokens in the middle of a file is never saved; the agent is asked to write it in parts. Per-step budgets went up (Low 2048, Medium–Max 4096 tokens), so a whole page fits in one step.
+- Stuck detection: after three fruitless steps (repeated reads, empty searches, errors) the agent gets the current file and is told to make the fix. Repeated reads run again once their earlier result has been compacted out of the context; a `write_file` that changes nothing is reported as such.
+- The panel shows compact step rows ("Created index.html, ran `open index.html` +236 −0", expandable) and a live "Writing index.html… 120 lines" row instead of streaming code. Long code blocks in replies fold into one line.
+
 ### Code — permission modes, effort, edit approval
 - Permission modes like Claude Code: *Ask before edits* (diff preview, Apply / Reject), *Accept edits*, *Plan mode* (read-only, ends with a plan), *Bypass permissions*. ⇧Tab cycles them; changes apply to a running session.
 - Effort *Low / Medium / High / Max*: 768 → 4096 tokens per step and 10 → 50 steps; *High* and *Max* turn on the model's thinking, shown as a collapsible "Thought for Ns". Thoughts are kept out of the conversation history.
 - The file the agent edits opens in the editor; open clean files refresh after agent edits.
 
 ### Desktop window (macOS)
+- Quitting the app (⌘Q) now stops its server sidecar and engine (whole process group). Before, they kept running and held port 8000.
 - The overlay title bar no longer covers the sidebar. A 52 px title strip holds the traffic lights and lines up with the top bar. Dragging and double-click-to-zoom on the title areas work through the window plugin (WKWebView ignores `-webkit-app-region`), and the remote page is granted only those window permissions.
 
 ### New logo

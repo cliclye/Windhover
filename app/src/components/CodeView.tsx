@@ -145,7 +145,7 @@ function ToolCard({
   }
   return (
     <div className={`tcard ${ev.status}${ev.undone ? " undone" : ""}`}>
-      <details open={ev.status === "approval" || (editing && ev.status === "ok" && !ev.undone)}>
+      <details open={ev.status === "approval"}>
         <summary>
           <i className={`tdot ${icon}`} />
           <span className="tsum">{ev.summary || `${ev.name} ${path || ""}`}</span>
@@ -189,6 +189,138 @@ function ToolCard({
       ) : null}
     </div>
   );
+}
+
+/** Consecutive tool calls (with no prose between them) become one step row. */
+function groupEvents(events: CodeEvent[]): Array<CodeEvent | CodeToolEvent[]> {
+  const out: Array<CodeEvent | CodeToolEvent[]> = [];
+  for (const ev of events) {
+    if (ev.type === "assistant" && !ev.text && !ev.thinking && !ev.streaming) continue;
+    if (ev.type === "tool") {
+      const prev = out[out.length - 1];
+      if (Array.isArray(prev)) prev.push(ev);
+      else out.push([ev]);
+    } else out.push(ev);
+  }
+  return out;
+}
+
+const base = (p?: string) => (p ? String(p).split("/").pop() || p : "");
+
+function toolPath(ev: CodeToolEvent): string {
+  return String(ev.result?.path || ev.args.path || "");
+}
+
+/** "Created index.html, edited 2 files, ran 3 commands" — like a coding-assistant step row. */
+function groupLabel(tools: CodeToolEvent[]): string {
+  const created = tools.filter((t) => t.name === "write_file" && t.status === "ok" && /^Created/.test(t.summary || ""));
+  const written = tools.filter((t) => t.name === "write_file" && t.status === "ok" && !/^Created/.test(t.summary || ""));
+  const edited = tools.filter((t) => t.name === "edit_file" && t.status === "ok");
+  const reads = tools.filter((t) => t.name === "read_file" && t.status === "ok");
+  const looks = tools.filter((t) => (t.name === "list_dir" || t.name === "search") && t.status === "ok");
+  const runs = tools.filter((t) => t.name === "run" && t.status === "ok");
+  const bad = tools.filter((t) => t.status === "error" || t.status === "denied");
+  const files = (xs: CodeToolEvent[], verb: string) =>
+    xs.length === 1 ? `${verb} ${base(toolPath(xs[0]))}` : `${verb} ${new Set(xs.map(toolPath)).size} files`;
+  // [first index, text] so the label follows the order things happened in
+  const parts: Array<[number, string]> = [];
+  const at = (xs: CodeToolEvent[]) => tools.indexOf(xs[0]);
+  if (created.length) parts.push([at(created), files(created, "created")]);
+  if (written.length) parts.push([at(written), files(written, "rewrote")]);
+  if (edited.length) parts.push([at(edited), files(edited, "edited")]);
+  if (reads.length) parts.push([at(reads), files(reads, "read")]);
+  if (looks.length)
+    parts.push([at(looks), looks.length === 1 ? (looks[0].name === "search" ? "searched" : "listed files") : `explored ${looks.length}×`]);
+  if (runs.length) {
+    const bg = runs.filter((r) => r.result?.background);
+    parts.push([
+      at(runs),
+      runs.length === 1
+        ? `${bg.length ? "started" : "ran"} \`${String(runs[0].args.command || "").slice(0, 40)}\``
+        : `ran ${runs.length} commands`,
+    ]);
+  }
+  if (bad.length) parts.push([tools.length, `${bad.length} failed`]);
+  const s =
+    parts
+      .sort((x, y) => x[0] - y[0])
+      .map((p) => p[1])
+      .join(", ") || `${tools.length} step${tools.length === 1 ? "" : "s"}`;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function StepGroup({
+  tools,
+  render,
+}: {
+  tools: CodeToolEvent[];
+  render: (ev: CodeToolEvent) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const running = tools.find((t) => t.status === "running");
+  const waiting = tools.filter((t) => t.status === "approval");
+  const done = tools.filter((t) => t.status !== "approval");
+  const added = tools.reduce((n, t) => n + (t.status === "ok" && !t.undone ? t.result?.added || 0 : 0), 0);
+  const removed = tools.reduce((n, t) => n + (t.status === "ok" && !t.undone ? t.result?.removed || 0 : 0), 0);
+  const label = running
+    ? running.name === "run"
+      ? `Running \`${String(running.args.command || "").slice(0, 48)}\`…`
+      : running.name === "write_file" || running.name === "edit_file"
+        ? `Writing ${base(toolPath(running))}…`
+        : running.name === "read_file"
+          ? `Reading ${base(toolPath(running))}…`
+          : "Working…"
+    : groupLabel(done);
+  return (
+    <div className="steps">
+      {done.length ? (
+        <>
+          <button type="button" className={`steps-row${open ? " open" : ""}`} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+            {running ? <i className="tdot spin" /> : null}
+            <span className="steps-label">{label}</span>
+            {added || removed ? (
+              <span className="steps-diff">
+                <b className="plus">+{added}</b>
+                <b className="minus">−{removed}</b>
+              </span>
+            ) : null}
+            <span className={`xchev${open ? " open" : ""}`}>
+              <ChevronIcon size={12} />
+            </span>
+          </button>
+          {open ? <div className="steps-list">{done.map(render)}</div> : null}
+        </>
+      ) : null}
+      {waiting.map(render)}
+    </div>
+  );
+}
+
+/** Agent prose: long code blocks fold into a one-line row instead of filling the panel. */
+function AgentText({ text, streaming }: { text: string; streaming?: boolean }) {
+  const parts: ReactNode[] = [];
+  const re = /```([\w+-]*)\n([\s\S]*?)(?:```|$)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(text))) {
+    const lines = m[2].replace(/\n$/, "").split("\n").length;
+    if (lines <= 12) continue;
+    if (m.index > last) parts.push(<MarkdownBody key={i++} text={text.slice(last, m.index)} />);
+    const done = m[0].endsWith("```") && m[0].length > 6;
+    parts.push(
+      <details key={i++} className="code-fold">
+        <summary>
+          <FileIcon size={13} />
+          {streaming && !done ? `Writing code… ${lines} lines` : `${m[1] || "Code"} · ${lines} lines`}
+        </summary>
+        <pre>{m[2]}</pre>
+      </details>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(<MarkdownBody key={i++} text={text.slice(last)} />);
+  return <>{parts}</>;
 }
 
 export function CodeView({
@@ -666,7 +798,25 @@ export function CodeView({
                 ) : null}
               </div>
             ) : (
-              events.map((ev) => {
+              groupEvents(events).map((item) => {
+                if (Array.isArray(item))
+                  return (
+                    <StepGroup
+                      key={item[0].id}
+                      tools={item}
+                      render={(ev) => (
+                        <ToolCard
+                          key={ev.id}
+                          ev={ev}
+                          onOpenDiff={(id) => setPane({ kind: "diff", eventId: id })}
+                          onOpenFile={(p) => void openFile(p, true)}
+                          onApprove={(id, ok) => void approve(id, ok)}
+                          onUndo={(cid) => void undo(cid)}
+                        />
+                      )}
+                    />
+                  );
+                const ev = item;
                 if (ev.type === "user")
                   return (
                     <div key={ev.id} className="a-user-wrap">
@@ -698,8 +848,19 @@ export function CodeView({
                           <div className="a-think-body">{ev.thinking}</div>
                         </details>
                       ) : null}
-                      {ev.text ? <MarkdownBody text={ev.text} /> : null}
-                      {ev.streaming && !ev.text && !ev.thinking ? (
+                      {ev.text ? <AgentText text={ev.text} streaming={ev.streaming} /> : null}
+                      {ev.streaming && ev.pending ? (
+                        <div className="steps-row live">
+                          <i className="tdot spin" />
+                          <span className="steps-label">
+                            {ev.pending.name === "run"
+                              ? "Preparing a command…"
+                              : `${ev.pending.name === "edit_file" ? "Editing" : "Writing"} ${base(ev.pending.path) || "file"}…`}
+                            {ev.pending.lines > 2 ? ` ${ev.pending.lines} lines` : ""}
+                          </span>
+                        </div>
+                      ) : null}
+                      {ev.streaming && !ev.text && !ev.thinking && !ev.pending ? (
                         <span className="typing">
                           <i />
                           <i />
@@ -709,17 +870,7 @@ export function CodeView({
                     </div>
                   );
                 }
-                if (ev.type === "tool")
-                  return (
-                    <ToolCard
-                      key={ev.id}
-                      ev={ev}
-                      onOpenDiff={(id) => setPane({ kind: "diff", eventId: id })}
-                      onOpenFile={(p) => void openFile(p, true)}
-                      onApprove={(id, ok) => void approve(id, ok)}
-                      onUndo={(cid) => void undo(cid)}
-                    />
-                  );
+                if (ev.type === "tool") return null;
                 return (
                   <div key={ev.id} className={`a-notice ${ev.type}`}>
                     {ev.text}

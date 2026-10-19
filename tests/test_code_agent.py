@@ -237,7 +237,7 @@ class PermissionsAndEffort(unittest.TestCase):
         s.set_effort("high")
         s.run_turn("what is calc.py")
         self.assertTrue(seen["thinking"])
-        self.assertEqual(seen["max_tokens"], 3072)
+        self.assertEqual(seen["max_tokens"], 4096)
         final = [e for e in s.events if e["type"] == "assistant" and e.get("final")][-1]
         self.assertEqual(final["text"], "calc.py adds numbers.")
         self.assertIn("summary", final["thinking"])
@@ -251,11 +251,112 @@ class PermissionsAndEffort(unittest.TestCase):
         self.assertEqual(s.events[0]["images"], ["data:image/jpeg;base64,BB"])
 
 
+class DoTheWork(unittest.TestCase):
+    """The agent must save files / run commands instead of telling the user to."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_code_pasted_in_chat_is_nudged_into_a_file(self):
+        page = "```html\n" + "\n".join(f"<p>{i}</p>" for i in range(20)) + "\n```"
+        gen = scripted([page,
+                        '```tool\n{"name": "write_file", "path": "index.html", "content": "<p>hi</p>"}\n```',
+                        "Created index.html."])
+        s = CodeSession(self.root, "fake", gen)
+        s.run_turn("create a quick html page")
+        self.assertTrue((self.root / "index.html").is_file())
+        self.assertIn("you have tools", gen.seen[1][-1]["content"])
+        # the pasted code is not left in the transcript
+        self.assertFalse(any("<p>19</p>" in (e.get("text") or "") for e in s.events))
+
+    def test_telling_the_user_to_run_is_nudged(self):
+        gen = scripted(["I can't open files in your browser, but you can run `open index.html`.",
+                        '```tool\n{"name": "run", "command": "echo opened"}\n```', "Opened it."])
+        s = CodeSession(self.root, "fake", gen)
+        s.mode = "bypass"
+        s.run_turn("open it in my browser")
+        tool = next(e for e in s.events if e["type"] == "tool")
+        self.assertEqual(tool["status"], "ok")
+
+    def test_cut_off_file_is_not_saved(self):
+        half = '```tool\n{"name": "write_file", "path": "index.html", "content": "<html><body>' + "x" * 50
+        gen = scripted([half, '```tool\n{"name": "write_file", "path": "index.html", "content": "<p>ok</p>"}\n```',
+                        "Created index.html."])
+        s = CodeSession(self.root, "fake", gen)
+        s.run_turn("create a page")
+        self.assertEqual((self.root / "index.html").read_text(), "<p>ok</p>\n")
+        self.assertIn("cut off", gen.seen[1][-1]["content"])
+
+    def test_fence_closed_with_END_is_not_cut_off(self):
+        (self.root / "a.js").write_text("x = 1\n")
+        gen = scripted(['```tool\n{"name": "edit_file", "path": "a.js", "old": "x = 1", "new": "x = 2"}\nEND', "Done."])
+        s = CodeSession(self.root, "fake", gen)
+        s.run_turn("set x to 2")
+        self.assertEqual((self.root / "a.js").read_text(), "x = 2\n")
+
+    def test_going_in_circles_gets_the_file_and_a_push(self):
+        (self.root / "calc.js").write_text("function mul(a, b) {\n  return a + b;\n}\n")
+        search = '```tool\n{"name": "search", "query": "nothing-here"}\n```'
+        gen = scripted(['```tool\n{"name": "read_file", "path": "calc.js"}\n```', search,
+                        '```tool\n{"name": "search", "query": "also-missing"}\n```',
+                        '```tool\n{"name": "read_file", "path": "calc.js"}\n```',
+                        "TOOL edit_file\npath: calc.js\nold:\n  return a + b;\nnew:\n  return a * b;\nEND",
+                        "Fixed."])
+        s = CodeSession(self.root, "fake", gen)
+        s.run_turn("fix mul in calc.js")
+        pushes = [m for m in s.history if "going in circles" in m["content"]]
+        self.assertEqual(len(pushes), 1)
+        self.assertIn("return a + b", pushes[0]["content"])
+        self.assertIn("a * b", (self.root / "calc.js").read_text())
+
+    def test_compacted_read_can_run_again(self):
+        (self.root / "a.txt").write_text("hello\n")
+        read = '```tool\n{"name": "read_file", "path": "a.txt"}\n```'
+        gen = scripted([read, read, "Done."])
+        s = CodeSession(self.root, "fake", gen)
+        orig = s._messages
+
+        def compacting():
+            for m in s.history:
+                if m.get("kind") == "result":
+                    m["compacted"] = True
+            return orig()
+
+        s._messages = compacting
+        s.run_turn("read a.txt twice")
+        self.assertEqual([e["status"] for e in s.events if e["type"] == "tool"], ["ok", "ok"])
+
+    def test_questions_with_code_examples_are_answers(self):
+        gen = scripted(["Use a list comprehension:\n```python\n" + "x = 1\n" * 10 + "```"])
+        s = CodeSession(self.root, "fake", gen)
+        s.run_turn("what is a list comprehension?")
+        self.assertEqual(len(gen.seen), 1)
+
+    def test_server_runs_in_background_off_windhover_port(self):
+        gen = scripted(['```tool\n{"name": "run", "command": "python3 -m http.server 8000"}\n```', "Serving."])
+        s = CodeSession(self.root, "fake", gen)
+        s.mode = "bypass"
+        try:
+            s.run_turn("serve this folder on localhost")
+            tool = next(e for e in s.events if e["type"] == "tool")
+            self.assertTrue(tool["result"].get("background"))
+            self.assertNotIn("8000", tool["result"].get("output", "") + tool["summary"])
+            self.assertIn("used by Windhover", gen.seen[1][-1]["content"])
+            self.assertEqual(len(s.procs), 1)
+        finally:
+            s.stop_background()
+
+
 class VisibleText(unittest.TestCase):
     def test_unterminated_tool_fence_and_end_lines_hidden(self):
         v = CodeSession._visible
         self.assertEqual(v('Reading it.\n```tool\n{"name": "read_file", "pa'), "Reading it.")
         self.assertEqual(v("Done.\nEND"), "Done.")
+        self.assertEqual(v('Saving it.\n{"name": "write_file", "path": "a.html", "content": "<p>'), "Saving it.")
         self.assertEqual(v("Use:\n```python\nx = 1\n```"), "Use:\n```python\nx = 1\n```")
 
 

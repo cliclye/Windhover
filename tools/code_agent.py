@@ -26,6 +26,7 @@ No network tools. Paths cannot escape the workspace (resolve_under).
 from __future__ import annotations
 
 import difflib
+import json
 import os
 import re
 import subprocess
@@ -49,8 +50,9 @@ MODES = ("ask", "accept_edits", "plan", "bypass")
 MODE_LABELS = {"ask": "Ask before edits", "accept_edits": "Accept edits",
                "plan": "Plan mode", "bypass": "Bypass permissions"}
 # effort -> (max tokens per step, max steps per turn, thinking)
-EFFORT = {"low": (768, 10, False), "medium": (1536, 20, False),
-          "high": (3072, 30, True), "max": (4096, 50, True)}
+# A whole new file must fit in one reply, so even "low" allows ~2k tokens.
+EFFORT = {"low": (2048, 10, False), "medium": (4096, 20, False),
+          "high": (4096, 30, True), "max": (4096, 50, True)}
 PLAN_NOTE = ("(Plan mode is on: explore with list_dir, read_file and search only — do not edit files or "
              "run commands. Finish with a short numbered plan of the changes you would make.)")
 RESULT_CHARS = 5000          # per tool result sent to the model
@@ -87,12 +89,37 @@ Tools:
 - edit_file   path, old, new  replace the exact text `old` with `new` (old must appear once)
 - write_file  path, content   create a new file or overwrite a whole file
 - run         command         run a shell command in the workspace (tests, build, git status…)
+              add "background": true for things that keep running (dev servers, watchers)
+
+You have real access to the user's project folder and their computer's shell through these tools.
+So DO things instead of explaining them:
+- When the user asks you to create or change code, SAVE it with write_file / edit_file.
+  Never paste a whole file into your reply for the user to copy.
+- When the user asks you to run, open, start, install or test something, use run.
+  Never tell the user to run a command themselves.
+  Open a file or URL in the browser:  run  open calculator.html   (Windows: start "" calculator.html)
+  Serve the folder on localhost:  run  python3 -m http.server 8765  with "background": true,
+  then run  open http://localhost:8765/calculator.html   (port 8000 is taken by Windhover).
+
+Example — the user says "make a hello page and open it":
+
+```tool
+{"name": "write_file", "path": "index.html", "content": "<!DOCTYPE html>\n<html><body><h1>Hello</h1></body></html>"}
+```
+
+then, after the result:
+
+```tool
+{"name": "run", "command": "open index.html"}
+```
+
+then a short plain-text reply such as: Created index.html and opened it in your browser.
 
 How to work:
 1. Look before you change: list_dir / search / read_file the relevant files.
 2. Make focused edits with edit_file (copy `old` exactly from read_file output). Use write_file for new files.
 3. Check your work when it makes sense (e.g. run the tests).
-4. When the request is done, reply in plain text WITHOUT a tool block: briefly say what you changed.
+4. When the request is done, reply in plain text WITHOUT a tool block: briefly say what you did (1-3 sentences).
 If the user only asked a question, read what you need and then answer in plain text.
 Never invent files or results. Stay inside the workspace. One tool per reply."""
 
@@ -112,6 +139,86 @@ def _announces_next_step(text: str) -> bool:
         return False
     tail = t[-240:]
     return bool(_INTENT_RE.search(tail)) or tail.endswith(":")
+
+
+# A reply that pastes code / tells the user to do it, when the user asked for an action.
+_ACTION_RE = re.compile(
+    r"\b(?:create|make|build|write|add|implement|generate|fix|change|update|edit|refactor|rename|delete|remove|"
+    r"run|open|start|launch|serve|host|install|test|execute|deploy|save|put|show me)\b", re.I)
+_DEFER_RE = re.compile(
+    r"(?:\bI (?:can(?:'|’)?t|cannot|am unable to|don(?:'|’)?t have)\b|\byou can (?:run|open|use|save|start|double)|"
+    r"\bdouble[- ]click\b|\bcopy (?:the|this) code\b|\bsave (?:it|this|the (?:code|file)) as\b|"
+    r"\bin your terminal\b|\brun (?:this|the following|`)|\bopen (?:it|the file) in your browser\b)", re.I)
+_FENCE_RE = re.compile(r"```[\w+-]*\n(.*?)(?:```|\Z)", re.S)
+
+# Commands that never exit on their own: run them in the background.
+_SERVER_RE = re.compile(
+    r"(?:http\.server|SimpleHTTPServer|\bnpm (?:run )?(?:dev|start|serve)\b|\byarn (?:dev|start)\b|"
+    r"\bpnpm (?:dev|start)\b|\bvite\b(?! build)|\bnext dev\b|\bflask run\b|\buvicorn\b|\bgunicorn\b|"
+    r"\bmanage\.py runserver\b|\brails s(?:erver)?\b|\bnpx serve\b|\blive-server\b|\bjekyll serve\b|"
+    r"\bhugo server\b|\bphp -S\b)", re.I)
+
+
+RESERVED_PORTS = {int(p) for p in (os.environ.get("WINDHOVER_PORT") or "8000").split(",") if p.strip().isdigit()}
+_HTTP_SERVER_RE = re.compile(r"(\bhttp\.server\b|\bSimpleHTTPServer\b)(\s+(\d+))?")
+_PORT_FLAG_RE = re.compile(r"((?:--port|-p|--listen|-l)[= ])(\d{2,5})\b|(\bphp -S [\w.]+:)(\d{2,5})\b")
+
+
+def _free_port(start: int = 8765) -> int:
+    import socket
+
+    for port in range(start, start + 200):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sk:
+            try:
+                sk.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    return start
+
+
+_PENDING_NAME_RE = re.compile(r'"name"\s*:\s*"(write_file|edit_file|run)"|(?:^|\n)\s*TOOL\s+(write_file|edit_file|run)\b')
+_PENDING_PATH_RE = re.compile(r'"path"\s*:\s*"([^"]+)"|(?:^|\n)\s*path:\s*(\S+)')
+
+
+def _pending_tool(text: str) -> dict[str, Any] | None:
+    """What a still-streaming tool call is doing, for a live "Writing x…" row."""
+    m = _PENDING_NAME_RE.search(text or "")
+    if not m:
+        return None
+    name = m.group(1) or m.group(2)
+    tail = text[m.start():]
+    pm = _PENDING_PATH_RE.search(tail)
+    lines = tail.count("\\n") + tail.count("\n")
+    return {"name": name, "path": (pm.group(1) or pm.group(2)) if pm else "", "lines": lines}
+
+
+def _tool_closed(text: str) -> bool:
+    """Did the reply finish its tool block (closing fence / END / complete JSON)?"""
+    t = text or ""
+    i = t.find("```tool")
+    if i < 0:
+        i = t.find("```json")
+    if i >= 0:
+        body = t[i + 7:]
+        if "```" in body:
+            return True
+        # Small models sometimes end the fence with END (or nothing): the call is
+        # complete if its JSON object is.
+        j = body.find("{")
+        if j < 0:
+            return False
+        try:
+            json.JSONDecoder().raw_decode(body[j:])
+            return True
+        except ValueError:
+            return False
+    # TOOL blocks often omit END; the parser handles that, so treat them as closed.
+    return True
+
+
+def _pasted_code_lines(text: str) -> int:
+    return max((len(m.group(1).strip().splitlines()) for m in _FENCE_RE.finditer(text or "")), default=0)
 
 
 def _now() -> float:
@@ -183,6 +290,8 @@ class CodeSession:
         self.effort = "medium"
         self.version = 0
         self._approvals: dict[str, threading.Event] = {}
+        self.procs: list[subprocess.Popen] = []  # background commands (dev servers)
+        self.port_map: dict[int, int] = {}       # reserved port -> port we moved a server to
         self._approval_answer: dict[str, bool] = {}
         self.created = _now()
         self.turns = 0
@@ -244,6 +353,8 @@ class CodeSession:
     # ------------------------------------------------------------ control
     def stop(self) -> None:
         self.stop_flag = True
+        if not self.busy:
+            self.stop_background()
         for ev in list(self._approvals.values()):
             ev.set()
 
@@ -402,13 +513,18 @@ class CodeSession:
         before = fp.read_text(encoding="utf-8") if fp.is_file() else None
         if before and before.strip() and not content.strip():
             return {"ok": False, "error": f"refusing to overwrite {rel} with empty content"}
+        if before is not None and before.rstrip("\n") == content.rstrip("\n"):
+            return {"ok": False, "path": rel, "error": f"{rel} already has exactly this content — nothing changed. "
+                                                      "Change the part that is wrong."}
         if content and not content.endswith("\n"):
             content += "\n"
         return self._commit(str(fp.relative_to(self.root)), before, content, ev, created=before is None)
 
-    def _tool_run(self, command: str, ev: dict[str, Any]) -> dict[str, Any]:
+    def _tool_run(self, command: str, ev: dict[str, Any], background: bool = False) -> dict[str, Any]:
         if not command.strip():
             return {"ok": False, "error": "run needs a command"}
+        background = background or bool(_SERVER_RE.search(command))
+        command, port_note = self._avoid_reserved_ports(command)
         if self.mode != "bypass":
             approved = self._ask(ev, f"Run: {command.strip()[:160]}")
             if approved is None:
@@ -420,6 +536,11 @@ class CodeSession:
         t0 = _now()
         env = dict(os.environ)
         env.setdefault("PYTHONUNBUFFERED", "1")
+        if background:
+            res = self._run_background(command, env, t0)
+            if port_note:
+                res["note"] = port_note
+            return res
         try:
             p = subprocess.run(command, shell=True, cwd=str(self.root), capture_output=True,
                                text=True, timeout=RUN_TIMEOUT_S, env=env, errors="replace")
@@ -433,6 +554,77 @@ class CodeSession:
             out = "…" + out[-RUN_OUTPUT_CHARS:]
         return {"ok": code == 0, "command": command, "exit_code": code, "output": out,
                 "seconds": round(_now() - t0, 2)}
+
+    def _avoid_reserved_ports(self, command: str) -> tuple[str, str | None]:
+        """Windhover itself listens on 8000: move servers the agent starts to a free
+        port, and point later localhost URLs at the moved port."""
+        note = None
+        m = _HTTP_SERVER_RE.search(command)
+        if m:
+            port = int(m.group(3)) if m.group(3) else 8000
+            if port in RESERVED_PORTS:
+                new = _free_port()
+                self.port_map[port] = new
+                command = command[:m.start()] + f"{m.group(1)} {new}" + command[m.end():]
+                note = f"port {port} is used by Windhover, so the server uses port {new}"
+        else:
+            def sub(mm: re.Match) -> str:
+                nonlocal note
+                pre, num = (mm.group(1), mm.group(2)) if mm.group(1) else (mm.group(3), mm.group(4))
+                port = int(num)
+                if port not in RESERVED_PORTS:
+                    return mm.group(0)
+                new = _free_port()
+                self.port_map[port] = new
+                note = f"port {port} is used by Windhover, so the server uses port {new}"
+                return f"{pre}{new}"
+            command = _PORT_FLAG_RE.sub(sub, command)
+        for old, new in self.port_map.items():
+            command = re.sub(rf"((?:localhost|127\.0\.0\.1|0\.0\.0\.0):){old}\b", rf"\g<1>{new}", command)
+        return command, note
+
+    def _run_background(self, command: str, env: dict, t0: float) -> dict[str, Any]:
+        """Start a long-running command (dev server, watcher), give it a few seconds,
+        and report what it printed. It keeps running until the session stops it."""
+        import tempfile
+
+        log = tempfile.NamedTemporaryFile(prefix="windhover-run-", suffix=".log", delete=False)
+        kw: dict[str, Any] = {}
+        if os.name == "nt":
+            kw["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        else:
+            kw["start_new_session"] = True
+        proc = subprocess.Popen(command, shell=True, cwd=str(self.root), stdout=log, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, env=env, **kw)
+        self.procs.append(proc)
+        deadline = _now() + 3.0
+        while _now() < deadline and proc.poll() is None:
+            time.sleep(0.2)
+        log.flush()
+        try:
+            out = Path(log.name).read_text(errors="replace").strip()[-RUN_OUTPUT_CHARS:]
+        except OSError:
+            out = ""
+        code = proc.poll()
+        if code is not None:  # exited already: report like a normal command
+            return {"ok": code == 0, "command": command, "exit_code": code, "output": out,
+                    "seconds": round(_now() - t0, 2)}
+        urls = re.findall(r"https?://[\w.\-\[\]:]+(?:/\S*)?", out)
+        return {"ok": True, "command": command, "background": True, "pid": proc.pid, "exit_code": None,
+                "output": out or "(running, no output yet)", "urls": urls[:3],
+                "seconds": round(_now() - t0, 2)}
+
+    def stop_background(self) -> None:
+        for p in self.procs:
+            if p.poll() is None:
+                try:
+                    if os.name == "nt":
+                        p.terminate()
+                    else:
+                        os.killpg(p.pid, 15)
+                except Exception:
+                    pass
+        self.procs = []
 
     def _execute(self, call: dict[str, Any], ev: dict[str, Any]) -> dict[str, Any]:
         name = (call.get("name") or call.get("tool") or "").strip()
@@ -477,7 +669,8 @@ class CodeSession:
             if name == "write_file":
                 return self._tool_write(str(call.get("path") or ""), str(call.get("content") or ""), ev)
             if name == "run":
-                return self._tool_run(str(call.get("command") or call.get("cmd") or ""), ev)
+                bg = str(call.get("background") or "").lower() in ("1", "true", "yes")
+                return self._tool_run(str(call.get("command") or call.get("cmd") or ""), ev, bg)
             if name == "finish":
                 return {"ok": True, "finish": True, "summary": call.get("summary") or ""}
             return {"ok": False, "error": f"unknown tool {name!r}. Use list_dir, read_file, search, "
@@ -509,6 +702,10 @@ class CodeSession:
         if name in ("edit_file", "write_file"):
             return (f"{head}: OK, {res.get('path')} saved "
                     f"(+{res.get('added', 0)} -{res.get('removed', 0)} lines).")
+        if name == "run" and res.get("background"):
+            note = f" Note: {res['note']}." if res.get("note") else ""
+            return (f"Started `{res.get('command')}` in the background (pid {res.get('pid')}); it keeps running.{note} "
+                    f"Output so far:\n```\n{res.get('output')}\n```")
         if name == "run":
             return (f"Result of run `{res.get('command')}` (exit {res.get('exit_code')}):\n"
                     f"```\n{res.get('output') or '(no output)'}\n```")
@@ -533,9 +730,15 @@ class CodeSession:
                     first = m["content"].split("\n", 1)[0]
                     m["content"] = first + "\n(earlier output omitted to save context)"
                     m["compacted"] = True
-                    total = sum(len(x["content"]) for x in self.history)
-                    if total <= CONTEXT_CHARS:
-                        break
+                elif m.get("kind") == "call" and not m.get("compacted") and len(m["content"]) > 600:
+                    # an old write_file / edit_file with a whole file in it
+                    m["content"] = m.get("brief") or "(an earlier file change; content omitted to save context)"
+                    m["compacted"] = True
+                else:
+                    continue
+                total = sum(len(x["content"]) for x in self.history)
+                if total <= CONTEXT_CHARS:
+                    break
         # Merge consecutive same-role messages (chat templates expect alternation).
         for m in self.history:
             if msgs and msgs[-1]["role"] == m["role"] and m["role"] != "system":
@@ -548,6 +751,25 @@ class CodeSession:
                 msgs.append({"role": m["role"], "content": m["content"],
                              **({"images": list(m["images"])} if m.get("images") else {})})
         return msgs
+
+    def _unstick(self, stuck: int, unsticks: int, path: str) -> bool:
+        """After 3 fruitless steps in a row, hand the model the file it is working on
+        and ask it to act. Returns True when a nudge was added."""
+        if stuck < 3 or unsticks >= 2:
+            return False
+        body = ""
+        if path:
+            try:
+                text = aw.resolve_under(self.root, path).read_text(encoding="utf-8")
+                body = f"\n\nCurrent content of {path}:\n```\n{_numbered_preview(text, RESULT_CHARS)}\n```"
+            except (OSError, ValueError, UnicodeDecodeError):
+                body = ""
+        self.history.append({"role": "user", "kind": "result", "content":
+                             "You are going in circles (repeating searches and reads without changing anything). "
+                             "Stop searching. Look at the code below, decide what is wrong, and fix it now with "
+                             "edit_file (copy `old` exactly) — or, if you really can't, explain in plain text."
+                             + body})
+        return True
 
     @staticmethod
     def _split_thinking(text: str, thinking: bool) -> tuple[str, str]:
@@ -576,6 +798,8 @@ class CodeSession:
         t = re.sub(r"<think>.*?</think>", "", t, flags=re.S)
         t = re.sub(r"(?m)^\s*(?:TOOL|END)\s*$", "", t)
         t = re.sub(r'(?ms)^\s*\{\s*"(?:name|tool)"\s*:.*?\}\s*$', "", t)
+        # a bare JSON tool call (possibly still streaming) runs to the end of the reply
+        t = re.sub(r'\{\s*"(?:name|tool)"\s*:\s*"\w+".*\Z', "", t, flags=re.S)
         return re.sub(r"\n{3,}", "\n\n", t).strip()
 
     # ------------------------------------------------------------ the loop
@@ -599,7 +823,10 @@ class CodeSession:
         if images:
             umsg["images"] = list(images)[:8]
         self.history.append(umsg)
-        seen: set[tuple] = set()
+        seen: dict[tuple, dict] = {}   # read-only call -> its result message in history
+        stuck = 0                      # fruitless steps in a row (repeats, empty searches, errors)
+        unsticks = 0
+        last_read = ""
         steps = 0
         nudges = 0
         try:
@@ -614,14 +841,16 @@ class CodeSession:
                     th, ans = self._split_thinking("".join(buf), thinking)
                     # Hold back a fence opener that may still turn into ```tool.
                     vis = self._visible(re.sub(r"`{1,3}(?:t|to|too|tool|j|js|jso|json)?\Z", "", ans))
-                    if vis != live.get("text") or th != live.get("thinking", ""):
-                        self._update(live, text=vis, thinking=th)
+                    pend = _pending_tool(ans)
+                    if vis != live.get("text") or th != live.get("thinking", "") or pend != live.get("pending"):
+                        self._update(live, text=vis, thinking=th, pending=pend)
 
                 t0 = _now()
                 kw = {"thinking": True} if thinking else {}
                 raw, stats = self.generate(self._messages(), step_tokens, temperature, on_delta, **kw)
                 raw = (raw or "").strip()
                 thought, raw = self._split_thinking(raw, thinking)
+                live.pop("pending", None)
                 if thought:
                     self._update(live, thinking=thought, thought_seconds=round(_now() - t_think, 1))
                 if os.environ.get("WINDHOVER_CODE_DEBUG"):
@@ -636,6 +865,34 @@ class CodeSession:
                 calls = aw.parse_tool_calls(raw)
                 visible = self._visible(raw)
                 self._update(live, text=visible, streaming=False, stats=dict(self.stats))
+                gen_tokens = int((stats.get("windhover") or {}).get("tokens") or stats.get("completion_tokens") or 0)
+                pending = _pending_tool(raw)
+                # Only call it cut off when it really ran out of tokens, or the tool call
+                # could not be parsed at all (an unterminated block).
+                cut_off = bool(pending) and pending["name"] in ("write_file", "edit_file") and (
+                    (gen_tokens and gen_tokens >= step_tokens - 4) or not calls or not _tool_closed(raw))
+                if cut_off:
+                    sys.stderr.write(f"[code] cut-off/unparsed {pending['name']} tokens={gen_tokens}/{step_tokens} "
+                                     f"calls={len(calls)} closed={_tool_closed(raw)} raw={raw[:1500]!r} ... "
+                                     f"{raw[-400:]!r}\n")
+                if cut_off and nudges < 3 and steps < max_steps:
+                    # The reply ran out of room in the middle of a file: never save half a file.
+                    nudges += 1
+                    with self.lock:
+                        if live in self.events:
+                            self.events.remove(live)
+                            self.version += 1
+                    self._emit({"type": "tool", "name": pending["name"], "args": {"path": pending["path"]},
+                                "status": "error", "summary": f"{pending['path'] or 'File'} was cut off — not saved",
+                                "result": {"error": "reply hit the length limit"}})
+                    self.history.append({"role": "assistant", "kind": "call", "content": raw,
+                                         "brief": f"(tried to write {pending['path']}; the reply was cut off)"})
+                    self.history.append({"role": "user", "kind": "nudge", "content":
+                                         f"Your reply hit the length limit, so {pending['path'] or 'the file'} was cut "
+                                         "off and NOT saved. Write it in parts: write_file with the first part only "
+                                         "(keep it under ~120 lines), then add the rest with edit_file using an "
+                                         "empty `old` (that appends to the end of the file)."})
+                    continue
                 if not calls and not visible and nudges < 2 and steps < max_steps:
                     # Empty reply (model stopped at once): ask again instead of ending the turn.
                     nudges += 1
@@ -647,6 +904,22 @@ class CodeSession:
                     self.history.append({"role": "user", "kind": "nudge", "content":
                                          "Your reply was empty. Reply with exactly one tool block for the next "
                                          "step, or answer in plain text if the task is done."})
+                    continue
+                if (not calls and nudges < 2 and steps < max_steps and _ACTION_RE.search(text or "")
+                        and (_pasted_code_lines(visible) >= 8 or _DEFER_RE.search(visible))):
+                    # The model answered with code to copy or instructions for the user,
+                    # but it has tools: make it do the work.
+                    nudges += 1
+                    with self.lock:
+                        if live in self.events:
+                            self.events.remove(live)
+                            self.version += 1
+                    self.history.append({"role": "assistant", "content": raw})
+                    self.history.append({"role": "user", "kind": "nudge", "content":
+                                         "Don't give me code to copy or steps to do myself — you have tools. "
+                                         "Save files with write_file / edit_file and run commands with run "
+                                         "(e.g. open a page with: run open <file>). "
+                                         "Reply now with exactly one tool block for the next step."})
                     continue
                 if not calls and nudges < 2 and steps < max_steps and _announces_next_step(visible):
                     nudges += 1
@@ -666,7 +939,11 @@ class CodeSession:
                     return
                 call = calls[0]
                 name = (call.get("name") or "").strip()
-                self.history.append({"role": "assistant", "content": raw})
+                if name in ("write_file", "edit_file"):
+                    self.history.append({"role": "assistant", "kind": "call", "content": raw,
+                                         "brief": f"(changed {call.get('path') or 'a file'} with {name})"})
+                else:
+                    self.history.append({"role": "assistant", "content": raw})
                 if not visible and not thought:
                     with self.lock:  # drop the empty prose bubble; the tool card speaks for itself
                         if live in self.events:
@@ -678,21 +955,36 @@ class CodeSession:
                 ev = self._emit({"type": "tool", "name": name,
                                  "args": {k: v for k, v in call.items() if k != "name"},
                                  "status": "running"})
-                if key in seen and name in ("list_dir", "read_file", "search"):
-                    res = {"ok": True, "note": "already done — the result is earlier in this conversation"}
+                prior = seen.get(key)
+                if prior is not None and not prior.get("compacted") and name in ("list_dir", "read_file", "search"):
+                    # Same call, and its result is still in the context: don't run it again.
                     self._update(ev, status="skipped", summary="Skipped repeat")
                     self.history.append({"role": "user", "kind": "result", "content":
                                          f"You already ran {name} with the same arguments; its result is above. "
                                          "Do not repeat it. Continue with the next step or answer in plain text."})
+                    stuck += 1
+                    if self._unstick(stuck, unsticks, last_read):
+                        stuck, unsticks = 0, unsticks + 1
                     continue
-                seen.add(key)
                 res = self._execute(call, ev)
+                if name in ("edit_file", "write_file", "run") and res.get("ok"):
+                    # files may have changed: reading them again is not a repeat
+                    seen = {k: v for k, v in seen.items() if k[0] not in ("read_file", "list_dir", "search")}
+                    stuck = 0
+                elif not res.get("ok") or (name == "search" and not res.get("count")):
+                    stuck += 1
+                if name == "read_file" and res.get("ok"):
+                    last_read = str(res.get("path") or call.get("path") or "")
                 status = "denied" if res.get("denied") else ("ok" if res.get("ok") else "error")
                 summary = self._summary(name, call, res)
                 self._update(ev, status=status, summary=summary, result=self._ui_result(name, res),
                              change_id=res.get("change_id"))
-                self.history.append({"role": "user", "kind": "result",
-                                     "content": self._result_text(name, call, res)})
+                result_msg = {"role": "user", "kind": "result", "content": self._result_text(name, call, res)}
+                self.history.append(result_msg)
+                if name in ("list_dir", "read_file", "search"):
+                    seen[key] = result_msg
+                if self._unstick(stuck, unsticks, last_read):
+                    stuck, unsticks = 0, unsticks + 1
             if self.stop_flag:
                 self._emit({"type": "notice", "text": "Stopped."})
             else:
@@ -726,6 +1018,8 @@ class CodeSession:
             return f"Edited {p}  +{res.get('added', 0)} −{res.get('removed', 0)}"
         if name == "write_file":
             return f"{'Created' if res.get('created') else 'Rewrote'} {p}  +{res.get('added', 0)} −{res.get('removed', 0)}"
+        if name == "run" and res.get("background"):
+            return f"Started `{res.get('command')}` (running in the background)"
         if name == "run":
             return f"Ran `{res.get('command')}` → exit {res.get('exit_code')} ({res.get('seconds')}s)"
         return name
@@ -733,7 +1027,8 @@ class CodeSession:
     @staticmethod
     def _ui_result(name: str, res: dict[str, Any]) -> dict[str, Any]:
         out: dict[str, Any] = {}
-        for k in ("diff", "output", "exit_code", "matches", "path", "error", "added", "removed"):
+        for k in ("diff", "output", "exit_code", "matches", "path", "error", "added", "removed",
+                  "background", "urls", "pid"):
             if k in res:
                 out[k] = res[k]
         if name == "list_dir":
@@ -764,3 +1059,13 @@ class SessionStore:
 
 
 STORE = SessionStore()
+
+
+def _stop_all_background() -> None:
+    for sess in list(getattr(STORE, "_s", {}).values()):
+        sess.stop_background()
+
+
+import atexit  # noqa: E402
+
+atexit.register(_stop_all_background)

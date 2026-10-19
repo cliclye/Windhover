@@ -20,6 +20,9 @@ export type CodeToolEvent = {
     added?: number;
     removed?: number;
     lines?: number;
+    background?: boolean;
+    urls?: string[];
+    pid?: number;
   };
 };
 
@@ -51,6 +54,7 @@ export type CodeEvent =
       stats?: CodeStats;
       thinking?: string;
       thought_seconds?: number;
+      pending?: { name: string; path: string; lines: number } | null;
     }
   | { id: string; type: "notice" | "error"; text: string }
   | CodeToolEvent;

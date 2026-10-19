@@ -2866,3 +2866,112 @@ kbd {
   max-height: 260px;
   overflow: auto;
 }
+
+/* --------------------------------------------- Code: compact step rows */
+.a-msg.final {
+  padding: 0;
+  border: none;
+  background: none;
+}
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.steps-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.steps-row:hover {
+  color: var(--text-2);
+}
+.steps-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.steps-diff {
+  display: inline-flex;
+  font-family: var(--mono);
+  font-size: 11px;
+  border-radius: 5px;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.steps-diff b {
+  padding: 1px 6px;
+  font-weight: 600;
+}
+.steps-diff .plus {
+  color: var(--good);
+  background: var(--good-soft);
+}
+.steps-diff .minus {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+.steps-row .xchev {
+  display: inline-flex;
+  transition: transform 0.12s;
+}
+.steps-row .xchev.open {
+  transform: rotate(90deg);
+}
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.steps-list .tcard {
+  border-color: transparent;
+  background: transparent;
+}
+.steps-list .tcard summary {
+  padding: 3px 6px;
+}
+.steps-list .tcard details[open] {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.code-fold {
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  font-size: 12.5px;
+}
+.code-fold summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  color: var(--text-2);
+  cursor: pointer;
+  list-style: none;
+}
+.code-fold summary::-webkit-details-marker {
+  display: none;
+}
+.code-fold pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}

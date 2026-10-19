@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### New logo
+- Replaced the kestrel silhouette with a new mark: two swept copper wing blades that cross into a W. App, desktop (macOS, Windows), site and README icons and screenshots updated.
+
 ### Code — a local coding agent
 - New **Code** section (replaces Agent): project explorer, tabbed editor with save, and an agent panel that reads, searches, edits and tests code using the model Windhover is running (or an Ollama model) — no API key.
 - Tools: `list_dir`, `read_file`, `search`, `edit_file`, `write_file`, `run`. Edits show diffs and can be undone; `run` asks for approval unless *Auto-run commands* is on (90 s timeout). File tools can't leave the folder.

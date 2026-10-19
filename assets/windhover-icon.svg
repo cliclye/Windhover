@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Windhover">
-  <rect width="1024" height="1024" rx="220" fill="#0a0e0c"/>
-  <path fill="#d4a574" d="M 512,268 L 490,292 L 474,330 L 417,300 L 337,255 L 247,220 L 192,235 L 227,295 L 302,360 L 382,430 L 437,490 L 464,545 L 450,620 L 434,690 L 470,745 L 512,780 L 554,745 L 590,690 L 574,620 L 560,545 L 587,490 L 642,430 L 722,360 L 797,295 L 832,235 L 777,220 L 687,255 L 607,300 L 550,330 L 534,292 L 512,268 Z"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#161c19"/><stop offset="1" stop-color="#080b0a"/>
+    </linearGradient>
+    <linearGradient id="wl" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f0c999"/><stop offset="1" stop-color="#cf955c"/>
+    </linearGradient>
+    <linearGradient id="wr" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e2b07a"/><stop offset="1" stop-color="#b47843"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <!-- Two swept wing blades that cross into a W: a kestrel hanging in the wind. -->
+  <g transform="translate(512 518) scale(1.16) translate(-512 -485)">
+    <path fill="url(#wr)" d="M846 300 Q760 420 652 668 Q640 690 620 670 L478 470 L512 404 L628 560 Q700 420 846 300 Z"/>
+    <path fill="url(#wl)" d="M178 300 Q264 420 372 668 Q384 690 404 670 L546 470 L512 404 L396 560 Q324 420 178 300 Z"/>
+  </g>
 </svg>

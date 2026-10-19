@@ -29,7 +29,8 @@ $HubDeps = @(
   "hf-xet",
   "numpy",
   "safetensors",
-  "ml_dtypes"
+  "ml_dtypes",
+  "pillow"
 )
 python -m pip install -q @HubDeps
 python -c "import huggingface_hub, httpx, numpy, safetensors; from huggingface_hub import snapshot_download; print('hub', huggingface_hub.__version__, 'numpy', numpy.__version__)"

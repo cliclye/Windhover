@@ -163,3 +163,20 @@ export const CloseIcon = ({ size }: P) => (
     <path d="m6 6 12 12M18 6 6 18" />
   </Svg>
 );
+export const ImageIcon = ({ size }: P) => (
+  <Svg size={size}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+    <circle cx="9" cy="10" r="1.6" />
+    <path d="m20.5 16-4.8-4.8a1 1 0 0 0-1.4 0L6 19.5" />
+  </Svg>
+);
+export const BrainIcon = ({ size }: P) => (
+  <Svg size={size}>
+    <path d="M9.5 4.5a3 3 0 0 0-3 3v.3A3 3 0 0 0 4.5 13a3 3 0 0 0 2 2.8v.2a3 3 0 0 0 3 3h.5V4.5zM14.5 4.5a3 3 0 0 1 3 3v.3a3 3 0 0 1 2 5.2 3 3 0 0 1-2 2.8v.2a3 3 0 0 1-3 3H14V4.5z" />
+  </Svg>
+);
+export const ShieldIcon = ({ size }: P) => (
+  <Svg size={size}>
+    <path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6z" />
+  </Svg>
+);

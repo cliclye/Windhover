@@ -253,12 +253,14 @@ pub fn run() {
                     // Up to ~60s for slow first-run sidecar extraction / AV scan.
                     for _ in 0..600 {
                         if health_ok() {
-                            let url = Url::parse("http://127.0.0.1:8000/").expect("static url");
+                            // ?desktop= tells the UI it runs inside the app window
+                            // (macOS: overlay title bar it must make room for).
+                            let shell = if cfg!(target_os = "macos") { "macos" } else { "windows" };
+                            let target = format!("http://127.0.0.1:8000/?desktop={shell}");
+                            let url = Url::parse(&target).expect("static url");
                             if let Err(e) = win2.navigate(url) {
                                 eprintln!("[windhover-desktop] navigate failed: {e}");
-                                let _ = win2.eval(
-                                    "window.location.replace('http://127.0.0.1:8000/')",
-                                );
+                                let _ = win2.eval(&format!("window.location.replace('{target}')"));
                             }
                             break;
                         }

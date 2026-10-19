@@ -214,11 +214,8 @@ kbd {
   flex: 0 0 52px;
   padding: 0 14px;
   border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
-}
-
-.topbar > * {
-  -webkit-app-region: no-drag;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .topbar-title {
@@ -228,7 +225,6 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  -webkit-app-region: drag;
 }
 
 .topbar-end {
@@ -314,12 +310,34 @@ kbd {
   background: var(--bg);
 }
 
+.sb-titlebar {
+  display: none;
+}
+
 .sb-brand {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 8px 12px;
-  padding-top: max(8px, env(titlebar-area-height, 8px));
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* macOS app window: overlay title bar. The traffic lights (x 16, y 18) live in a
+   52px strip at the top of the sidebar that lines up with the main top bar. */
+.desktop-macos .sidebar {
+  padding-top: 0;
+}
+.desktop-macos .sb-titlebar {
+  display: block;
+  flex: 0 0 52px;
+  margin: 0 -10px;
+}
+.desktop-macos .sb-brand {
+  padding-top: 0;
+}
+.desktop-macos .app.sb-collapsed .topbar {
+  padding-left: 86px;
 }
 
 .sb-brand img {
@@ -2673,4 +2691,178 @@ kbd {
   .explorer {
     max-height: 180px;
   }
+}
+
+/* ------------------------------------------------------- image attachments */
+.composer.dragging {
+  border-color: var(--accent);
+  border-style: dashed;
+  box-shadow: var(--shadow), 0 0 0 3px var(--accent-soft);
+}
+.attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+.attach-chip {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.attach-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.attach-x {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.attach-x:hover {
+  opacity: 1;
+}
+.attach-err {
+  padding: 6px 14px 0;
+  font-size: 12px;
+  color: var(--bad);
+}
+.attach-btn {
+  margin-right: 2px;
+}
+.msg.user {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(78%, 620px);
+}
+.msg-images img {
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  object-fit: cover;
+  display: block;
+}
+
+/* ------------------------------------------- Code: modes, effort, thinking */
+.a-user-wrap {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 92%;
+}
+.a-user-wrap .a-user {
+  max-width: 100%;
+}
+.a-user-wrap .msg-images {
+  max-width: 100%;
+}
+.a-user-wrap .msg-images img {
+  max-width: 160px;
+  max-height: 120px;
+}
+.a-composer .composer-bar {
+  flex-wrap: wrap;
+}
+.a-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.pill-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pill-select:hover {
+  background: var(--hover);
+}
+.pill-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 2px;
+  cursor: pointer;
+  outline: none;
+}
+.pill-select:focus-within {
+  border-color: var(--accent);
+}
+.pill-select.mode-accept_edits {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 35%, transparent);
+  background: var(--good-soft);
+}
+.pill-select.mode-plan {
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--accent-soft);
+}
+.pill-select.mode-bypass {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+  background: var(--bad-soft);
+}
+.a-think {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.a-think summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.a-think summary::-webkit-details-marker {
+  display: none;
+}
+.a-think-body {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border-strong);
+  white-space: pre-wrap;
+  color: var(--text-2);
+  max-height: 260px;
+  overflow: auto;
 }

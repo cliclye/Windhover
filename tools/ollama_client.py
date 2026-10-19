@@ -89,11 +89,32 @@ def ollama_chat(
 ) -> tuple[str, dict]:
     """Proxy chat to the local Ollama OpenAI-compatible API."""
     t0 = time.time()
-    clean_msgs = [
-        {"role": m.get("role") or "user", "content": m.get("content") or ""}
-        for m in messages
-        if (m.get("content") or "").strip() or (m.get("role") in ("assistant", "system"))
+    kept = [
+        m for m in messages
+        if (m.get("content") or "").strip() or m.get("images") or (m.get("role") in ("assistant", "system"))
     ]
+
+    def _b64(ref: str) -> str:
+        ref = str(ref or "")
+        return ref.split(",", 1)[1] if ref.startswith("data:") and "," in ref else ref
+
+    def _url(ref: str) -> str:
+        ref = str(ref or "")
+        return ref if ref.startswith("data:") else f"data:image/png;base64,{ref}"
+
+    # OpenAI-style content parts for /v1, Ollama-native "images" for /api/chat.
+    clean_msgs = []
+    native_msgs = []
+    for m in kept:
+        role, content, imgs = m.get("role") or "user", m.get("content") or "", m.get("images") or []
+        if imgs:
+            parts = [{"type": "image_url", "image_url": {"url": _url(r)}} for r in imgs]
+            parts.append({"type": "text", "text": content})
+            clean_msgs.append({"role": role, "content": parts})
+            native_msgs.append({"role": role, "content": content, "images": [_b64(r) for r in imgs]})
+        else:
+            clean_msgs.append({"role": role, "content": content})
+            native_msgs.append({"role": role, "content": content})
     text = ""
     err: str | None = None
     completion_tokens = 0
@@ -112,7 +133,7 @@ def ollama_chat(
             "/api/chat",
             {
                 "model": model_tag,
-                "messages": clean_msgs,
+                "messages": native_msgs,
                 "stream": False,
                 "options": {
                     "temperature": float(temperature),

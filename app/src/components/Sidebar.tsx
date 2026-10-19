@@ -58,7 +58,8 @@ export function Sidebar({
   const groups = groupByDay(conversations.filter((c) => c.messages.length > 0));
   return (
     <aside className="sidebar">
-      <div className="sb-brand">
+      <div className="sb-titlebar" data-drag aria-hidden="true" />
+      <div className="sb-brand" data-drag>
         <img src="./windhover-icon.png" alt="" width={26} height={26} />
         <div className="sb-brand-text">
           <strong>Windhover</strong>

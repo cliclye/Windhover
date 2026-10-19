@@ -241,8 +241,9 @@ Numerics lineage is Apache-2.0; see [LICENSE](LICENSE).
 | **KPK + mmap** | Group-int4 packs; cold weights stay on SSD |
 | **Sparse AUs** | Dense FFN bundles + MoE experts under one working-set policy |
 | **Models** | Browse / install / uninstall packs, with fit-for-this-machine hints |
-| **Chat** | Markdown UI; Windhover packs + Ollama models when `ollama serve` is running |
-| **Code** | A local coding agent (like Cursor / Claude Code, no API key): reads, edits and tests code in a project folder, with diffs, undo and run approval |
+| **Chat** | Markdown UI; Windhover packs + Ollama models when `ollama serve` is running; paste or drop images |
+| **Images** | Qwen3.5 packs read screenshots and photos with their own vision encoder, locally (Ollama vision models too) |
+| **Code** | A local coding agent (like Cursor / Claude Code, no API key): reads, edits and tests code in a project folder, with diffs, undo, permission modes and effort levels |
 | **Performance** | Live telemetry: decode/prefill tok/s, TTFT, prefix-cache reuse, RSS, sparsity, AU hit |
 | **Prefix KV cache** | Multi-turn chat only prefills the new tokens |
 | **Honest catalog** | No fake stubs for frontier MoEs |
@@ -272,11 +273,23 @@ A coding agent that runs on the model Windhover is serving — nothing leaves yo
 
 - **Editor + explorer:** browse the project, open files in tabs, edit and save (⌘S / Ctrl+S). Files the agent changed are marked **M**.
 - **Diffs and undo:** each edit has a diff and a one-click **Undo**.
-- **Commands need approval** (Run / Deny) unless you turn on *Auto-run commands*. Commands run in the project folder with a 90 s timeout; file tools can't leave the folder.
+- **Permission modes** (⇧Tab cycles them, as in Claude Code):
+  - *Ask before edits*: you see each diff and click Apply or Reject; commands ask too.
+  - *Accept edits*: edits apply right away, commands still ask.
+  - *Plan mode*: read-only; the agent explores and replies with a plan.
+  - *Bypass permissions*: nothing asks.
+
+  Commands run in the project folder with a 90 s timeout; file tools can't leave the folder.
+- **Effort** — *Low* / *Medium* / *High* / *Max* sets how long the agent may work (10 → 50 steps) and how much it may write per step; *High* and *Max* let the model think first (shown as a collapsible "Thought for …").
+- **Screenshots:** paste or drop an image (an error, a design, a ticket) and the agent sees it.
 - **Follow-ups keep context**, and the engine's prefix cache reuses the shared prompt between steps (typically 75–90 % of prompt tokens cached).
 - Works with Windhover packs or Ollama models. On our coding tasks (add a feature + test, explain, fix a bug, follow-up), **Qwen3.5 4B passed 8/8** and **Qwen3.5 2B 7/8**; larger models do better on bigger changes.
 
 ![Windhover Code](docs/screenshots/ui-code.png)
+
+### Images
+
+Paste (⌘V / Ctrl+V), drop, or attach images in Chat and Code. Qwen3.5 packs run their own vision encoder on your computer (`tools/vision_qwen35.py`, numpy — checked against `transformers`, cosine 0.99999), and the engine puts the image embeddings and Qwen's 3D (M-RoPE) positions into the prompt. Images are scaled to ~0.5 MP (≈ 490 tokens; `WINDHOVER_VISION_MAX_PIXELS` to change); encoding takes ~1–7 s on an M4, and follow-up turns reuse the cached image. Ollama vision models get the image directly. Saved chats keep thumbnails only.
 
 ### Performance
 

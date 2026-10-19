@@ -247,6 +247,12 @@ def main() -> int:
             mod._code_agent = _code_agent
         except ImportError:
             pass
+        try:
+            import vision_qwen35 as _vision  # type: ignore
+
+            mod._vision = _vision
+        except ImportError:
+            pass
     return int(mod.main())
 
 

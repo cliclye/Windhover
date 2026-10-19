@@ -1,5 +1,6 @@
 import { useState, type ReactNode, type Ref } from "react";
 import type { ChatStats, Msg } from "../types";
+import type { Attachment } from "../images";
 import { Composer } from "./Composer";
 import { BoltIcon, CheckIcon, CopyIcon, RetryIcon } from "./Icons";
 import { MarkdownBody } from "./MarkdownBody";
@@ -74,6 +75,8 @@ export function ChatView({
   input,
   onInput,
   onSend,
+  attachments,
+  onAttachments,
   onStop,
   onRetry,
   onStarter,
@@ -90,6 +93,8 @@ export function ChatView({
   input: string;
   onInput: (value: string) => void;
   onSend: () => void;
+  attachments: Attachment[];
+  onAttachments: (a: Attachment[]) => void;
   onStop: () => void;
   onRetry: () => void;
   onStarter: (text: string) => void;
@@ -142,7 +147,14 @@ export function ChatView({
             {messages.map((m, i) =>
               m.role === "user" ? (
                 <div className="msg user" key={i}>
-                  <div className="msg-bubble">{m.content}</div>
+                  {m.thumbs?.length ? (
+                    <div className="msg-images">
+                      {m.thumbs.map((t, j) => (
+                        <img key={j} src={t} alt={`Attached image ${j + 1}`} />
+                      ))}
+                    </div>
+                  ) : null}
+                  {m.content ? <div className="msg-bubble">{m.content}</div> : null}
                 </div>
               ) : (
                 <div className="msg assistant" key={i}>
@@ -204,6 +216,8 @@ export function ChatView({
         footerLeft={composerLeft}
         submitLabel="Send"
         stopLabel="Stop generating"
+        attachments={attachments}
+        onAttachments={onAttachments}
         autoFocus
       />
     </section>

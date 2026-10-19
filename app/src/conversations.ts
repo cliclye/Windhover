@@ -40,7 +40,7 @@ export function saveConversations(list: Conversation[]) {
       .slice(0, MAX_CONVS)
       .map((c) => ({
         ...c,
-        messages: c.messages.map((m) => ({
+        messages: c.messages.map(({ images: _full, ...m }) => ({
           ...m,
           content: m.content.length > MAX_MSG_CHARS ? m.content.slice(0, MAX_MSG_CHARS) : m.content,
         })),

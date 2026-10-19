@@ -30,6 +30,7 @@ datas = [
     (str(REPO / "app" / "public" / "windhover-icon.png"), "app/public"),
     (str(REPO / "tools" / "agent_workspace.py"), "tools"),
     (str(REPO / "tools" / "code_agent.py"), "tools"),
+    (str(REPO / "tools" / "vision_qwen35.py"), "tools"),
     (str(REPO / "tools" / "chat_text.py"), "tools"),
     (str(REPO / "tools" / "app_update.py"), "tools"),
     (str(REPO / "tools" / "ollama_client.py"), "tools"),
@@ -45,6 +46,7 @@ hiddenimports = [
     "bundled_windhover",
     "agent_workspace",
     "code_agent",
+    "vision_qwen35",
     "chat_text",
     "app_update",
     "ollama_client",
@@ -96,6 +98,7 @@ for _pkg in (
     "numpy",
     "safetensors",
     "ml_dtypes",
+    "PIL",  # image attachments (vision encoder input)
 ):
     try:
         _d, _b, _h = collect_all(_pkg)

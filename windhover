@@ -306,6 +306,10 @@ try:
 except ImportError:
     _code_agent = None  # type: ignore
 try:
+    import vision_qwen35 as _vision  # type: ignore
+except ImportError:  # numpy missing
+    _vision = None  # type: ignore
+try:
     import chat_text as _chat_text  # type: ignore
     import app_update as _app_update  # type: ignore
     import ollama_client as _ollama_client  # type: ignore
@@ -1172,6 +1176,56 @@ def _preview_chat(
         )
 
 
+def _decode_image(ref: str) -> bytes:
+    """data:image/...;base64,XXXX (or bare base64) -> bytes."""
+    import base64
+
+    s = str(ref or "")
+    if s.startswith("data:"):
+        s = s.split(",", 1)[1] if "," in s else ""
+    data = base64.b64decode(s, validate=False)
+    if len(data) > 20 * 1024 * 1024:
+        raise ValueError("image is larger than 20 MB")
+    return data
+
+
+def _messages_have_images(messages: list | None) -> bool:
+    return any(m.get("images") for m in (messages or []) if isinstance(m, dict))
+
+
+def _prepare_engine_images(snap: Path, messages: list) -> tuple[list, list, tuple]:
+    """Encode attached images with the model's vision encoder and put the matching
+    <|image_pad|> runs into each message (images first, as the Qwen template does)."""
+    if _vision is None or not _vision.supports_images(snap):
+        raise EngineInactiveError(
+            "This model can't read images. Use a Qwen3.5 model (it has a vision encoder), "
+            "or an Ollama vision model, or remove the image.",
+            detail="no vision encoder for this pack",
+        )
+    out, images = [], []
+    for m in messages:
+        m2 = dict(m)
+        refs = m2.pop("images", None) or []
+        if refs and m2.get("role") == "user":
+            pre = ""
+            for ref in refs[:8]:
+                try:
+                    enc = _vision.encode_image(snap, _decode_image(ref))
+                except Exception as e:  # bad file, odd format …
+                    raise EngineInactiveError(f"Could not read an attached image: {e}", detail=str(e)) from e
+                images.append(enc)
+                pre += _vision.placeholder(enc["tokens"])
+            m2["content"] = pre + (m2.get("content") or "")
+        out.append(m2)
+    try:
+        tc = json.loads((snap / "config.json").read_text()).get("text_config") or {}
+        rp = tc.get("rope_parameters") or tc.get("rope_scaling") or {}
+        mrope = (tuple(rp.get("mrope_section") or (11, 11, 10)), bool(rp.get("mrope_interleaved", True)))
+    except Exception:
+        mrope = ((11, 11, 10), True)
+    return out, images, mrope
+
+
 def _engine_chat(
     snap: Path,
     prompt: str,
@@ -1182,9 +1236,12 @@ def _engine_chat(
     on_delta=None,
     timeout_s: float | None = None,
     raw: bool = False,
+    thinking: bool = False,
 ) -> tuple[str, dict]:
     """raw=True (coding agent): no chat-text cleanup and no gibberish early stop —
-    code is punctuation-heavy and must come back verbatim."""
+    code is punctuation-heavy and must come back verbatim. thinking=True lets
+    models with a reasoning mode think before answering (<think> … </think>).
+    Messages may carry "images" (data URLs) for models with a vision encoder."""
     import time
 
     if not ENGINE_BIN.is_file():
@@ -1195,12 +1252,18 @@ def _engine_chat(
         )
 
     t0 = time.perf_counter()
-    formatted = _format_engine_prompt(snap, messages, prompt)
+    images: list = []
+    mrope = None
+    if _messages_have_images(messages):
+        if not _engine_session.serve_enabled():
+            raise EngineInactiveError("Images need the warm engine (WINDHOVER_SERVE is off).")
+        messages, images, mrope = _prepare_engine_images(snap, list(messages or []))
+    formatted = _chat_text.format_engine_prompt(snap, messages, prompt, thinking=thinking)
     env = _engine_env(snap, None)
     env["PROMPT"] = formatted
     env["COLI_PROMPT"] = formatted
     # Cap runaway decode: long budgets fill with nonsense when EOS is missed.
-    ngen = max(16, min(int(max_tokens), 1024))
+    ngen = max(16, min(int(max_tokens), 4096 if raw else 1024))
     env["NGEN"] = str(ngen)
     # Softer sampling + nucleus — full-vocab TEMP=0.7 was the main gibberish source.
     temp = float(temperature)
@@ -1251,6 +1314,8 @@ def _engine_chat(
                     timeout_s=timeout_s,
                     on_delta=on_delta,
                     log=sys.stderr,
+                    images=images or None,
+                    mrope=mrope,
                 )
                 raw_out = text_raw.encode("utf-8", errors="replace")
                 warm = True
@@ -1261,6 +1326,8 @@ def _engine_chat(
                     detail=f"timeout={timeout_s}s; bin={ENGINE_BIN}",
                 ) from e
             except RuntimeError:
+                if images:
+                    raise EngineInactiveError("The warm engine failed while reading the image. Try again.")
                 # SERVE handshake failed — fall back to spawn-per-turn.
                 sys.stderr.write(
                     "[windhover] warm engine unavailable — one-shot fallback\n"
@@ -1399,7 +1466,7 @@ def _code_generator(requested: str | None, fallback: Path | None):
         if not _ollama_reachable():
             return None, None, {"ok": False, "error": f"Ollama is not reachable at {OLLAMA_HOST}. Start `ollama serve`."}
 
-        def gen_ollama(messages, max_tokens, temperature, on_delta):
+        def gen_ollama(messages, max_tokens, temperature, on_delta, thinking=False):
             text, stats = _ollama_chat(messages, max_tokens, temperature, model_tag=tag)
             if on_delta and text:
                 on_delta(text)
@@ -1417,10 +1484,10 @@ def _code_generator(requested: str | None, fallback: Path | None):
                                 "error": "Preparing this model for windhover-engine (one-time convert). Try again when it finishes."}
         return None, None, {"ok": False, "error": f"This model cannot run on windhover-engine (mode={mode})."}
 
-    def gen_engine(messages, max_tokens, temperature, on_delta):
+    def gen_engine(messages, max_tokens, temperature, on_delta, thinking=False):
         flat = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
         return _engine_chat(snap, flat[-8000:], max_tokens, temperature,
-                            messages=messages, on_delta=on_delta, raw=True)
+                            messages=messages, on_delta=on_delta, raw=True, thinking=thinking)
 
     label = _snap_meta(snap).get("id") or snap.name.replace("__", "/")
     return gen_engine, label, None
@@ -2683,26 +2750,33 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                     return self._json(202 if err.get("code") == "engine_preparing" else 400, err)
                 sess = store.create(Path(info["root"]), label, gen)
                 sess.auto_run = bool(body.get("auto_run"))
+                sess.set_mode(body.get("mode"))
+                sess.set_effort(body.get("effort"))
                 return self._json(200, sess.snapshot())
             sess = store.get(str(body.get("session_id") or ""))
             if not sess:
                 return self._json(404, {"ok": False, "error": "unknown session — start a new one"})
             if path == "/api/code/message":
                 text = (body.get("text") or "").strip()
-                if not text:
+                images = [i for i in (body.get("images") or []) if isinstance(i, str)][:8]
+                thumbs = [i for i in (body.get("thumbs") or []) if isinstance(i, str)][:8]
+                if not text and not images:
                     return self._json(400, {"ok": False, "error": "empty message"})
                 if sess.busy:
                     return self._json(409, {"ok": False, "error": "the agent is still working"})
                 if "auto_run" in body:
                     sess.auto_run = bool(body.get("auto_run"))
+                sess.set_mode(body.get("mode"))
+                sess.set_effort(body.get("effort"))
                 if body.get("model") and body.get("model") != sess.model:
                     gen, label, err = _code_generator(body.get("model"), default_model)
                     if err:
                         return self._json(400, err)
                     sess.generate, sess.model = gen, label
-                max_tokens = int(body.get("max_tokens") or 768)
-                threading.Thread(target=sess.run_turn, args=(text,),
-                                 kwargs={"max_tokens": max_tokens}, daemon=True).start()
+                max_tokens = int(body.get("max_tokens") or 0) or None
+                threading.Thread(target=sess.run_turn, args=(text or "(see the attached image)",),
+                                 kwargs={"max_tokens": max_tokens, "images": images, "thumbs": thumbs},
+                                 daemon=True).start()
                 return self._json(200, {"ok": True, "session_id": sess.id})
             if path == "/api/code/approve":
                 ok = sess.answer_approval(str(body.get("event_id") or ""), bool(body.get("approve")))
@@ -2715,6 +2789,8 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
             if path == "/api/code/settings":
                 if "auto_run" in body:
                     sess.auto_run = bool(body.get("auto_run"))
+                sess.set_mode(body.get("mode"))
+                sess.set_effort(body.get("effort"))
                 return self._json(200, sess.snapshot())
             return self._json(404, {"ok": False, "error": f"unknown endpoint {path}"})
 
@@ -2885,6 +2961,8 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
         def do_POST(self) -> None:
             path = urlparse(self.path).path
             n = int(self.headers.get("Content-Length", "0"))
+            if n > 64 * 1024 * 1024:
+                return self._json(413, {"error": "request too large (images are limited to 20 MB each)"})
             raw = self.rfile.read(n) if n else b"{}"
             try:
                 body = json.loads(raw.decode() or "{}")
@@ -3206,7 +3284,8 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
             if path in ("/v1/chat/completions", "/api/chat"):
                 requested = body.get("model")
                 messages = body.get("messages") or []
-                if not any((m.get("content") or "").strip() for m in messages if m.get("role") == "user"):
+                if not any((m.get("content") or "").strip() or m.get("images")
+                           for m in messages if m.get("role") == "user"):
                     return self._json(400, {"error": "empty prompt"})
                 max_tokens = int(body.get("max_tokens") or 256)
                 temperature = float(

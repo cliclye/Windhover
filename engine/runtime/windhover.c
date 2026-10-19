@@ -325,6 +325,12 @@ typedef struct {
     /* rope table: [max_t][rope_half] where rope_half = rope_dim/2 */
     float *rope_cos, *rope_sin;
     int rope_dim, rope_half;
+    /* image input (Qwen3.5 vision): per-request 3D rotary positions and the
+     * vision-encoder embedding for each image-token slot. */
+    int mrope_on;                       /* this request uses M-RoPE positions */
+    int *mpos;                          /* [max_t][3] t/h/w rotary positions */
+    unsigned char rope_axis[256];       /* rotary frequency j -> 0=t 1=h 2=w */
+    const float **img_row;              /* [max_t] embedding row (image slots) */
     /* scratch */
     float *x, *nrm, *tmp, *q, *k, *v, *ctx, *sc, *g, *u, *logit; /* batched: [S][*] */
     int8_t *xq; float *sx; int32_t *xqsum;   /* activation quant [S][I], [S], [S][ng] */
@@ -1400,6 +1406,8 @@ static void kv_alloc(WModel *m, int max_t) {
     WhDesc *d = &m->d;
     int KV = d->kv_heads, hd = d->head_dim, gs = hd / WH_KVG;
     m->max_t = max_t;
+    m->mpos = calloc((size_t)(max_t + 64) * 3, sizeof(int));
+    m->img_row = calloc((size_t)(max_t + 64), sizeof(float *));
     m->K8 = calloc((size_t)d->layers, sizeof(void *));
     m->V8 = calloc((size_t)d->layers, sizeof(void *));
     m->KS = calloc((size_t)d->layers, sizeof(void *));
@@ -1493,6 +1501,13 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
     for (int s = 0; s < S; s++) {
         float *x = m->x + (int64_t)s * D;
         int tokid = tokens[s];
+        if (tokid < 0) {
+            /* image slot: the vision encoder already produced this row */
+            const float *row = m->img_row ? m->img_row[pos + s] : NULL;
+            if (row) memcpy(x, row, (size_t)D * sizeof(float));
+            else memset(x, 0, (size_t)D * sizeof(float));
+            continue;
+        }
         if (m->embed.fmt == WT_I8R) {
             const int8_t *er = m->embed.q8 + (int64_t)tokid * D;
             float es = m->embed.rs[tokid];
@@ -1592,6 +1607,18 @@ static void wh_forward(WModel *m, const int *tokens, int S, int pos, int want_al
             const float *cs = m->rope_cos + (int64_t)p * m->rope_half;
             const float *sn = m->rope_sin + (int64_t)p * m->rope_half;
             int half = m->rope_half;
+            float mcs[256], msn[256];
+            if (m->mrope_on && half <= 256) {
+                /* M-RoPE: each rotary frequency follows the t, h or w position */
+                const int *mp = m->mpos + 3 * (int64_t)p;
+                for (int j = 0; j < half; j++) {
+                    int r = mp[m->rope_axis[j]];
+                    mcs[j] = m->rope_cos[(int64_t)r * half + j];
+                    msn[j] = m->rope_sin[(int64_t)r * half + j];
+                }
+                cs = mcs;
+                sn = msn;
+            }
             for (int hh = 0; hh < H; hh++) {
                 float *qh = q + hh * hd;
                 for (int j = 0; j < half; j++) {
@@ -2446,6 +2473,111 @@ static void wh_emit_json_stats(WModel *m, int np, int generated, int steps,
 }
 
 /* Prefill + decode one prompt into stdout. ids[] must hold max_t + SPEC_K. */
+/* ---- image input for one request (serve header flag bit 1) ----
+ * After the prompt bytes the host sends:
+ *   "WHIM" u32 n_images  u32 mrope_section[3]  u32 interleaved
+ *   per image: u32 ntok gt gh gw dim  u64 hash  then ntok*dim float32
+ * (gt/gh/gw = merged token grid). Each run of <|image_pad|> tokens in the prompt
+ * takes the next image's rows. Image slots get negative ids derived from the
+ * image hash, so the prefix cache only reuses them for the same picture. */
+#define WH_MAX_IMAGES 16
+typedef struct { int ntok, gt, gh, gw, dim; uint64_t hash; float *emb; } WhImage;
+static struct { int n; WhImage im[WH_MAX_IMAGES]; int sec[3]; int interleaved; } g_imgs;
+
+static void wh_images_free(void) {
+    for (int i = 0; i < g_imgs.n; i++) free(g_imgs.im[i].emb);
+    g_imgs.n = 0;
+}
+
+static int wh_read_exact(void *buf, size_t n) {
+    return fread(buf, 1, n, stdin) == n;
+}
+
+/* 0 = ok; -1 = malformed (stream position unknown: caller must stop). */
+static int wh_images_read(int hidden) {
+    char magic[4];
+    uint32_t hdr[5];
+    wh_images_free();
+    if (!wh_read_exact(magic, 4) || memcmp(magic, "WHIM", 4) || !wh_read_exact(hdr, sizeof(hdr)))
+        return -1;
+    if (hdr[0] > WH_MAX_IMAGES) return -1;
+    g_imgs.sec[0] = (int)hdr[1]; g_imgs.sec[1] = (int)hdr[2]; g_imgs.sec[2] = (int)hdr[3];
+    g_imgs.interleaved = (int)hdr[4];
+    for (uint32_t k = 0; k < hdr[0]; k++) {
+        uint32_t ih[5];
+        uint64_t hash;
+        if (!wh_read_exact(ih, sizeof(ih)) || !wh_read_exact(&hash, sizeof(hash))) return -1;
+        if (ih[0] == 0 || ih[0] > 65536 || ih[4] != (uint32_t)hidden) return -1;
+        WhImage *im = &g_imgs.im[g_imgs.n];
+        im->ntok = (int)ih[0]; im->gt = (int)ih[1]; im->gh = (int)ih[2]; im->gw = (int)ih[3];
+        im->dim = (int)ih[4]; im->hash = hash;
+        im->emb = malloc((size_t)im->ntok * im->dim * sizeof(float));
+        if (!im->emb) return -1;
+        g_imgs.n++;
+        if (!wh_read_exact(im->emb, (size_t)im->ntok * im->dim * sizeof(float))) return -1;
+    }
+    return 0;
+}
+
+/* Map images onto the prompt's <|image_pad|> runs and fill M-RoPE positions
+ * (as transformers' Qwen3.5 get_rope_index). Returns 0, or -1 on mismatch. */
+static int wh_images_apply(WModel *m, Tok *T, int *ids, int np) {
+    int half = m->rope_half;
+    if (half > 256 || !m->mpos || !m->img_row) return -1;
+    const int *sec = g_imgs.sec;
+    for (int j = 0; j < half; j++) {
+        int ax = 0;
+        if (g_imgs.interleaved) {
+            if (j % 3 == 1 && j < sec[1] * 3) ax = 1;
+            else if (j % 3 == 2 && j < sec[2] * 3) ax = 2;
+        } else {
+            ax = j < sec[0] ? 0 : (j < sec[0] + sec[1] ? 1 : 2);
+        }
+        m->rope_axis[j] = (unsigned char)ax;
+    }
+    int pad = tok_id_of(T, "<|image_pad|>");
+    int k = 0, cur = 0, i = 0;
+    while (i < np) {
+        if (pad >= 0 && ids[i] == pad) {
+            if (k >= g_imgs.n) return -1;
+            WhImage *im = &g_imgs.im[k];
+            int run = 0;
+            while (i + run < np && ids[i + run] == pad) run++;
+            if (run != im->ntok || im->gt * im->gh * im->gw != im->ntok) {
+                fprintf(stderr, "[wh] image %d: %d pad tokens, %d embeddings\n", k, run, im->ntok);
+                return -1;
+            }
+            int hw = im->gh * im->gw;
+            for (int j = 0; j < run; j++) {
+                int t = j / hw, r = (j / im->gw) % im->gh, c = j % im->gw;
+                int *mp = m->mpos + 3 * (int64_t)(i + j);
+                mp[0] = cur + t; mp[1] = cur + r; mp[2] = cur + c;
+                m->img_row[i + j] = im->emb + (int64_t)j * im->dim;
+                ids[i + j] = -1 - (int)((im->hash * 2654435761ull + (uint64_t)j) & 0x3fffffff);
+            }
+            cur += im->gh > im->gw ? im->gh : im->gw;
+            i += run;
+            k++;
+        } else {
+            int *mp = m->mpos + 3 * (int64_t)i;
+            mp[0] = mp[1] = mp[2] = cur++;
+            m->img_row[i] = NULL;
+            i++;
+        }
+    }
+    if (k != g_imgs.n) {
+        fprintf(stderr, "[wh] %d images sent, %d image slots in prompt\n", g_imgs.n, k);
+        return -1;
+    }
+    for (int p = np; p < m->max_t + 64; p++) {
+        int *mp = m->mpos + 3 * (int64_t)p;
+        mp[0] = mp[1] = mp[2] = cur + (p - np);
+        m->img_row[p] = NULL;
+    }
+    m->mrope_on = 1;
+    return 0;
+}
+
 static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
                        int *ids, int max_t, const char *prompt, int prompt_len,
                        int ngen, float temp, int topk, float topp, int spec_on,
@@ -2475,6 +2607,11 @@ static int wh_generate(WModel *m, Tok *T, const int *stops, int nstop,
         fprintf(stderr, "[wh] no room for decode after prompt (np=%d max_t=%d)\n",
                 np, max_t);
         return -1;
+    }
+    m->mrope_on = 0;
+    if (g_imgs.n > 0) {
+        if (wh_images_apply(m, T, ids, np) != 0) return -2;
+        spec_on = 0;   /* image slots carry synthetic ids */
     }
 
     double tp0 = now_s();
@@ -2678,10 +2815,21 @@ static int wh_serve_loop(WModel *m, Tok *T, const int *stops, int nstop,
             break;
         }
         g_no_gibberish = (flags & 1) || (getenv("WH_NO_GIBBERISH") && atoi(getenv("WH_NO_GIBBERISH")));
+        if ((flags & 2) && wh_images_read(m->d.hidden) != 0) {
+            free(prompt);
+            wh_images_free();
+            fprintf(stderr, "[wh] serve: bad image block\n");
+            printf("\n@@WH_STATS@@{\"error\":\"bad_images\"}\n");
+            wh_serve_end();
+            break;
+        }
         int rc = wh_generate(m, T, stops, nstop, ids, max_t, prompt, (int)got,
                              ngen, temp, topk, topp, spec, quiet, 1, 0);
         free(prompt);
-        if (rc < 0)
+        wh_images_free();
+        if (rc == -2)
+            printf("\n@@WH_STATS@@{\"error\":\"image_mismatch\"}\n");
+        else if (rc < 0)
             printf("\n@@WH_STATS@@{\"error\":\"empty_prompt\"}\n");
         wh_serve_end();
     }

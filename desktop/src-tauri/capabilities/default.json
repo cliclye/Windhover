@@ -1,7 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main Kestrel window",
+  "description": "Main Windhover window: the UI is served by the local server, which may drag and zoom the window (overlay title bar).",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "remote": {
+    "urls": ["http://127.0.0.1:8000/*", "http://localhost:8000/*"]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-toggle-maximize"
+  ]
 }

@@ -1,8 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { codeApi, type CodeEvent, type CodeSnapshot, type CodeToolEvent, type TreeEntry } from "../codeApi";
+import {
+  codeApi,
+  EFFORTS,
+  MODES,
+  type CodeEffort,
+  type CodeEvent,
+  type CodeMode,
+  type CodeSnapshot,
+  type CodeToolEvent,
+  type TreeEntry,
+} from "../codeApi";
+import type { Attachment } from "../images";
 import { Composer } from "./Composer";
-import { ChevronIcon, CloseIcon, FileIcon, FolderIcon, PlusIcon, RetryIcon } from "./Icons";
+import { BrainIcon, ChevronIcon, CloseIcon, FileIcon, FolderIcon, PlusIcon, RetryIcon, ShieldIcon } from "./Icons";
 import { MarkdownBody } from "./MarkdownBody";
+
+function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(key) as T | null;
+    return v && allowed.includes(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 type OpenFile = { path: string; content: string; saved: string; loading?: boolean; error?: string };
 type Pane = { kind: "file"; path: string } | { kind: "diff"; eventId: string };
@@ -139,12 +159,12 @@ function ToolCard({
       </details>
       {ev.status === "approval" ? (
         <div className="tapprove">
-          <span>Run this command in your project?</span>
+          <span>{editing ? "Apply this change?" : "Run this command in your project?"}</span>
           <button type="button" className="btn ghost sm" onClick={() => onApprove(ev.id, false)}>
-            Deny
+            {editing ? "Reject" : "Deny"}
           </button>
           <button type="button" className="btn primary sm" onClick={() => onApprove(ev.id, true)}>
-            Run
+            {editing ? "Apply" : "Run"}
           </button>
         </div>
       ) : null}
@@ -194,15 +214,17 @@ export function CodeView({
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["."]));
   const [files, setFiles] = useState<OpenFile[]>([]);
   const [pane, setPane] = useState<Pane | null>(null);
+  const paneRef = useRef<Pane | null>(null);
+  paneRef.current = pane;
   const [snap, setSnap] = useState<CodeSnapshot | null>(null);
   const [input, setInput] = useState("");
-  const [autoRun, setAutoRun] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("wh.code.autorun") === "1";
-    } catch {
-      return false;
-    }
-  });
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [mode, setMode] = useState<CodeMode>(() =>
+    stored("wh.code.mode", MODES.map((m) => m.id), "ask")
+  );
+  const [effort, setEffort] = useState<CodeEffort>(() =>
+    stored("wh.code.effort", EFFORTS.map((e) => e.id), "medium")
+  );
   const [status, setStatus] = useState("");
   const [starting, setStarting] = useState(false);
   const thread = useRef<HTMLDivElement>(null);
@@ -214,11 +236,26 @@ export function CodeView({
 
   useEffect(() => {
     try {
-      localStorage.setItem("wh.code.autorun", autoRun ? "1" : "0");
+      localStorage.setItem("wh.code.mode", mode);
+      localStorage.setItem("wh.code.effort", effort);
     } catch {
       /* ignore */
     }
-  }, [autoRun]);
+  }, [mode, effort]);
+
+  // Mode/effort apply to the running session too (e.g. switch to Bypass mid-task).
+  function changeMode(m: CodeMode) {
+    setMode(m);
+    if (sessionId) void codeApi.settings(sessionId, { mode: m });
+  }
+  function changeEffort(e: CodeEffort) {
+    setEffort(e);
+    if (sessionId) void codeApi.settings(sessionId, { effort: e });
+  }
+  function cycleMode() {
+    const i = MODES.findIndex((m) => m.id === mode);
+    changeMode(MODES[(i + 1) % MODES.length].id);
+  }
 
   // ---------------------------------------------------------------- workspace
   const loadDir = useCallback(async (dir: string) => {
@@ -327,6 +364,8 @@ export function CodeView({
           if (f && f.content === f.saved) void openFileRefresh(p);
           return fs;
         });
+        // Show the file the agent just changed when the editor is free.
+        if (!paneRef.current) void openFile(p, true);
       }
     },
     [loadDir] // eslint-disable-line react-hooks/exhaustive-deps
@@ -360,9 +399,9 @@ export function CodeView({
     if (el) el.scrollTop = el.scrollHeight;
   }, [snap?.version]);
 
-  async function send(text: string) {
+  async function send(text: string, atts: Attachment[] = []) {
     const msg = text.trim();
-    if (!msg || busy) return;
+    if ((!msg && !atts.length) || busy) return;
     if (!root) {
       setStatus("Choose a project folder first.");
       return;
@@ -372,24 +411,35 @@ export function CodeView({
       return;
     }
     setInput("");
+    setAttachments([]);
     setStatus("");
     let sid = sessionId;
     if (!sid) {
       setStarting(true);
-      const s = await codeApi.start(root, activeModel, autoRun);
+      const s = await codeApi.start(root, activeModel, mode, effort);
       setStarting(false);
       if (!s.ok) {
         setStatus(s.error || "Could not start the agent");
         setInput(msg);
+        setAttachments(atts);
         return;
       }
       applySnapshot(s);
       sid = s.session_id;
     }
-    const r = await codeApi.send(sid, msg, activeModel, autoRun);
+    const r = await codeApi.send(
+      sid,
+      msg,
+      activeModel,
+      mode,
+      effort,
+      atts.map((a) => a.dataUrl),
+      atts.map((a) => a.thumb)
+    );
     if (!r.ok) {
       setStatus(r.error || "Send failed");
       setInput(msg);
+      setAttachments(atts);
       return;
     }
     const s = await codeApi.get(sid);
@@ -589,17 +639,6 @@ export function CodeView({
         <div className="agent-col">
           <div className="a-head">
             <strong>Agent</strong>
-            <label className="toggle" title="Run shell commands without asking first">
-              <input
-                type="checkbox"
-                checked={autoRun}
-                onChange={(e) => {
-                  setAutoRun(e.target.checked);
-                  if (sessionId) void codeApi.settings(sessionId, e.target.checked);
-                }}
-              />
-              <span>Auto-run commands</span>
-            </label>
             <button type="button" className="icon-btn" title="New session" aria-label="New agent session" onClick={newSession}>
               <PlusIcon size={15} />
             </button>
@@ -609,8 +648,8 @@ export function CodeView({
               <div className="a-empty">
                 <h3>Build with your local model</h3>
                 <p>
-                  Ask for a change and the agent reads your code, edits files (with diffs you can undo) and runs commands
-                  {autoRun ? "." : " after you approve them."}
+                  Ask for a change and the agent reads your code, edits files (with diffs you can undo) and runs
+                  commands. {MODES.find((m) => m.id === mode)?.hint}. Paste a screenshot to show it what you mean.
                 </p>
                 {!chatCapable ? (
                   <button type="button" className="btn primary sm" onClick={onOpenLibrary}>
@@ -619,7 +658,7 @@ export function CodeView({
                 ) : root ? (
                   <div className="a-starters">
                     {STARTERS.map((s) => (
-                      <button key={s} type="button" className="starter" onClick={() => void send(s)}>
+                      <button key={s} type="button" className="starter" onClick={() => void send(s, attachments)}>
                         {s}
                       </button>
                     ))}
@@ -630,16 +669,37 @@ export function CodeView({
               events.map((ev) => {
                 if (ev.type === "user")
                   return (
-                    <div key={ev.id} className="a-user">
-                      {ev.text}
+                    <div key={ev.id} className="a-user-wrap">
+                      {ev.images?.length ? (
+                        <div className="msg-images">
+                          {ev.images.map((src, j) => (
+                            <img key={j} src={src} alt={`Attached image ${j + 1}`} />
+                          ))}
+                        </div>
+                      ) : null}
+                      {ev.text ? <div className="a-user">{ev.text}</div> : null}
                     </div>
                   );
                 if (ev.type === "assistant") {
-                  if (!ev.text && !ev.streaming) return null;
+                  if (!ev.text && !ev.streaming && !ev.thinking) return null;
+                  const thinkingNow = ev.streaming && !!ev.thinking && !ev.text;
                   return (
                     <div key={ev.id} className={`a-msg${ev.final ? " final" : ""}`}>
+                      {ev.thinking ? (
+                        <details className="a-think" open={thinkingNow}>
+                          <summary>
+                            <BrainIcon size={13} />
+                            {thinkingNow
+                              ? "Thinking…"
+                              : ev.thought_seconds
+                                ? `Thought for ${Math.max(1, Math.round(ev.thought_seconds))}s`
+                                : "Thoughts"}
+                          </summary>
+                          <div className="a-think-body">{ev.thinking}</div>
+                        </details>
+                      ) : null}
                       {ev.text ? <MarkdownBody text={ev.text} /> : null}
-                      {ev.streaming && !ev.text ? (
+                      {ev.streaming && !ev.text && !ev.thinking ? (
                         <span className="typing">
                           <i />
                           <i />
@@ -686,10 +746,46 @@ export function CodeView({
               {snap.stats.step_seconds ? ` · ${snap.stats.step_seconds}s/step` : ""}
             </div>
           ) : null}
+          <div
+            className="a-composer"
+            onKeyDown={(e) => {
+              // Shift+Tab cycles the permission mode, as in Claude Code.
+              if (e.key === "Tab" && e.shiftKey) {
+                e.preventDefault();
+                cycleMode();
+              }
+            }}
+          >
           <Composer
             value={input}
             onChange={setInput}
-            onSubmit={() => void send(input)}
+            attachments={attachments}
+            onAttachments={setAttachments}
+            footerRight={
+              <div className="a-controls">
+                <label className={`pill-select mode-${mode}`} title={`${MODES.find((m) => m.id === mode)?.hint} (⇧Tab to switch)`}>
+                  <ShieldIcon size={13} />
+                  <select value={mode} onChange={(e) => changeMode(e.target.value as CodeMode)} aria-label="Permission mode">
+                    {MODES.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="pill-select" title={EFFORTS.find((x) => x.id === effort)?.hint}>
+                  <BrainIcon size={13} />
+                  <select value={effort} onChange={(e) => changeEffort(e.target.value as CodeEffort)} aria-label="Effort">
+                    {EFFORTS.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            }
+            onSubmit={() => void send(input, attachments)}
             onStop={sessionId ? () => void codeApi.stop(sessionId) : undefined}
             busy={busy}
             placeholder={root ? "Ask the agent to change, explain or fix code" : "Choose a project folder first"}
@@ -698,6 +794,7 @@ export function CodeView({
             submitLabel="Send to agent"
             stopLabel="Stop agent"
           />
+          </div>
         </div>
       </div>
     </section>

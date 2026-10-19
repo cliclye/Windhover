@@ -261,10 +261,13 @@ def snap_template_style(snap: Path | None) -> tuple[str, str]:
     return style, no_think
 
 
-def fallback_chat_prompt(messages: list, model_type: str = "", snap: Path | None = None) -> str:
+def fallback_chat_prompt(messages: list, model_type: str = "", snap: Path | None = None,
+                         thinking: bool = False) -> str:
     """Family-aware chat formatting when transformers isn't available (packaged apps)."""
     mt = (model_type or "").lower()
     style, no_think = snap_template_style(snap)
+    if thinking:
+        no_think = ""
     if style == "chatml":
         mt = "chatml"
     elif style == "llama3":
@@ -321,7 +324,8 @@ def fallback_chat_prompt(messages: list, model_type: str = "", snap: Path | None
     return "\n".join(parts)
 
 
-def format_engine_prompt(snap: Path, messages: list | None, flat_prompt: str) -> str:
+def format_engine_prompt(snap: Path, messages: list | None, flat_prompt: str,
+                         thinking: bool = False) -> str:
     """Apply HF chat template when available so dense/engine packs get instruct formatting."""
     model_type = snap_model_type(snap) if snap else ""
     if messages:
@@ -338,12 +342,12 @@ def format_engine_prompt(snap: Path, messages: list | None, flat_prompt: str) ->
             if chat and hasattr(tok, "apply_chat_template") and tok.chat_template:
                 kwargs = {"tokenize": False, "add_generation_prompt": True}
                 try:
-                    return tok.apply_chat_template(chat, enable_thinking=False, **kwargs)
+                    return tok.apply_chat_template(chat, enable_thinking=bool(thinking), **kwargs)
                 except TypeError:
                     return tok.apply_chat_template(chat, **kwargs)
         except Exception as e:
             sys.stderr.write(f"[windhover] chat template fallback: {e}\n")
-        fb = fallback_chat_prompt(messages, model_type, snap)
+        fb = fallback_chat_prompt(messages, model_type, snap, thinking=thinking)
         if fb:
             return fb
     return flat_prompt

@@ -25,6 +25,10 @@ export type Msg = {
   role: "user" | "assistant";
   content: string;
   stats?: ChatStats;
+  /** Attached images as sent to the model (kept in memory only). */
+  images?: string[];
+  /** Small previews, saved with the conversation. */
+  thumbs?: string[];
 };
 
 export type WindhoverStats = {

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Images (vision)
+- Paste, drop or attach images in **Chat** and **Code**. Qwen3.5 packs see them through their own vision encoder, run locally in numpy (`tools/vision_qwen35.py`); output matches `transformers` (cosine ≥ 0.99999).
+- Engine: new serve flag (bit 1) followed by an image block. Embeddings are placed at `<|image_pad|>` slots, and full-attention layers use interleaved M-RoPE (3D positions) when an image is present; text-only requests keep the old path. Image slots carry hash-derived ids, so the prefix cache reuses the same picture across turns (260/267 tokens cached on the second turn in our test).
+- Ollama vision models receive images too (`image_url` parts / `images`). Models without a vision encoder say so instead of guessing.
+- Saved chats store thumbnails only; the sidecar now bundles Pillow.
+
+### Code — permission modes, effort, edit approval
+- Permission modes like Claude Code: *Ask before edits* (diff preview, Apply / Reject), *Accept edits*, *Plan mode* (read-only, ends with a plan), *Bypass permissions*. ⇧Tab cycles them; changes apply to a running session.
+- Effort *Low / Medium / High / Max*: 768 → 4096 tokens per step and 10 → 50 steps; *High* and *Max* turn on the model's thinking, shown as a collapsible "Thought for Ns". Thoughts are kept out of the conversation history.
+- The file the agent edits opens in the editor; open clean files refresh after agent edits.
+
+### Desktop window (macOS)
+- The overlay title bar no longer covers the sidebar. A 52 px title strip holds the traffic lights and lines up with the top bar. Dragging and double-click-to-zoom on the title areas work through the window plugin (WKWebView ignores `-webkit-app-region`), and the remote page is granted only those window permissions.
+
 ### New logo
 - Replaced the kestrel silhouette with a new mark: two swept copper wing blades that cross into a W. App, desktop (macOS, Windows), site and README icons and screenshots updated.
 

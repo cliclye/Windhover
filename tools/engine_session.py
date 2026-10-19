@@ -62,6 +62,25 @@ def encode_whgen(
     return header.encode("ascii") + body
 
 
+def encode_images(images: list, mrope_section=(11, 11, 10), interleaved: bool = True) -> bytes:
+    """Binary image block that follows the prompt when header flag bit 1 is set.
+
+    Each image: {"embeddings": float32 [ntok, dim], "grid": (t, h, w) merged, "hash": int}.
+    """
+    import struct
+
+    import numpy as np
+
+    sec = list(mrope_section) + [0, 0, 0]
+    out = [b"WHIM", struct.pack("<5I", len(images), int(sec[0]), int(sec[1]), int(sec[2]), 1 if interleaved else 0)]
+    for im in images:
+        emb = np.ascontiguousarray(im["embeddings"], dtype=np.float32)
+        t, h, w = (int(v) for v in im["grid"])
+        out.append(struct.pack("<5IQ", emb.shape[0], t, h, w, emb.shape[1], int(im["hash"]) & 0xFFFFFFFFFFFFFFFF))
+        out.append(emb.tobytes())
+    return b"".join(out)
+
+
 def parse_stats_blob(raw: bytes) -> tuple[bytes, dict]:
     """Split trailing @@WH_STATS@@ JSON (and END sentinel) from token bytes."""
     text = raw or b""
@@ -132,6 +151,8 @@ class EngineSession:
         timeout_s: float,
         on_delta: Callable[[str], None] | None = None,
         log: TextIO | None = None,
+        images: list | None = None,
+        mrope: tuple | None = None,
     ) -> tuple[str, dict, str, int]:
         """Run one turn on the warm process (spawn/reload as needed).
 
@@ -143,7 +164,7 @@ class EngineSession:
         with self._lock:
             try:
                 self._ensure_locked(engine_bin, cwd, env, ident, timeout_s, t0, log)
-                return self._turn_locked(prompt, ngen, env, timeout_s, t0, on_delta)
+                return self._turn_locked(prompt, ngen, env, timeout_s, t0, on_delta, images, mrope)
             except Exception:
                 self._kill_locked("generate-error")
                 raise
@@ -326,6 +347,8 @@ class EngineSession:
         timeout_s: float,
         t0: float,
         on_delta: Callable[[str], None] | None,
+        images: list | None = None,
+        mrope: tuple | None = None,
     ) -> tuple[str, dict, str, int]:
         proc = self._proc
         if proc is None or proc.stdin is None or proc.stdout is None:
@@ -344,9 +367,15 @@ class EngineSession:
             topp = 0.0
         spec = 1 if (env.get("WH_SPEC") or "0") not in ("0", "false") and temp <= 0 else 0
         flags = 1 if (env.get("WH_NO_GIBBERISH") or "0") not in ("0", "false", "") else 0
+        if images:
+            flags |= 2
+            spec = 0
         blob = encode_whgen(
             prompt, ngen=ngen, temp=temp, topk=topk, topp=topp, spec=spec, flags=flags
         )
+        if images:
+            sec, inter = mrope or ((11, 11, 10), True)
+            blob += encode_images(images, sec, inter)
         try:
             proc.stdin.write(blob)
             proc.stdin.flush()

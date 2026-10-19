@@ -16,7 +16,10 @@ Design notes for small local models (0.8B-8B):
   * identical read-only calls are not re-run (prevents read loops)
   * the conversation only ever grows by appending, so the engine's prefix KV
     cache makes every agent step prefill just the new tokens
-  * shell commands need explicit approval unless auto-run is on
+  * permission modes (as in Claude Code): ask before edits and commands,
+    accept edits automatically, plan (read-only), or bypass all prompts
+  * effort (low/medium/high/max) sets the per-step token budget and step limit;
+    high and max also let models with a reasoning mode think first
 
 No network tools. Paths cannot escape the workspace (resolve_under).
 """
@@ -40,6 +43,16 @@ import agent_workspace as aw  # noqa: E402
 GenerateFn = Callable[[list, int, float, Callable[[str], None] | None], tuple[str, dict]]
 
 MAX_STEPS = 14
+
+# Permission modes: what needs the user's OK.
+MODES = ("ask", "accept_edits", "plan", "bypass")
+MODE_LABELS = {"ask": "Ask before edits", "accept_edits": "Accept edits",
+               "plan": "Plan mode", "bypass": "Bypass permissions"}
+# effort -> (max tokens per step, max steps per turn, thinking)
+EFFORT = {"low": (768, 10, False), "medium": (1536, 20, False),
+          "high": (3072, 30, True), "max": (4096, 50, True)}
+PLAN_NOTE = ("(Plan mode is on: explore with list_dir, read_file and search only — do not edit files or "
+             "run commands. Finish with a short numbered plan of the changes you would make.)")
 RESULT_CHARS = 5000          # per tool result sent to the model
 CONTEXT_CHARS = 18000        # ~5k tokens of conversation before compaction
 RUN_TIMEOUT_S = 90
@@ -166,13 +179,34 @@ class CodeSession:
         self.lock = threading.RLock()
         self.busy = False
         self.stop_flag = False
-        self.auto_run = False
+        self.mode = "accept_edits"
+        self.effort = "medium"
         self.version = 0
         self._approvals: dict[str, threading.Event] = {}
         self._approval_answer: dict[str, bool] = {}
         self.created = _now()
         self.turns = 0
         self.stats: dict[str, Any] = {}
+
+    # Older clients toggle a single "auto-run commands" switch.
+    @property
+    def auto_run(self) -> bool:
+        return self.mode == "bypass"
+
+    @auto_run.setter
+    def auto_run(self, on: bool) -> None:
+        if on:
+            self.mode = "bypass"
+        elif self.mode == "bypass":
+            self.mode = "accept_edits"
+
+    def set_mode(self, mode: str | None) -> None:
+        if mode in MODES:
+            self.mode = mode
+
+    def set_effort(self, effort: str | None) -> None:
+        if effort in EFFORT:
+            self.effort = effort
 
     # ------------------------------------------------------------ events
     def _emit(self, ev: dict[str, Any]) -> dict[str, Any]:
@@ -198,6 +232,8 @@ class CodeSession:
                 "model": self.model,
                 "busy": self.busy,
                 "auto_run": self.auto_run,
+                "mode": self.mode,
+                "effort": self.effort,
                 "version": self.version,
                 "events": list(self.events),
                 "pending_approval": pending[0]["id"] if pending else None,
@@ -270,6 +306,38 @@ class CodeSession:
                              "diff": diff, "added": added, "removed": removed, "t": _now()}
         return {"change_id": cid, "diff": diff, "added": added, "removed": removed}
 
+    def _ask(self, ev: dict[str, Any] | None, summary: str, preview: dict[str, Any] | None = None) -> bool | None:
+        """Block until the user approves (True) or declines (False); None = stopped."""
+        if ev is None:
+            return True
+        gate = threading.Event()
+        self._approvals[ev["id"]] = gate
+        self._update(ev, status="approval", summary=summary, **({"result": preview} if preview else {}))
+        gate.wait(APPROVAL_TIMEOUT_S)
+        self._approvals.pop(ev["id"], None)
+        approved = self._approval_answer.pop(ev["id"], False)
+        if self.stop_flag:
+            return None
+        if approved:
+            self._update(ev, status="running")
+        return approved
+
+    def _commit(self, rel: str, before: str | None, after: str, ev: dict[str, Any] | None,
+                **extra) -> dict[str, Any]:
+        """Write a file change, first asking the user in "ask" mode (with the diff)."""
+        if self.mode == "ask" and ev is not None:
+            diff, added, removed = _diff(rel, before or "", after)
+            verb = "Create" if before is None else "Edit"
+            ok = self._ask(ev, f"{verb} {rel}  +{added} −{removed}",
+                           {"diff": diff, "added": added, "removed": removed, "path": rel})
+            if ok is None:
+                return {"ok": False, "error": "stopped by user"}
+            if not ok:
+                return {"ok": False, "denied": True, "path": rel,
+                        "error": "The user rejected this change. Ask what they want instead, or try another approach."}
+        aw.write_file(self.root, rel, after)
+        return {"ok": True, "path": rel, **extra, **self._record_change(rel, before, after)}
+
     def _tool_search(self, query: str, rel: str) -> dict[str, Any]:
         if not query:
             return {"ok": False, "error": "search needs a query"}
@@ -295,7 +363,7 @@ class CodeSession:
                         break
         return {"ok": True, "query": query, "matches": hits, "count": len(hits)}
 
-    def _tool_edit(self, rel: str, old: str, new: str) -> dict[str, Any]:
+    def _tool_edit(self, rel: str, old: str, new: str, ev: dict[str, Any] | None = None) -> dict[str, Any]:
         if not rel:
             return {"ok": False, "error": "edit_file needs a path"}
         fp = aw.resolve_under(self.root, rel)
@@ -308,9 +376,7 @@ class CodeSession:
             # Empty `old`: append (what small models mean by "add a function").
             after = before + ("" if before.endswith("\n") or not before else "\n") + \
                 ("\n\n" if before.strip() else "") + new.strip("\n") + "\n"
-            rel_s = str(fp.relative_to(self.root))
-            aw.write_file(self.root, rel_s, after)
-            return {"ok": True, "path": rel_s, "appended": True, **self._record_change(rel_s, before, after)}
+            return self._commit(str(fp.relative_to(self.root)), before, after, ev, appended=True)
         count = before.count(old)
         if count == 1:
             after = before.replace(old, new, 1)
@@ -327,11 +393,9 @@ class CodeSession:
         if not new.strip() and len(old.strip().splitlines()) > 3:
             return {"ok": False, "error": "refusing to delete a large block with an empty `new` — "
                                           "put the replacement text after new:"}
-        rel_s = str(fp.relative_to(self.root))
-        aw.write_file(self.root, rel_s, after)
-        return {"ok": True, "path": rel_s, **self._record_change(rel_s, before, after)}
+        return self._commit(str(fp.relative_to(self.root)), before, after, ev)
 
-    def _tool_write(self, rel: str, content: str) -> dict[str, Any]:
+    def _tool_write(self, rel: str, content: str, ev: dict[str, Any] | None = None) -> dict[str, Any]:
         if not rel:
             return {"ok": False, "error": "write_file needs a path"}
         fp = aw.resolve_under(self.root, rel)
@@ -340,25 +404,19 @@ class CodeSession:
             return {"ok": False, "error": f"refusing to overwrite {rel} with empty content"}
         if content and not content.endswith("\n"):
             content += "\n"
-        res = aw.write_file(self.root, rel, content)
-        return {**res, "created": before is None, **self._record_change(res["path"], before, content)}
+        return self._commit(str(fp.relative_to(self.root)), before, content, ev, created=before is None)
 
     def _tool_run(self, command: str, ev: dict[str, Any]) -> dict[str, Any]:
         if not command.strip():
             return {"ok": False, "error": "run needs a command"}
-        if not self.auto_run:
-            gate = threading.Event()
-            self._approvals[ev["id"]] = gate
-            self._update(ev, status="approval", summary=f"Run: {command.strip()[:160]}")
-            gate.wait(APPROVAL_TIMEOUT_S)
-            self._approvals.pop(ev["id"], None)
-            approved = self._approval_answer.pop(ev["id"], False)
-            if self.stop_flag:
+        if self.mode != "bypass":
+            approved = self._ask(ev, f"Run: {command.strip()[:160]}")
+            if approved is None:
                 return {"ok": False, "error": "stopped by user"}
             if not approved:
                 self._update(ev, status="denied")
-                return {"ok": False, "denied": True, "error": "The user declined to run this command."}
-            self._update(ev, status="running")
+                return {"ok": False, "denied": True, "command": command,
+                        "error": "The user declined to run this command."}
         t0 = _now()
         env = dict(os.environ)
         env.setdefault("PYTHONUNBUFFERED", "1")
@@ -409,11 +467,15 @@ class CodeSession:
             if name == "search":
                 return self._tool_search(str(call.get("query") or call.get("pattern") or call.get("text") or ""),
                                          str(call.get("path") or "."))
+            if name in ("edit_file", "write_file", "run") and self.mode == "plan":
+                return {"ok": False, "plan_blocked": True,
+                        "error": "Plan mode is on, so files can't be changed and commands can't run. "
+                                 "Reply with your plan instead."}
             if name == "edit_file":
                 return self._tool_edit(str(call.get("path") or ""), str(call.get("old") or ""),
-                                       str(call.get("new") if call.get("new") is not None else ""))
+                                       str(call.get("new") if call.get("new") is not None else ""), ev)
             if name == "write_file":
-                return self._tool_write(str(call.get("path") or ""), str(call.get("content") or ""))
+                return self._tool_write(str(call.get("path") or ""), str(call.get("content") or ""), ev)
             if name == "run":
                 return self._tool_run(str(call.get("command") or call.get("cmd") or ""), ev)
             if name == "finish":
@@ -477,10 +539,31 @@ class CodeSession:
         # Merge consecutive same-role messages (chat templates expect alternation).
         for m in self.history:
             if msgs and msgs[-1]["role"] == m["role"] and m["role"] != "system":
-                msgs[-1] = {"role": m["role"], "content": msgs[-1]["content"] + "\n\n" + m["content"]}
+                merged = {"role": m["role"], "content": msgs[-1]["content"] + "\n\n" + m["content"]}
+                imgs = list(msgs[-1].get("images") or []) + list(m.get("images") or [])
+                if imgs:
+                    merged["images"] = imgs
+                msgs[-1] = merged
             else:
-                msgs.append({"role": m["role"], "content": m["content"]})
+                msgs.append({"role": m["role"], "content": m["content"],
+                             **({"images": list(m["images"])} if m.get("images") else {})})
         return msgs
+
+    @staticmethod
+    def _split_thinking(text: str, thinking: bool) -> tuple[str, str]:
+        """(thinking, answer). With thinking on, the prompt may already have opened
+        <think>, so the reply can start mid-thought and only contain </think>."""
+        t = text or ""
+        m = re.search(r"<think>(.*?)(?:</think>|\Z)(.*)", t, flags=re.S)
+        if m:
+            return m.group(1).strip(), (t[:m.start()] + m.group(2)).strip()
+        if thinking and "</think>" in t:
+            a, b = t.split("</think>", 1)
+            return a.strip(), b.strip()
+        if thinking and t and "</think>" not in t and not aw.parse_tool_calls(t):
+            # still thinking (streaming), or the budget ran out mid-thought
+            return t.strip(), ""
+        return "", t.strip()
 
     @staticmethod
     def _visible(text: str) -> str:
@@ -496,35 +579,51 @@ class CodeSession:
         return re.sub(r"\n{3,}", "\n\n", t).strip()
 
     # ------------------------------------------------------------ the loop
-    def run_turn(self, text: str, *, max_tokens: int = 768, temperature: float = 0.15) -> None:
+    def run_turn(self, text: str, *, max_tokens: int | None = None, temperature: float = 0.15,
+                 images: list | None = None, thumbs: list | None = None) -> None:
+        """images: data URLs sent to the model; thumbs: small previews for the transcript."""
         with self.lock:
             if self.busy:
                 raise RuntimeError("agent is already working")
             self.busy = True
             self.stop_flag = False
+        step_tokens, max_steps, thinking = EFFORT.get(self.effort, EFFORT["medium"])
+        if max_tokens:
+            step_tokens = max_tokens
         self.turns += 1
-        self._emit({"type": "user", "text": text})
-        self.history.append({"role": "user", "content": text})
+        uev: dict[str, Any] = {"type": "user", "text": text}
+        if thumbs or images:
+            uev["images"] = list(thumbs or images or [])[:8]
+        self._emit(uev)
+        umsg: dict[str, Any] = {"role": "user", "content": text + ("\n\n" + PLAN_NOTE if self.mode == "plan" else "")}
+        if images:
+            umsg["images"] = list(images)[:8]
+        self.history.append(umsg)
         seen: set[tuple] = set()
         steps = 0
         nudges = 0
         try:
-            while steps < MAX_STEPS and not self.stop_flag:
+            while steps < max_steps and not self.stop_flag:
                 steps += 1
                 live = self._emit({"type": "assistant", "text": "", "streaming": True, "step": steps})
                 buf: list[str] = []
+                t_think = _now()
 
                 def on_delta(piece: str) -> None:
                     buf.append(piece)
+                    th, ans = self._split_thinking("".join(buf), thinking)
                     # Hold back a fence opener that may still turn into ```tool.
-                    vis = self._visible(re.sub(r"`{1,3}(?:t|to|too|tool|j|js|jso|json)?\Z", "",
-                                               "".join(buf)))
-                    if vis != live.get("text"):
-                        self._update(live, text=vis)
+                    vis = self._visible(re.sub(r"`{1,3}(?:t|to|too|tool|j|js|jso|json)?\Z", "", ans))
+                    if vis != live.get("text") or th != live.get("thinking", ""):
+                        self._update(live, text=vis, thinking=th)
 
                 t0 = _now()
-                raw, stats = self.generate(self._messages(), max_tokens, temperature, on_delta)
+                kw = {"thinking": True} if thinking else {}
+                raw, stats = self.generate(self._messages(), step_tokens, temperature, on_delta, **kw)
                 raw = (raw or "").strip()
+                thought, raw = self._split_thinking(raw, thinking)
+                if thought:
+                    self._update(live, thinking=thought, thought_seconds=round(_now() - t_think, 1))
                 if os.environ.get("WINDHOVER_CODE_DEBUG"):
                     sys.stderr.write(f"[code] step {steps} raw={raw[:1200]!r}\n")
                 self.stats = {
@@ -537,7 +636,7 @@ class CodeSession:
                 calls = aw.parse_tool_calls(raw)
                 visible = self._visible(raw)
                 self._update(live, text=visible, streaming=False, stats=dict(self.stats))
-                if not calls and not visible and nudges < 2 and steps < MAX_STEPS:
+                if not calls and not visible and nudges < 2 and steps < max_steps:
                     # Empty reply (model stopped at once): ask again instead of ending the turn.
                     nudges += 1
                     with self.lock:
@@ -549,7 +648,7 @@ class CodeSession:
                                          "Your reply was empty. Reply with exactly one tool block for the next "
                                          "step, or answer in plain text if the task is done."})
                     continue
-                if not calls and nudges < 2 and steps < MAX_STEPS and _announces_next_step(visible):
+                if not calls and nudges < 2 and steps < max_steps and _announces_next_step(visible):
                     nudges += 1
                     self.history.append({"role": "assistant", "content": raw})
                     self.history.append({"role": "user", "kind": "nudge", "content":
@@ -559,6 +658,8 @@ class CodeSession:
                     # Plain-text reply (or finish) ends the turn.
                     final = visible or (calls[0].get("summary") if calls else "") or (
                         "Done." if calls else
+                        "The model ran out of room while thinking. Try a lower effort, or a larger model."
+                        if thought else
                         "The model returned no reply. Try again, or pick a larger model for this task.")
                     self._update(live, text=final, final=True)
                     self.history.append({"role": "assistant", "content": raw or final})
@@ -566,7 +667,7 @@ class CodeSession:
                 call = calls[0]
                 name = (call.get("name") or "").strip()
                 self.history.append({"role": "assistant", "content": raw})
-                if not visible:
+                if not visible and not thought:
                     with self.lock:  # drop the empty prose bubble; the tool card speaks for itself
                         if live in self.events:
                             self.events.remove(live)
@@ -595,7 +696,8 @@ class CodeSession:
             if self.stop_flag:
                 self._emit({"type": "notice", "text": "Stopped."})
             else:
-                self._emit({"type": "notice", "text": f"Stopped after {MAX_STEPS} steps — send a follow-up to continue."})
+                self._emit({"type": "notice", "text": f"Stopped after {max_steps} steps — send a follow-up to continue "
+                                                      "(or raise the effort for longer tasks)."})
         except Exception as e:
             self._emit({"type": "error", "text": f"{type(e).__name__}: {e}"})
         finally:
@@ -607,7 +709,11 @@ class CodeSession:
     def _summary(name: str, call: dict[str, Any], res: dict[str, Any]) -> str:
         p = res.get("path") or call.get("path") or ""
         if res.get("denied"):
-            return f"Declined: {call.get('command', '')}"
+            if name == "run":
+                return f"Declined: {call.get('command', '')}"
+            return f"Rejected change to {p}"
+        if res.get("plan_blocked"):
+            return f"Plan mode — {name} not run"
         if not res.get("ok"):
             return f"{name} failed{(' · ' + p) if p else ''}: {str(res.get('error') or '')[:140]}"
         if name == "list_dir":

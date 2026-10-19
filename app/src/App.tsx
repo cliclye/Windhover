@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "./api";
 import { cleanChatText, extractSSE } from "./chatText";
 import { loadConversations, newConversation, saveConversations, titleFrom } from "./conversations";
+import type { Attachment } from "./images";
 import { CodeView } from "./components/CodeView";
 import { ChatView } from "./components/ChatView";
 import { LibraryView } from "./components/LibraryView";
@@ -86,6 +87,7 @@ export function App() {
   const [activeConv, setActiveConv] = useState<string>("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const [engineOk, setEngineOk] = useState<boolean | null>(null);
   const [enginePresent, setEnginePresent] = useState<boolean | null>(null);
@@ -570,8 +572,8 @@ export function App() {
     }
   }
 
-  async function sendText(text: string, base: Msg[]) {
-    if (!text || sending) return;
+  async function sendText(text: string, base: Msg[], atts: Attachment[] = []) {
+    if ((!text && !atts.length) || sending) return;
     const modelId = activeModel || chatCapable[0]?.id;
     if (!modelId) {
       setStatus("Install a model first (or start Ollama)");
@@ -586,7 +588,13 @@ export function App() {
 
     setSending(true);
     setInput("");
-    const next = [...base, { role: "user" as const, content: text }];
+    setAttachments([]);
+    const userMsg: Msg = { role: "user", content: text };
+    if (atts.length) {
+      userMsg.images = atts.map((a) => a.dataUrl);
+      userMsg.thumbs = atts.map((a) => a.thumb);
+    }
+    const next: Msg[] = [...base, userMsg];
     setMessages(next);
     let assistant = "";
     let gotToken = false;
@@ -604,7 +612,11 @@ export function App() {
         signal: ac.signal,
         body: JSON.stringify({
           model: modelId,
-          messages: next.map(({ role, content }) => ({ role, content })),
+          // Saved chats keep only thumbnails; send those when the full image is gone.
+          messages: next.map(({ role, content, images, thumbs }) => {
+            const imgs = images?.length ? images : thumbs;
+            return imgs?.length ? { role, content, images: imgs } : { role, content };
+          }),
           max_tokens: 512,
           temperature: 0.35,
           stream,
@@ -745,7 +757,7 @@ export function App() {
   }
 
   function send() {
-    void sendText(input.trim(), messages);
+    void sendText(input.trim(), messages, attachments);
   }
 
   function retryLast() {
@@ -758,7 +770,14 @@ export function App() {
       }
     }
     if (lastUser < 0) return;
-    void sendText(messages[lastUser].content, messages.slice(0, lastUser));
+    const u = messages[lastUser];
+    const again: Attachment[] = (u.images || u.thumbs || []).map((d, i) => ({
+      id: `r${i}`,
+      name: "image",
+      dataUrl: d,
+      thumb: u.thumbs?.[i] || d,
+    }));
+    void sendText(u.content, messages.slice(0, lastUser), again);
   }
 
   function stopChat() {
@@ -982,7 +1001,7 @@ export function App() {
       />
 
       <main className="main">
-        <header className="topbar">
+        <header className="topbar" data-drag>
           <button
             type="button"
             className="icon-btn"
@@ -1015,6 +1034,8 @@ export function App() {
             input={input}
             onInput={setInput}
             onSend={send}
+            attachments={attachments}
+            onAttachments={setAttachments}
             onStop={stopChat}
             onRetry={retryLast}
             onStarter={(t) => void sendText(t, messages)}

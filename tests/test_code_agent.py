@@ -169,6 +169,88 @@ class CodeAgentLoop(unittest.TestCase):
         self.assertEqual(final[-1]["text"], "One file: calc.py.")
 
 
+class PermissionsAndEffort(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _answer_when_pending(self, s, approve):
+        for _ in range(200):
+            pid = s.snapshot()["pending_approval"]
+            if pid:
+                return pid, s.answer_approval(pid, approve)
+            time.sleep(0.02)
+        self.fail("no approval requested")
+
+    EDIT = "TOOL edit_file\npath: calc.py\nold:\n    return a + b\nnew:\n    return b + a\nEND"
+
+    def test_ask_mode_shows_diff_and_writes_after_approval(self):
+        s = CodeSession(self.root, "fake", scripted([self.EDIT, "Swapped."]))
+        s.set_mode("ask")
+        th = threading.Thread(target=s.run_turn, args=("swap",))
+        th.start()
+        for _ in range(200):
+            snap = s.snapshot()
+            if snap["pending_approval"]:
+                ev = next(e for e in snap["events"] if e["id"] == snap["pending_approval"])
+                self.assertIn("+    return b + a", ev["result"]["diff"])
+                self.assertIn("return a + b", (self.root / "calc.py").read_text())  # not written yet
+                s.answer_approval(ev["id"], True)
+                break
+            time.sleep(0.02)
+        th.join(5)
+        self.assertIn("return b + a", (self.root / "calc.py").read_text())
+
+    def test_ask_mode_rejection_leaves_file(self):
+        gen = scripted([self.EDIT, "OK, left it."])
+        s = CodeSession(self.root, "fake", gen)
+        s.set_mode("ask")
+        th = threading.Thread(target=s.run_turn, args=("swap",))
+        th.start()
+        self._answer_when_pending(s, False)
+        th.join(5)
+        self.assertIn("return a + b", (self.root / "calc.py").read_text())
+        self.assertIn("rejected", gen.seen[1][-1]["content"])
+        self.assertEqual(next(e for e in s.events if e["type"] == "tool")["status"], "denied")
+
+    def test_plan_mode_blocks_changes(self):
+        gen = scripted([self.EDIT, "1. Swap the operands."])
+        s = CodeSession(self.root, "fake", gen)
+        s.set_mode("plan")
+        s.run_turn("plan a swap")
+        self.assertIn("return a + b", (self.root / "calc.py").read_text())
+        self.assertIn("Plan mode", gen.seen[0][-1]["content"])
+        self.assertIn("Plan mode", next(e for e in s.events if e["type"] == "tool")["summary"])
+
+    def test_high_effort_thinks_and_hides_thoughts(self):
+        seen = {}
+
+        def gen(messages, max_tokens, temperature, on_delta, thinking=False):
+            seen["thinking"], seen["max_tokens"] = thinking, max_tokens
+            return "The user wants a summary.\n</think>\n\ncalc.py adds numbers.", {}
+
+        s = CodeSession(self.root, "fake", gen)
+        s.set_effort("high")
+        s.run_turn("what is calc.py")
+        self.assertTrue(seen["thinking"])
+        self.assertEqual(seen["max_tokens"], 3072)
+        final = [e for e in s.events if e["type"] == "assistant" and e.get("final")][-1]
+        self.assertEqual(final["text"], "calc.py adds numbers.")
+        self.assertIn("summary", final["thinking"])
+        self.assertNotIn("think", s.history[-1]["content"])
+
+    def test_images_reach_the_model(self):
+        gen = scripted(["It shows a red square."])
+        s = CodeSession(self.root, "fake", gen)
+        s.run_turn("what is this?", images=["data:image/png;base64,AAAA"], thumbs=["data:image/jpeg;base64,BB"])
+        self.assertEqual(gen.seen[0][-1]["images"], ["data:image/png;base64,AAAA"])
+        self.assertEqual(s.events[0]["images"], ["data:image/jpeg;base64,BB"])
+
+
 class VisibleText(unittest.TestCase):
     def test_unterminated_tool_fence_and_end_lines_hidden(self):
         v = CodeSession._visible

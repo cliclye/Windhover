@@ -23,9 +23,35 @@ export type CodeToolEvent = {
   };
 };
 
+export type CodeMode = "ask" | "accept_edits" | "plan" | "bypass";
+export type CodeEffort = "low" | "medium" | "high" | "max";
+
+export const MODES: Array<{ id: CodeMode; label: string; hint: string }> = [
+  { id: "ask", label: "Ask before edits", hint: "Approve every file change and command" },
+  { id: "accept_edits", label: "Accept edits", hint: "Edits apply right away; commands still ask" },
+  { id: "plan", label: "Plan mode", hint: "Read-only: the agent explores and proposes a plan" },
+  { id: "bypass", label: "Bypass permissions", hint: "Edits and commands run without asking" },
+];
+
+export const EFFORTS: Array<{ id: CodeEffort; label: string; hint: string }> = [
+  { id: "low", label: "Low", hint: "Short replies, up to 10 steps — fastest" },
+  { id: "medium", label: "Medium", hint: "Up to 20 steps" },
+  { id: "high", label: "High", hint: "Thinks before acting, up to 30 steps" },
+  { id: "max", label: "Max", hint: "Longest thinking, up to 50 steps — slowest" },
+];
+
 export type CodeEvent =
-  | { id: string; type: "user"; text: string }
-  | { id: string; type: "assistant"; text: string; streaming?: boolean; final?: boolean; stats?: CodeStats }
+  | { id: string; type: "user"; text: string; images?: string[] }
+  | {
+      id: string;
+      type: "assistant";
+      text: string;
+      streaming?: boolean;
+      final?: boolean;
+      stats?: CodeStats;
+      thinking?: string;
+      thought_seconds?: number;
+    }
   | { id: string; type: "notice" | "error"; text: string }
   | CodeToolEvent;
 
@@ -47,6 +73,8 @@ export type CodeSnapshot = {
   model: string;
   busy: boolean;
   auto_run: boolean;
+  mode?: CodeMode;
+  effort?: CodeEffort;
   version: number;
   events: CodeEvent[];
   pending_approval: string | null;
@@ -66,19 +94,35 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const codeApi = {
-  start: (workspace: string, model: string, autoRun: boolean) =>
-    post<CodeSnapshot>("/api/code/session", { workspace, model, auto_run: autoRun }),
+  start: (workspace: string, model: string, mode: CodeMode, effort: CodeEffort) =>
+    post<CodeSnapshot>("/api/code/session", { workspace, model, mode, effort }),
   get: async (id: string) =>
     (await fetch(apiUrl(`/api/code/session?id=${encodeURIComponent(id)}`))).json() as Promise<CodeSnapshot>,
-  send: (id: string, text: string, model: string, autoRun: boolean) =>
-    post<{ ok: boolean; error?: string }>("/api/code/message", { session_id: id, text, model, auto_run: autoRun }),
+  send: (
+    id: string,
+    text: string,
+    model: string,
+    mode: CodeMode,
+    effort: CodeEffort,
+    images: string[] = [],
+    thumbs: string[] = []
+  ) =>
+    post<{ ok: boolean; error?: string }>("/api/code/message", {
+      session_id: id,
+      text,
+      model,
+      mode,
+      effort,
+      images,
+      thumbs,
+    }),
   approve: (id: string, eventId: string, approve: boolean) =>
     post<{ ok: boolean }>("/api/code/approve", { session_id: id, event_id: eventId, approve }),
   stop: (id: string) => post<{ ok: boolean }>("/api/code/stop", { session_id: id }),
   undo: (id: string, changeId: string) =>
     post<{ ok: boolean; error?: string; path?: string }>("/api/code/undo", { session_id: id, change_id: changeId }),
-  settings: (id: string, autoRun: boolean) =>
-    post<CodeSnapshot>("/api/code/settings", { session_id: id, auto_run: autoRun }),
+  settings: (id: string, opts: { mode?: CodeMode; effort?: CodeEffort }) =>
+    post<CodeSnapshot>("/api/code/settings", { session_id: id, ...opts }),
   setWorkspace: (root: string) => post<{ ok: boolean; root?: string; error?: string }>("/api/workspace", { root }),
   pickWorkspace: () =>
     post<{ ok: boolean; root?: string; error?: string; cancelled?: boolean }>("/api/workspace/pick", {}),

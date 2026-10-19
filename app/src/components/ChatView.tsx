@@ -162,8 +162,8 @@ export function ChatView({
                     <img src="./windhover-icon.png" alt="" width={20} height={20} />
                   </div>
                   <div className="msg-body">
-                    <div className="md">
-                      <MarkdownBody text={m.content} />
+                    <div className={`md${sending && i === lastAssistant ? " is-streaming" : ""}`}>
+                      <MarkdownBody text={m.content} streaming={sending && i === lastAssistant} />
                     </div>
                     <div className="msg-foot">
                       <StatChips s={m.stats} />

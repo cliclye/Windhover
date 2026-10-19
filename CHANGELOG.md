@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## [0.6.0] — 2026-10-19
+
+### Smoother everything
+- Replies stream in smoothly: text is revealed a few characters per frame (faster when the model gets ahead) with a soft caret, new paragraphs and list items fade in, and the thread stays pinned to the bottom unless you scroll up to read. The Code agent's replies stream the same way. A half-streamed `**bold` no longer flashes raw asterisks.
+- Motion across the app: views fade up on tab switch, messages, tool rows and banners slide in, the welcome screen and starters animate in sequence, buttons/cards/inputs ease their hover and press states, the sidebar collapses softly, and modals use gentler easing. Reduced-motion settings turn it all off.
+
+### Math and headings render cleanly
+- LaTeX in replies (`$e^x$`, `$$\frac{d}{dx}…$$`, `\(…\)`, `\[…\]`) is converted to italic unicode math (`eˣ`, `d/dx(eˣ)`, `α/2`, `√(b²−4ac)`, `≤`) instead of showing raw `$` and backslashes; prices like "$5 and $10" are left alone, and code is never touched. `#` headings render as bold lines.
 
 ### Chat stopped mid-answer on math
 - The "keyboard smash" early stop (engine, server and UI copies) treated LaTeX and equations — `\\frac{1}{2}`, `$u(x) =`, `f'(x) = cos^2(x)` — as gibberish and cut answers off mid-derivation. Text with LaTeX commands, `$`, or `=` with parentheses is never counted as smash; real keyboard smash is still caught.

@@ -14,6 +14,7 @@ import type { Attachment } from "../images";
 import { Composer } from "./Composer";
 import { BrainIcon, ChevronIcon, CloseIcon, FileIcon, FolderIcon, PlusIcon, RetryIcon, ShieldIcon } from "./Icons";
 import { MarkdownBody } from "./MarkdownBody";
+import { useFollowBottom, useSmoothText } from "../smooth";
 
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -298,6 +299,8 @@ function StepGroup({
 
 /** Agent prose: long code blocks fold into a one-line row instead of filling the panel. */
 function AgentText({ text, streaming }: { text: string; streaming?: boolean }) {
+  const shown = useSmoothText(text, !!streaming);
+  text = shown;
   const parts: ReactNode[] = [];
   const re = /```([\w+-]*)\n([\s\S]*?)(?:```|$)/g;
   let last = 0;
@@ -526,10 +529,7 @@ export function CodeView({
     };
   }, [sessionId, busy, applySnapshot]);
 
-  useEffect(() => {
-    const el = thread.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [snap?.version]);
+  useFollowBottom(thread, busy, snap?.version, false);
 
   async function send(text: string, atts: Attachment[] = []) {
     const msg = text.trim();
@@ -834,7 +834,7 @@ export function CodeView({
                   if (!ev.text && !ev.streaming && !ev.thinking) return null;
                   const thinkingNow = ev.streaming && !!ev.thinking && !ev.text;
                   return (
-                    <div key={ev.id} className={`a-msg${ev.final ? " final" : ""}`}>
+                    <div key={ev.id} className={`a-msg${ev.final ? " final" : ""}${ev.streaming ? " is-streaming" : ""}`}>
                       {ev.thinking ? (
                         <details className="a-think" open={thinkingNow}>
                           <summary>

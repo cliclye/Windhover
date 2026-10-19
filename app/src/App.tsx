@@ -11,6 +11,7 @@ import { Modal, Picker, Segmented, type PickerItem } from "./components/Primitiv
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { ExternalIcon, SidebarIcon } from "./components/Icons";
+import { useFollowBottom } from "./smooth";
 import {
   formatCount,
   formatParams,
@@ -275,10 +276,7 @@ export function App() {
     return () => clearTimeout(t);
   }, []);
 
-  useEffect(() => {
-    const el = threadRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, sending]);
+  useFollowBottom(threadRef, sending, messages, messages[messages.length - 1]?.role === "user");
 
   // ---- conversations: the active thread mirrors into localStorage history
   useEffect(() => {

@@ -1,9 +1,18 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cleanChatText } from "../chatText";
+import { renderMathAndHeadings } from "../mathText";
+import { useSmoothText } from "../smooth";
 
-export function MarkdownBody({ text }: { text: string }) {
-  const cleaned = cleanChatText(text);
+export function MarkdownBody({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  const shown = useSmoothText(text, streaming);
+  let cleaned = renderMathAndHeadings(cleanChatText(shown));
+  if (streaming && (cleaned.match(/```/g) || []).length % 2 === 0) {
+    // hide an opening ** / __ whose closing half hasn't streamed in yet
+    cleaned = cleaned.replace(/(\*\*|__)(?![\s\S]*\1)(?=\S)/, (m, mark, offset: number) =>
+      (cleaned.slice(0, offset).split(mark).length - 1) % 2 === 0 ? "" : m
+    );
+  }
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}

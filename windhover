@@ -306,6 +306,10 @@ try:
 except ImportError:
     _code_agent = None  # type: ignore
 try:
+    import web_search as _web  # type: ignore
+except ImportError:
+    _web = None  # type: ignore
+try:
     import vision_qwen35 as _vision  # type: ignore
 except ImportError:  # numpy missing
     _vision = None  # type: ignore
@@ -1491,6 +1495,41 @@ def _code_generator(requested: str | None, fallback: Path | None):
 
     label = _snap_meta(snap).get("id") or snap.name.replace("__", "/")
     return gen_engine, label, None
+
+
+def _web_gather(body: dict, fallback: Path | None, on_progress=None) -> dict:
+    """Chat web search: find sources for this turn (see tools/web_search.py).
+
+    Research mode asks the local model to plan queries first; if the model
+    can't run here (preview/transformers, still preparing) the user's message
+    is searched as-is.
+    """
+    say = on_progress or (lambda stage, msg: None)
+    mode = body.get("mode") if body.get("mode") in _web.MODES else "search"
+    messages = body.get("messages") or []
+    question = (body.get("query") or "").strip() or _web.search_query(messages)
+    if not question:
+        return {"ok": False, "error": "nothing to search for"}
+    if not _web.is_online():
+        return {"ok": False, "code": "offline", "error": "No internet connection — answering offline."}
+    queries = [question]
+    if mode == "research":
+        say("plan", "Planning searches")
+        gen, _label, err = _code_generator(body.get("model"), fallback)
+        if gen and not err:
+            try:
+                text, _ = gen(_web.plan_messages(question), 120, 0.2, None)
+                queries = _web.parse_queries(text, question)
+            except Exception as e:  # engine hiccup — research with the plain question
+                sys.stderr.write(f"[windhover] web query planning failed: {e}\n")
+                queries = _web.parse_queries("", question)
+        else:
+            queries = _web.parse_queries("", question)
+    try:
+        sources = _web.gather(queries, mode=mode, question=question, on_progress=say)
+    except _web.WebSearchError as e:
+        return {"ok": False, "error": str(e), "queries": queries}
+    return {"ok": True, "mode": mode, "queries": queries, "sources": sources}
 
 
 def _agent_run(
@@ -2831,6 +2870,10 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
             if path in ("/v1/update", "/api/update"):
                 force = (qs.get("force") or ["0"])[0] in ("1", "true", "yes")
                 return self._json(200, _check_app_update(force=force))
+            if path == "/api/web/status":
+                if _web is None:
+                    return self._json(200, {"ok": False, "online": False, "error": "web search module missing"})
+                return self._json(200, {"ok": True, "online": _web.is_online(max_age=0 if qs.get("fresh") else 20)})
             if path == "/api/ollama/status":
                 models = _ollama_list_models()
                 return self._json(
@@ -3143,6 +3186,38 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                     return self._json(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
             if path.startswith("/api/code/"):
                 return self._code_post(path, body, model)
+            if path == "/api/web/search":
+                if _web is None:
+                    return self._json(500, {"ok": False, "error": "web search module missing"})
+                if not body.get("stream"):
+                    res = _web_gather(body, model)
+                    return self._json(200 if res.get("ok") else 502, res)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache, no-transform")
+                    self.send_header("Connection", "close")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Access-Control-Allow-Headers", "Content-Type")
+                    self.end_headers()
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    return None
+
+                def _web_sse(obj):
+                    self.wfile.write(b"data: " + json.dumps(obj, ensure_ascii=True).encode("utf-8") + b"\n\n")
+                    self.wfile.flush()
+
+                try:
+                    res = _web_gather(body, model, on_progress=lambda stage, msg: _web_sse(
+                        {"stage": stage, "message": msg}))
+                    _web_sse({"stage": "result", **res})
+                    self.wfile.write(b"data: [DONE]\n\n")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    pass  # user stopped — the search is abandoned
+                self.close_connection = True
+                return None
             if path == "/api/agent":
                 if _agent_ws is None:
                     return self._json(500, {"ok": False, "error": "agent_workspace missing"})
@@ -3287,6 +3362,9 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
                 if not any((m.get("content") or "").strip() or m.get("images")
                            for m in messages if m.get("role") == "user"):
                     return self._json(400, {"error": "empty prompt"})
+                if _web is not None and body.get("web_sources"):
+                    # Sources from /api/web/search ride along on this turn only.
+                    messages = _web.augment_messages(messages, _web.sanitize_sources(body["web_sources"]))
                 max_tokens = int(body.get("max_tokens") or 256)
                 temperature = float(
                     body.get("temperature") if body.get("temperature") is not None else 0.35

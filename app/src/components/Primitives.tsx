@@ -88,6 +88,9 @@ export function Picker({
   placeholder,
   disabled,
   label,
+  icon,
+  active,
+  title,
 }: {
   value: string;
   items: PickerItem[];
@@ -95,6 +98,10 @@ export function Picker({
   placeholder: string;
   disabled?: boolean;
   label: string;
+  icon?: ReactNode;
+  /** Accent the button (e.g. a mode that is switched on). */
+  active?: boolean;
+  title?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
@@ -112,10 +119,11 @@ export function Picker({
     if (open) setHi(Math.max(0, items.findIndex((i) => i.value === value)));
   }, [open, items, value]);
   return (
-    <div className={`picker${open ? " open" : ""}`} ref={ref}>
+    <div className={`picker${open ? " open" : ""}${active ? " on" : ""}`} ref={ref}>
       <button
         type="button"
         className="picker-btn"
+        title={title}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={label}
@@ -143,6 +151,7 @@ export function Picker({
           }
         }}
       >
+        {icon}
         <span className="picker-label">{cur ? cur.label : placeholder}</span>
         {cur?.hint ? <span className="picker-hint">{cur.hint}</span> : null}
         <ChevronIcon size={14} />

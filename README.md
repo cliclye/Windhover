@@ -242,6 +242,7 @@ Numerics lineage is Apache-2.0; see [LICENSE](LICENSE).
 | **Sparse AUs** | Dense FFN bundles + MoE experts under one working-set policy |
 | **Models** | Browse / install / uninstall packs, with fit-for-this-machine hints |
 | **Chat** | Markdown UI; Windhover packs + Ollama models when `ollama serve` is running; paste or drop images |
+| **Web search** | Optional: the local model looks things up online (quick search or deep research) and answers with numbered sources — only with your permission |
 | **Images** | Qwen3.5 packs read screenshots and photos with their own vision encoder, locally (Ollama vision models too) |
 | **Code** | A local coding agent (like Cursor / Claude Code, no API key): reads, edits and tests code in a project folder, with diffs, undo, permission modes and effort levels |
 | **Performance** | Live telemetry: decode/prefill tok/s, TTFT, prefix-cache reuse, RSS, sparsity, AU hit |
@@ -291,6 +292,15 @@ A coding agent that runs on the model Windhover is serving — nothing leaves yo
 
 Paste (⌘V / Ctrl+V), drop, or attach images in Chat and Code. Qwen3.5 packs run their own vision encoder on your computer (`tools/vision_qwen35.py`, numpy — checked against `transformers`, cosine 0.99999), and the engine puts the image embeddings and Qwen's 3D (M-RoPE) positions into the prompt. Images are scaled to ~0.5 MP (≈ 490 tokens; `WINDHOVER_VISION_MAX_PIXELS` to change); encoding takes ~1–7 s on an M4, and follow-up turns reuse the cached image. Ollama vision models get the image directly. Saved chats keep thumbnails only.
 
+### Web search & deep research
+
+Local models only know what they were trained on. With **Web search** on (globe button in the Chat composer), Windhover searches the web for your question, reads the top pages, and hands the most relevant passages to the model, which answers with clickable `[1]` citations and source chips. **Deep research** has the model plan several queries first and reads more pages (slower, more thorough).
+
+- **Permission** — Settings → **Web access**: *Off* (never goes online), *Ask first* (default — asks before the first search in a chat, and offers to search when a question looks time-sensitive, like news, prices or "latest"), or *Automatic*.
+- **Offline-aware** — if there's no internet connection, chat simply answers from the model's own knowledge.
+- **What leaves your computer** — search queries go to DuckDuckGo (Bing as a fallback) and the top pages are downloaded; the model still runs locally. Set `WINDHOVER_SEARCH_URL` to a SearXNG instance to use your own search backend. No API keys.
+- Works with Windhover packs and Ollama models (`tools/web_search.py`, stdlib only).
+
 ### Performance
 
 Live engine telemetry — decode / prefill tok/s, time to first token, prefix-cache reuse, RSS, bytes per token.
@@ -299,7 +309,7 @@ Live engine telemetry — decode / prefill tok/s, time to first token, prefix-ca
 
 ### Settings
 
-Memory profile (Fast / Balanced / Low-RAM), theme, updates and engine routing.
+Memory profile (Fast / Balanced / Low-RAM), web access, theme, updates and engine routing.
 
 ![Windhover Settings](docs/screenshots/ui-settings.png)
 

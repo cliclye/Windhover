@@ -29,6 +29,22 @@ export type Msg = {
   images?: string[];
   /** Small previews, saved with the conversation. */
   thumbs?: string[];
+  /** Web pages this reply was grounded on (Chat web search). */
+  sources?: WebSource[];
+  /** Live "Searching…/Reading…" line while web search runs. */
+  webStatus?: string;
+  /** Web search was wanted but failed; the reply came from the model alone. */
+  webError?: string;
+};
+
+export type WebSource = {
+  n: number;
+  title: string;
+  url: string;
+  domain: string;
+  snippet?: string;
+  /** Page passages handed to the model — not saved with the conversation. */
+  content?: string;
 };
 
 export type WindhoverStats = {

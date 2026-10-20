@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Web search & deep research in Chat
+- New globe button in the Chat composer: **Web off**, **Web search** (searches your question and reads the top 3 pages) or **Deep research** (the local model plans 3 queries, then up to 6 pages are read). The best passages from each page are handed to the model with today's date, and it answers with `[1]`-style citations that link to their sources; source chips sit above the reply. Search progress ("Searching the web for …", "Reading …") shows while it works.
+- Settings → **Web access**: *Off*, *Ask first* (default) or *Automatic*. *Ask first* asks once per chat (Answer offline / Allow in this chat / Always allow), and also offers a search when a question looks time-sensitive (news, prices, scores, "latest", this year). *Automatic* searches those on its own.
+- Only goes online when the machine is: the server checks connectivity, and offline chats answer from the model alone. A failed search says so above the reply instead of failing silently.
+- `tools/web_search.py` (stdlib only, bundled in the sidecar): DuckDuckGo HTML search with Bing as fallback, or SearXNG via `WINDHOVER_SEARCH_URL`; page text extraction; relevance-ranked passages within the 8K context; never fetches localhost/LAN addresses. New endpoints `GET /api/web/status` and `POST /api/web/search` (SSE progress); `/v1/chat/completions` accepts `web_sources`. Works with Windhover packs and Ollama models.
+
 ## [0.6.0] — 2026-10-19
 
 ### Smoother everything

@@ -1,8 +1,8 @@
 import { useState, type ReactNode, type Ref } from "react";
-import type { ChatStats, Msg } from "../types";
+import type { ChatStats, Msg, WebSource } from "../types";
 import type { Attachment } from "../images";
 import { Composer } from "./Composer";
-import { BoltIcon, CheckIcon, CopyIcon, RetryIcon } from "./Icons";
+import { BoltIcon, CheckIcon, CopyIcon, GlobeIcon, RetryIcon } from "./Icons";
 import { MarkdownBody } from "./MarkdownBody";
 
 const STARTERS = [
@@ -41,6 +41,19 @@ function StatChips({ s }: { s?: ChatStats }) {
           {c.k === "speed" ? <BoltIcon size={12} /> : null}
           {c.v}
         </span>
+      ))}
+    </div>
+  );
+}
+
+function Sources({ sources }: { sources: WebSource[] }) {
+  return (
+    <div className="sources" aria-label="Web sources">
+      {sources.map((s) => (
+        <a key={s.n} className="source" href={s.url} target="_blank" rel="noreferrer" title={`${s.title}\n${s.url}`}>
+          <span className="source-n">{s.n}</span>
+          <span className="source-domain">{s.domain}</span>
+        </a>
       ))}
     </div>
   );
@@ -162,8 +175,26 @@ export function ChatView({
                     <img src="./windhover-icon.png" alt="" width={20} height={20} />
                   </div>
                   <div className="msg-body">
+                    {m.webStatus && !m.content ? (
+                      <div className="web-status" aria-live="polite">
+                        <GlobeIcon size={14} />
+                        <span>{m.webStatus}</span>
+                        <span className="typing">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      </div>
+                    ) : null}
+                    {m.webError ? (
+                      <div className="web-note">
+                        <GlobeIcon size={13} />
+                        Couldn't search the web ({m.webError}) — answered from the model's own knowledge.
+                      </div>
+                    ) : null}
+                    {m.sources?.length ? <Sources sources={m.sources} /> : null}
                     <div className={`md${sending && i === lastAssistant ? " is-streaming" : ""}`}>
-                      <MarkdownBody text={m.content} streaming={sending && i === lastAssistant} />
+                      <MarkdownBody text={m.content} streaming={sending && i === lastAssistant} sources={m.sources} />
                     </div>
                     <div className="msg-foot">
                       <StatChips s={m.stats} />

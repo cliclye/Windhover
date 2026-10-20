@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.3] — 2026-10-19
+
+### Web search: real news, better queries
+- Searches used your whole sentence, so "can u just look up what happened to …" returned dictionary pages for the word "can". The filler ("can u just look up", "please search the web for", "tell me about" …) is now stripped, and the common typo "happend" is fixed, before searching.
+- Questions about events (news, "what happened", "yesterday", "2 days ago", riots, scores, announcements …) now search **Google News** (plus Bing News) first: recent headlines with date and publisher, Google's redirect links resolved to the real article, and the top articles read for detail. A "last few days" question is limited to the past week. Ordinary questions still use DuckDuckGo/Bing.
+
 ## [0.6.2] — 2026-10-19
 
 ### Web search said "offline" in the installed app

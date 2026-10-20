@@ -159,5 +159,46 @@ class PromptTests(unittest.TestCase):
         self.assertFalse(ws.public_http_url("file:///etc/passwd"))
 
 
+
+class NewsAndQueryTests(unittest.TestCase):
+    def test_clean_query_strips_chat_filler(self):
+        q = ws.clean_query("can u just look up what happend to Vitality Headquarters in France after the riot 2 days ago?")
+        self.assertEqual(q, "what happened to Vitality Headquarters in France after the riot 2 days ago?")
+        self.assertEqual(ws.clean_query("Can you please search the web for best laptops 2026?"), "best laptops 2026?")
+        self.assertEqual(ws.clean_query("hey look up python 3.14 release notes for me"), "python 3.14 release notes")
+        self.assertEqual(ws.clean_query("what is a CPU cache"), "what is a CPU cache")
+        self.assertEqual(ws.clean_query("please"), "please")  # never returns empty
+
+    def test_search_query_cleans_last_message(self):
+        msgs = [{"role": "user", "content": "can u look up the Lakers score yesterday?"}]
+        self.assertEqual(ws.search_query(msgs), "the Lakers score yesterday?")
+
+    def test_news_intent(self):
+        self.assertTrue(ws.news_intent("what happened to Vitality after the riot 2 days ago"))
+        self.assertTrue(ws.news_intent("latest news on the election"))
+        self.assertFalse(ws.news_intent("how does a CPU cache work"))
+
+    def test_news_query_keeps_topic_and_recency(self):
+        topic, recent = ws.news_query("what happened to Vitality Headquarters in France after the riot 2 days ago")
+        self.assertEqual(topic, "Vitality Headquarters in France riot")
+        self.assertEqual(recent, "when:7d")
+        self.assertEqual(ws.news_query("latest on the Fed rate decision")[1], "")
+
+    def test_rss_items(self):
+        xml = (
+            "<rss><channel><item><title>Big riot - Example News</title>"
+            "<link>https://news.google.com/rss/articles/CBM123?oc=5</link>"
+            "<pubDate>Mon, 19 Oct 2026 13:32:42 GMT</pubDate>"
+            '<source url="https://example.com">Example News</source></item>'
+            "<item><title>Bing one</title><link>http://www.bing.com/news/apiclick.aspx?url=https%3a%2f%2fx.com%2fa</link>"
+            "<description>Hello &lt;b&gt;there&lt;/b&gt;</description><News:Source>X</News:Source></item></channel></rss>"
+        )
+        items = ws._rss_items(xml)
+        self.assertEqual(items[0]["title"], "Big riot - Example News")
+        self.assertEqual(items[0]["source"], "Example News")
+        self.assertEqual(ws._short_date(items[0]["pub"]), "19 Oct 2026")
+        self.assertEqual(items[1]["desc"], "Hello there")
+        self.assertEqual(items[1]["source"], "X")
+
 if __name__ == "__main__":
     unittest.main()

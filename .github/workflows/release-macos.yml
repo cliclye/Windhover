@@ -21,9 +21,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "GitHub Release tag to upload into (e.g. v0.6.0)"
+        description: "GitHub Release tag to upload into (e.g. v0.6.1)"
         required: true
-        default: "v0.6.0"
+        default: "v0.6.1"
 
 permissions:
   contents: write

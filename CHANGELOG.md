@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.6.1] — 2026-10-19
 
 ### Web search & deep research in Chat
 - New globe button in the Chat composer: **Web off**, **Web search** (searches your question and reads the top 3 pages) or **Deep research** (the local model plans 3 queries, then up to 6 pages are read). The best passages from each page are handed to the model with today's date, and it answers with `[1]`-style citations that link to their sources; source chips sit above the reply. Search progress ("Searching the web for …", "Reading …") shows while it works.

@@ -415,7 +415,7 @@ def _app_version() -> str:
                 return str(ver).lstrip("v")
         except Exception:
             continue
-    return os.environ.get("WINDHOVER_VERSION", "0.6.0").lstrip("v")
+    return os.environ.get("WINDHOVER_VERSION", "0.6.1").lstrip("v")
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:

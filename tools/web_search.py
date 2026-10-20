@@ -70,7 +70,7 @@ def _http_get(
         },
         method="POST" if body is not None else "GET",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
         ctype = resp.headers.get("Content-Type", "")
         raw = resp.read(max_bytes)
         charset = resp.headers.get_content_charset() or "utf-8"
@@ -81,23 +81,62 @@ def _http_get(
         return getattr(resp, "status", 200), ctype, resp.geturl(), text
 
 
-def is_online(timeout: float = 2.5, *, max_age: float = 20.0) -> bool:
+_SSL_CTX: list = []
+
+
+def _ssl_context():
+    """TLS context that can verify sites even inside the frozen app.
+
+    A PyInstaller build has no system OpenSSL cert directory, so the default
+    context rejects every HTTPS site ("unable to get local issuer certificate")
+    and web search wrongly looks offline. Prefer certifi's bundle, then the
+    OS bundle, then Python's default.
+    """
+    if _SSL_CTX:
+        return _SSL_CTX[0]
+    import ssl
+
+    ctx = None
+    candidates: list[str] = []
+    try:
+        import certifi  # type: ignore
+
+        candidates.append(certifi.where())
+    except Exception:
+        pass
+    candidates += ["/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt"]
+    for cafile in candidates:
+        try:
+            if os.path.isfile(cafile):
+                ctx = ssl.create_default_context(cafile=cafile)
+                break
+        except Exception:
+            continue
+    if ctx is None:
+        ctx = ssl.create_default_context()
+    _SSL_CTX.append(ctx)
+    return ctx
+
+
+def is_online(timeout: float = 4.0, *, max_age: float = 20.0) -> bool:
     """True when the open internet is reachable (cached for ``max_age`` seconds)."""
     now = time.time()
     if now - _ONLINE["t"] < max_age:
         return bool(_ONLINE["ok"])
     ok = False
+    err = ""
     for url in ("https://duckduckgo.com/", "https://www.bing.com/", "https://1.1.1.1/"):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA}, method="HEAD")
-            urllib.request.urlopen(req, timeout=timeout).close()
+            urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()).close()
             ok = True
         except urllib.error.HTTPError:
             ok = True  # the server answered — we are online
-        except Exception:
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
             continue
         break
-    _ONLINE.update(t=now, ok=ok)
+    _ONLINE.update(t=now, ok=ok, err="" if ok else err)
     return ok
 
 

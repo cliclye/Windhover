@@ -30,6 +30,29 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
+
+def _trust_store() -> None:
+    """Point OpenSSL at a CA bundle. The frozen (PyInstaller) server has no system cert
+    directory, so every HTTPS call failed with CERTIFICATE_VERIFY_FAILED (web search
+    said "offline", update checks errored) until this was set."""
+    if os.environ.get("SSL_CERT_FILE") and os.path.isfile(os.environ["SSL_CERT_FILE"]):
+        return
+    cands: list[str] = []
+    try:
+        import certifi  # type: ignore
+
+        cands.append(certifi.where())
+    except Exception:
+        pass
+    cands += ["/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt"]
+    for c in cands:
+        if os.path.isfile(c):
+            os.environ["SSL_CERT_FILE"] = c
+            return
+
+
+_trust_store()
+
 # Windows consoles default to a legacy code page (cp1252/charmap). Progress
 # messages and huggingface_hub/tqdm use Unicode (e.g. U+2192), which raises
 # UnicodeEncodeError and aborts Library downloads. Force UTF-8 early and wrap
@@ -415,7 +438,7 @@ def _app_version() -> str:
                 return str(ver).lstrip("v")
         except Exception:
             continue
-    return os.environ.get("WINDHOVER_VERSION", "0.6.1").lstrip("v")
+    return os.environ.get("WINDHOVER_VERSION", "0.6.2").lstrip("v")
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
@@ -2873,7 +2896,8 @@ def _serve_library_api(host: str, port: int, model: Path | None) -> int:
             if path == "/api/web/status":
                 if _web is None:
                     return self._json(200, {"ok": False, "online": False, "error": "web search module missing"})
-                return self._json(200, {"ok": True, "online": _web.is_online(max_age=0 if qs.get("fresh") else 20)})
+                online = _web.is_online(max_age=0 if qs.get("fresh") else 20)
+                return self._json(200, {"ok": True, "online": online, "error": "" if online else _web._ONLINE.get("err", "")})
             if path == "/api/ollama/status":
                 models = _ollama_list_models()
                 return self._json(

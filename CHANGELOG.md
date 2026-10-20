@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.2] — 2026-10-19
+
+### Web search said "offline" in the installed app
+- The packaged server had no CA certificates, so every HTTPS request failed with `CERTIFICATE_VERIFY_FAILED`: web search always showed *offline* (even on working Wi-Fi) and update checks errored. The server now loads a CA bundle (certifi, or the OS bundle) at startup, and `/api/web/status` reports the underlying error when offline.
+
 ## [0.6.1] — 2026-10-19
 
 ### Web search & deep research in Chat
